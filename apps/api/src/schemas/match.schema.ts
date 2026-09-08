@@ -1,1 +1,4 @@
-import { z } from 'zod';export const scoreSchema=z.object({homeScore:z.number().int().min(0).max(99),awayScore:z.number().int().min(0).max(99),homePenaltyScore:z.number().int().min(0).max(99).nullable().optional(),awayPenaltyScore:z.number().int().min(0).max(99).nullable().optional(),version:z.number().int().positive()});
+import { z } from 'zod';
+export const scoreFields=z.object({homeScore:z.coerce.number().int().min(0).max(99),awayScore:z.coerce.number().int().min(0).max(99),homePenaltyScore:z.coerce.number().int().min(0).max(99).optional(),awayPenaltyScore:z.coerce.number().int().min(0).max(99).optional(),version:z.coerce.number().int().positive()});
+export const approveSchema=z.object({version:z.number().int().positive()});
+export const resolveSchema=z.discriminatedUnion('action',[z.object({action:z.literal('RESOLVE'),homeScore:z.number().int().min(0).max(99),awayScore:z.number().int().min(0).max(99),homePenaltyScore:z.number().int().min(0).max(99).optional(),awayPenaltyScore:z.number().int().min(0).max(99).optional(),version:z.number().int().positive()}),z.object({action:z.literal('CANCEL'),version:z.number().int().positive()})]);

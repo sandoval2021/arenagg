@@ -1,1 +1,2 @@
-import { z } from 'zod';export const createCompetitionSchema=z.object({name:z.string().trim().min(3).max(80),type:z.enum(['LEAGUE','KNOCKOUT','GROUPS_KNOCKOUT']),legFormat:z.enum(['SINGLE','HOME_AWAY']).default('SINGLE'),matchPace:z.enum(['QUICK','SCHEDULED']).default('QUICK'),teams:z.array(z.object({name:z.string().trim().min(2).max(60)})).min(2).max(64)});
+import { z } from 'zod';
+export const createCompetitionSchema=z.object({name:z.string().trim().min(3).max(80),type:z.enum(['LEAGUE','KNOCKOUT','GROUPS_KNOCKOUT']),legFormat:z.enum(['SINGLE','HOME_AWAY']).default('SINGLE'),matchPace:z.enum(['QUICK','SCHEDULED']).default('QUICK'),requireValidation:z.boolean().default(false),teams:z.array(z.object({name:z.string().trim().min(2).max(60)})).min(2).max(64)});

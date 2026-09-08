@@ -1,0 +1,1 @@
+{"name":"@chavea/domain","private":true,"type":"module","exports":{"./match/states":"./src/match/states/match-state-machine.ts"}}
