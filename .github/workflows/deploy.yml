@@ -16,8 +16,8 @@ env:
   NODE_VERSION: '22'
 
 jobs:
-  migrate:
-    name: Database migrations
+  database:
+    name: Database · Railway migrations
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,16 +27,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/schema.prisma
-      - name: Apply production migrations directly to Railway
+      - name: Apply migrations directly to Railway
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
         run: npx prisma migrate deploy --schema prisma/schema.prisma
 
-  deploy-api:
-    name: Deploy API Worker
-    needs: migrate
+  worker:
+    name: Worker · Hono API
+    needs: database
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,7 +46,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/schema.prisma
       - name: Deploy Hono Worker
         working-directory: apps/api
@@ -55,9 +55,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy
 
-  deploy-web:
-    name: Deploy Web PWA
-    needs: migrate
+  pages:
+    name: Pages · React PWA
+    needs: database
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -67,7 +67,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: Build React/Vite
+      - name: Build Vite
         working-directory: apps/web
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
