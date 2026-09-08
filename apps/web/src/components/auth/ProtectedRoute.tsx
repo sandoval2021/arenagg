@@ -1,0 +1,2 @@
+import { Navigate, Outlet, useLocation } from 'react-router-dom';import { useAuth } from '../../hooks/useAuth';
+export function ProtectedRoute(){const auth=useAuth();const location=useLocation();if(auth.isLoading)return <main className="grid min-h-dvh place-items-center bg-white"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#073B8C]" aria-label="Carregando"/></main>;if(!auth.isAuthenticated)return <Navigate to="/login" replace state={{from:location.pathname}}/>;return <Outlet/>}
