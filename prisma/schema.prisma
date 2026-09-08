@@ -1,11 +1,9 @@
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
 
 enum CompetitionType { LEAGUE KNOCKOUT GROUPS_KNOCKOUT }
 enum CompetitionStatus { DRAFT REGISTRATION READY IN_PROGRESS FINISHED CANCELLED }
@@ -16,216 +14,16 @@ enum StageType { LEAGUE GROUP KNOCKOUT }
 enum StageStatus { PENDING ACTIVE FINISHED }
 enum MatchStatus { PENDING SCHEDULED IN_PROGRESS FINISHED CANCELLED }
 enum TeamSource { CUSTOM GALLERY }
-
-model User {
-  id String @id @default(uuid()) @db.Uuid
-  name String
-  displayName String?
-  avatarUrl String?
-  email String? @unique
-  emailVerified DateTime?
-  phone String? @unique
-  phoneVerified DateTime?
-  passwordHash String?
-  isActive Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  accounts AuthAccount[]
-  sessions Session[]
-  hostedCompetitions Competition[] @relation("CompetitionHost")
-  participations Participation[]
-  createdTeams Team[] @relation("TeamCreator")
-  submittedMatches Match[] @relation("MatchSubmittedBy")
-}
-
-model AuthAccount {
-  id String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
-  provider String
-  providerAccountId String
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
-  tokenHash String @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  lastUsedAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId, expiresAt])
-}
-
-model Competition {
-  id String @id @default(uuid()) @db.Uuid
-  hostId String @db.Uuid
-  name String
-  slug String @unique
-  description String?
-  logoUrl String?
-  type CompetitionType
-  status CompetitionStatus @default(DRAFT)
-  legFormat LegFormat @default(SINGLE)
-  matchPace MatchPace @default(QUICK)
-  firstPrize String?
-  secondPrize String?
-  thirdPrize String?
-  maxTeams Int?
-  groupCount Int?
-  qualifiersPerGroup Int?
-  thirdPlaceMatch Boolean @default(false)
-  pointsWin Int @default(3)
-  pointsDraw Int @default(1)
-  pointsLoss Int @default(0)
-  timezone String @default("America/Sao_Paulo")
-  startsAt DateTime?
-  endsAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  host User @relation("CompetitionHost", fields: [hostId], references: [id], onDelete: Restrict)
-  participations Participation[]
-  teams Team[]
-  stages Stage[]
-  matches Match[]
-  invites CompetitionInvite[]
-  @@index([hostId, status])
-}
-
-model Participation {
-  id String @id @default(uuid()) @db.Uuid
-  competitionId String @db.Uuid
-  userId String @db.Uuid
-  status ParticipantStatus @default(PENDING)
-  joinedAt DateTime @default(now())
-  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team?
-  @@unique([competitionId, userId])
-}
-
-model TeamTemplate {
-  id String @id @default(uuid()) @db.Uuid
-  name String
-  slug String @unique
-  logoUrl String
-  country String?
-  league String?
-  isActive Boolean @default(true)
-  teams Team[]
-}
-
-model Team {
-  id String @id @default(uuid()) @db.Uuid
-  competitionId String @db.Uuid
-  participationId String @unique @db.Uuid
-  createdById String @db.Uuid
-  templateId String? @db.Uuid
-  name String
-  shortName String?
-  logoUrl String?
-  source TeamSource @default(CUSTOM)
-  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  participation Participation @relation(fields: [participationId], references: [id], onDelete: Cascade)
-  createdBy User @relation("TeamCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  template TeamTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  groupEntries GroupTeam[]
-  homeMatches Match[] @relation("HomeTeam")
-  awayMatches Match[] @relation("AwayTeam")
-  @@unique([competitionId, name])
-}
-
-model Stage {
-  id String @id @default(uuid()) @db.Uuid
-  competitionId String @db.Uuid
-  type StageType
-  name String
-  order Int
-  status StageStatus @default(PENDING)
-  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  groups Group[]
-  rounds Round[]
-  matches Match[]
-  @@unique([competitionId, order])
-}
-
-model Group {
-  id String @id @default(uuid()) @db.Uuid
-  stageId String @db.Uuid
-  name String
-  order Int
-  stage Stage @relation(fields: [stageId], references: [id], onDelete: Cascade)
-  teams GroupTeam[]
-  matches Match[]
-  @@unique([stageId, order])
-}
-
-model GroupTeam {
-  id String @id @default(uuid()) @db.Uuid
-  groupId String @db.Uuid
-  teamId String @db.Uuid
-  seed Int?
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  @@unique([groupId, teamId])
-}
-
-model Round {
-  id String @id @default(uuid()) @db.Uuid
-  stageId String @db.Uuid
-  number Int
-  name String?
-  status StageStatus @default(PENDING)
-  scheduledAt DateTime?
-  stage Stage @relation(fields: [stageId], references: [id], onDelete: Cascade)
-  matches Match[]
-  @@unique([stageId, number])
-}
-
-model Match {
-  id String @id @default(uuid()) @db.Uuid
-  competitionId String @db.Uuid
-  stageId String @db.Uuid
-  roundId String? @db.Uuid
-  groupId String? @db.Uuid
-  homeTeamId String? @db.Uuid
-  awayTeamId String? @db.Uuid
-  status MatchStatus @default(PENDING)
-  bracketPosition Int?
-  leg Int @default(1)
-  scheduledAt DateTime?
-  homeScore Int?
-  awayScore Int?
-  homePenaltyScore Int?
-  awayPenaltyScore Int?
-  submittedById String? @db.Uuid
-  nextMatchId String? @db.Uuid
-  nextMatchSlot String?
-  version Int @default(1)
-  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  stage Stage @relation(fields: [stageId], references: [id], onDelete: Cascade)
-  round Round? @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  group Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  homeTeam Team? @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Restrict)
-  awayTeam Team? @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Restrict)
-  submittedBy User? @relation("MatchSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
-  nextMatch Match? @relation("BracketProgression", fields: [nextMatchId], references: [id], onDelete: SetNull)
-  previousMatches Match[] @relation("BracketProgression")
-  @@index([competitionId, status])
-  @@index([stageId, roundId])
-  @@index([groupId])
-}
-
-model CompetitionInvite {
-  id String @id @default(uuid()) @db.Uuid
-  competitionId String @db.Uuid
-  tokenHash String @unique
-  isActive Boolean @default(true)
-  expiresAt DateTime?
-  maxUses Int?
-  useCount Int @default(0)
-  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  @@index([competitionId, isActive])
-}
+model User { id String @id @default(uuid()) @db.Uuid name String displayName String? avatarUrl String? email String? @unique emailVerified DateTime? phone String? @unique phoneVerified DateTime? passwordHash String? isActive Boolean @default(true) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt accounts AuthAccount[] sessions Session[] hostedCompetitions Competition[] @relation("CompetitionHost") participations Participation[] createdTeams Team[] @relation("TeamCreator") submittedMatches Match[] @relation("MatchSubmittedBy") }
+model AuthAccount { id String @id @default(uuid()) @db.Uuid userId String @db.Uuid provider String providerAccountId String createdAt DateTime @default(now()) user User @relation(fields:[userId],references:[id],onDelete:Cascade) @@unique([provider,providerAccountId]) }
+model Session { id String @id @default(uuid()) @db.Uuid userId String @db.Uuid tokenHash String @unique expiresAt DateTime createdAt DateTime @default(now()) lastUsedAt DateTime @default(now()) user User @relation(fields:[userId],references:[id],onDelete:Cascade) @@index([userId,expiresAt]) }
+model Competition { id String @id @default(uuid()) @db.Uuid hostId String @db.Uuid name String slug String @unique description String? logoUrl String? type CompetitionType status CompetitionStatus @default(DRAFT) legFormat LegFormat @default(SINGLE) matchPace MatchPace @default(QUICK) firstPrize String? secondPrize String? thirdPrize String? maxTeams Int? groupCount Int? qualifiersPerGroup Int? thirdPlaceMatch Boolean @default(false) pointsWin Int @default(3) pointsDraw Int @default(1) pointsLoss Int @default(0) timezone String @default("America/Sao_Paulo") startsAt DateTime? endsAt DateTime? createdAt DateTime @default(now()) updatedAt DateTime @updatedAt host User @relation("CompetitionHost",fields:[hostId],references:[id],onDelete:Restrict) participations Participation[] teams Team[] stages Stage[] matches Match[] invites CompetitionInvite[] @@index([hostId,status]) }
+model Participation { id String @id @default(uuid()) @db.Uuid competitionId String @db.Uuid userId String @db.Uuid status ParticipantStatus @default(PENDING) joinedAt DateTime @default(now()) competition Competition @relation(fields:[competitionId],references:[id],onDelete:Cascade) user User @relation(fields:[userId],references:[id],onDelete:Cascade) team Team? @@unique([competitionId,userId]) }
+model TeamTemplate { id String @id @default(uuid()) @db.Uuid name String slug String @unique logoUrl String country String? league String? isActive Boolean @default(true) teams Team[] }
+model Team { id String @id @default(uuid()) @db.Uuid competitionId String @db.Uuid participationId String @unique @db.Uuid createdById String @db.Uuid templateId String? @db.Uuid name String shortName String? logoUrl String? source TeamSource @default(CUSTOM) competition Competition @relation(fields:[competitionId],references:[id],onDelete:Cascade) participation Participation @relation(fields:[participationId],references:[id],onDelete:Cascade) createdBy User @relation("TeamCreator",fields:[createdById],references:[id],onDelete:Restrict) template TeamTemplate? @relation(fields:[templateId],references:[id],onDelete:SetNull) groupEntries GroupTeam[] homeMatches Match[] @relation("HomeTeam") awayMatches Match[] @relation("AwayTeam") @@unique([competitionId,name]) }
+model Stage { id String @id @default(uuid()) @db.Uuid competitionId String @db.Uuid type StageType name String order Int status StageStatus @default(PENDING) competition Competition @relation(fields:[competitionId],references:[id],onDelete:Cascade) groups Group[] rounds Round[] matches Match[] @@unique([competitionId,order]) }
+model Group { id String @id @default(uuid()) @db.Uuid stageId String @db.Uuid name String order Int stage Stage @relation(fields:[stageId],references:[id],onDelete:Cascade) teams GroupTeam[] matches Match[] @@unique([stageId,order]) }
+model GroupTeam { id String @id @default(uuid()) @db.Uuid groupId String @db.Uuid teamId String @db.Uuid seed Int? group Group @relation(fields:[groupId],references:[id],onDelete:Cascade) team Team @relation(fields:[teamId],references:[id],onDelete:Cascade) @@unique([groupId,teamId]) }
+model Round { id String @id @default(uuid()) @db.Uuid stageId String @db.Uuid number Int name String? status StageStatus @default(PENDING) scheduledAt DateTime? stage Stage @relation(fields:[stageId],references:[id],onDelete:Cascade) matches Match[] @@unique([stageId,number]) }
+model Match { id String @id @default(uuid()) @db.Uuid competitionId String @db.Uuid stageId String @db.Uuid roundId String? @db.Uuid groupId String? @db.Uuid homeTeamId String? @db.Uuid awayTeamId String? @db.Uuid status MatchStatus @default(PENDING) bracketPosition Int? leg Int @default(1) scheduledAt DateTime? homeScore Int? awayScore Int? homePenaltyScore Int? awayPenaltyScore Int? submittedById String? @db.Uuid nextMatchId String? @db.Uuid nextMatchSlot String? version Int @default(1) competition Competition @relation(fields:[competitionId],references:[id],onDelete:Cascade) stage Stage @relation(fields:[stageId],references:[id],onDelete:Cascade) round Round? @relation(fields:[roundId],references:[id],onDelete:Cascade) group Group? @relation(fields:[groupId],references:[id],onDelete:Cascade) homeTeam Team? @relation("HomeTeam",fields:[homeTeamId],references:[id],onDelete:Restrict) awayTeam Team? @relation("AwayTeam",fields:[awayTeamId],references:[id],onDelete:Restrict) submittedBy User? @relation("MatchSubmittedBy",fields:[submittedById],references:[id],onDelete:SetNull) nextMatch Match? @relation("BracketProgression",fields:[nextMatchId],references:[id],onDelete:SetNull) previousMatches Match[] @relation("BracketProgression") @@index([competitionId,status]) @@index([stageId,roundId]) @@index([groupId]) }
+model CompetitionInvite { id String @id @default(uuid()) @db.Uuid competitionId String @db.Uuid tokenHash String @unique isActive Boolean @default(true) expiresAt DateTime? maxUses Int? useCount Int @default(0) competition Competition @relation(fields:[competitionId],references:[id],onDelete:Cascade) @@index([competitionId,isActive]) }

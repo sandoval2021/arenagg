@@ -1,0 +1,1 @@
+import { z } from 'zod';export const scoreSchema=z.object({homeScore:z.number().int().min(0).max(99),awayScore:z.number().int().min(0).max(99),homePenaltyScore:z.number().int().min(0).max(99).nullable().optional(),awayPenaltyScore:z.number().int().min(0).max(99).nullable().optional(),version:z.number().int().positive()});
