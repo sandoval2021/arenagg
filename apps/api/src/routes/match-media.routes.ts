@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Env } from '../types/env';
+import { awardClipBadge } from '../services/achievement-engine.service';
 
 export const matchMedia = new Hono<Env>();
 
@@ -35,9 +36,9 @@ function canManageMatch(
   userId: string,
 ): boolean {
   return (
-    match.competition.hostId === userId ||
-    match.homeTeam?.participation.userId === userId ||
-    match.awayTeam?.participation.userId === userId
+    match.competition.hostId === userId
+    || match.homeTeam?.participation.userId === userId
+    || match.awayTeam?.participation.userId === userId
   );
 }
 
@@ -100,5 +101,6 @@ matchMedia.post('/:id/clips', async (c) => {
     },
     select: { id: true, url: true, platform: true, createdAt: true, createdById: true },
   });
+  await awardClipBadge(db, user.id);
   return c.json({ ...clip, createdAt: clip.createdAt.toISOString() }, 201);
 });
