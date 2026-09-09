@@ -5,6 +5,7 @@ import { Logo } from '../../components/brand/Logo';
 import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
+import { PushNotificationsCard } from '../../components/push/PushNotificationsCard';
 import { useAuth } from '../../hooks/useAuth';
 import { getMyCompetitions } from '../../lib/api';
 import { PRIMARY_NAV_STALE_TIME } from '../../lib/query-cache';
@@ -27,7 +28,7 @@ export function DashboardPage() {
             <p className="text-sm font-semibold text-zinc-500">Bem-vindo de volta</p>
             <h1 className="truncate text-2xl font-black tracking-tight">Olá, {firstName} 👋</h1>
           </div>
-          <button aria-label="Notificações" className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-black/5 bg-white shadow-sm"><Bell className="h-5 w-5" /></button>
+          <span aria-label="Notificações" className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-black/5 bg-white shadow-sm"><Bell className="h-5 w-5" /></span>
         </header>
 
         <section className="relative mt-5 overflow-hidden rounded-2xl bg-[#073B8C] p-5 text-white shadow-md">
@@ -38,6 +39,8 @@ export function DashboardPage() {
           </div>
           <p className="relative mt-3 max-w-xs text-sm font-medium text-blue-100">Organize copas, convide amigos, sorteie partidas e valide placares direto do celular.</p>
         </section>
+
+        <PushNotificationsCard />
 
         <section className="mt-7">
           <div className="mb-3"><p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">Sua chave</p><h2 className="text-xl font-black">Meus campeonatos</h2></div>
