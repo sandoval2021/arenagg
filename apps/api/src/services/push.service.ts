@@ -53,7 +53,7 @@ export async function sendPushToUsers(
     subscriptions.map(async (subscription) => {
       const request = await buildPushPayload(
         {
-          data: notification,
+          data: JSON.stringify(notification),
           options: { ttl: 300, urgency: 'high', topic: notification.tag.slice(0, 32) },
         },
         {
