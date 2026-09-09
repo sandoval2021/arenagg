@@ -4,6 +4,8 @@ import { LandingPageLight } from '../pages/LandingPageLight';
 import { InvitePage } from '../pages/InvitePage';
 import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
 import { ProfilePage } from '../pages/ProfilePage';
+import { EditProfilePage } from '../pages/EditProfilePage';
+import { PublicProfilePage } from '../pages/PublicProfilePage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
@@ -36,6 +38,8 @@ export const router = createBrowserRouter([
       { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
       { path: '/profile', element: <ProfilePage /> },
+      { path: '/profile/edit', element: <EditProfilePage /> },
+      { path: '/profile/:userId', element: <PublicProfilePage /> },
       { path: '/owner/settings', element: <OwnerSettingsPage /> },
     ],
   },
