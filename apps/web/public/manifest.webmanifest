@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "Chavea — Campeonatos de EA FC e e-Sports",
+  "short_name": "Chavea",
+  "description": "Crie copas, convide amigos, gere partidas e acompanhe campeonatos de EA FC e e-Sports pelo celular.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#073B8C",
+  "categories": ["games", "sports", "entertainment"],
+  "icons": [
+    {
+      "src": "/icons/chavea-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/chavea-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
