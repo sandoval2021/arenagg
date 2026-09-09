@@ -96,6 +96,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
           awayReadyAt: match.awayReadyAt,
         },
         notifyUserId: null,
+        competitionId: match.competitionId,
         competitionName: match.competition.name,
       };
     }
@@ -116,7 +117,12 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
     const notifyUserId = side === 'HOME'
       ? match.awayTeam.participation.userId
       : match.homeTeam.participation.userId;
-    return { ready, notifyUserId, competitionName: match.competition.name };
+    return {
+      ready,
+      notifyUserId,
+      competitionId: match.competitionId,
+      competitionName: match.competition.name,
+    };
   });
 
   if ('error' in result) {
@@ -129,7 +135,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
       await sendPushToUsers(db, c.env, [result.notifyUserId], {
         title: '🎮 Seu adversário fez Check-in',
         body: `${result.competitionName}: ele já confirmou que está pronto para jogar.`,
-        url: `/competitions/${matchId ? '' : ''}`.replace(/\/$/, ''),
+        url: `/competitions/${result.competitionId}`,
         tag: `match-ready-${matchId}`,
       });
     } catch (error) {
