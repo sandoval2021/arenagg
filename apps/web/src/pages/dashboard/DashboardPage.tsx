@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Bell, Plus, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../../components/brand/Logo';
+import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { useAuth } from '../../hooks/useAuth';
@@ -39,7 +40,7 @@ export function DashboardPage() {
         <section className="mt-7">
           <div className="mb-3"><p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">Sua chave</p><h2 className="text-xl font-black">Meus campeonatos</h2></div>
           <div className="space-y-3">
-            {isLoading && [1, 2].map((item) => <div key={item} className="h-32 animate-pulse rounded-2xl bg-zinc-100" />)}
+            {isLoading && <GlobalLoader mode="section" label="Carregando seus campeonatos…" />}
             {isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-[#E31B23]">Não foi possível carregar seus campeonatos.</div>}
             {!isLoading && !isError && data.length === 0 && <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-500">Nenhuma copa ainda. Crie a primeira e mande o convite no grupo. 🎮</div>}
             {!isLoading && !isError && data.slice(0, 3).map((competition) => <CompetitionCard key={competition.id} competition={competition} />)}
