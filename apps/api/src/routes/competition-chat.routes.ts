@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 
@@ -20,7 +20,7 @@ type ChatRow = {
   mmr: number;
 };
 
-async function canAccessCompetition(c: Parameters<typeof competitionChat.get>[1] extends never ? never : any, competitionId: string) {
+async function canAccessCompetition(c: Context<Env>, competitionId: string) {
   const user = c.get('user');
   return c.get('prisma').competition.findFirst({
     where: {
