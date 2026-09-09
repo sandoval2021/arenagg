@@ -22,7 +22,6 @@ export type CompetitionSummary = {
   status: CompetitionStatus;
   logoUrl?: string;
   isHost?: boolean;
-  // New social metadata is nullable for competitions created before the feature.
   game?: string | null;
   platform?: string | null;
 };
@@ -130,6 +129,8 @@ export type CreateCompetitionInput = {
   maxParticipants?: number;
   matchPace?: 'QUICK' | 'SCHEDULED';
   requireValidation?: boolean;
+  game?: string;
+  platform?: string;
 };
 
 function resolveApiUrl(): string {
@@ -138,15 +139,21 @@ function resolveApiUrl(): string {
 
   if (import.meta.env.DEV) return 'http://localhost:8787';
 
-  // Cloudflare Pages can also build directly from Git. That build does not
-  // inherit GitHub Actions env vars, so falling back to localhost would make
-  // login/register look offline on real phones. Keep a fail-safe production
-  // endpoint while still preferring VITE_API_URL whenever CI injects it.
   console.warn('[api] VITE_API_URL is missing; using the Chavea production Worker fallback');
   return PRODUCTION_API_URL;
 }
 
 export const API_URL = resolveApiUrl();
+
+function resolveRequestUrl(path: string): string {
+  // In production, all application API calls are same-origin through the
+  // Cloudflare Pages Function at /api/*. This makes chavea_session a first-party
+  // HttpOnly cookie on chavea.pages.dev, avoiding Safari/ITP third-party-cookie
+  // loss between pages.dev and workers.dev. Development still talks directly to
+  // the configured/local Worker.
+  if (import.meta.env.PROD && path.startsWith('/api/')) return path;
+  return `${API_URL}${path}`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -167,18 +174,16 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(resolveRequestUrl(path), {
       ...init,
       headers,
       credentials: 'include',
-      // API state is authoritative in Supabase/Worker. Safari and installed PWAs
-      // must not reuse an HTTP-cache snapshot after a deployment/schema change.
       cache: 'no-store',
     });
   } catch (error) {
     console.error('[api] network request failed', {
       path,
-      apiUrl: API_URL,
+      apiUrl: import.meta.env.PROD ? window.location.origin : API_URL,
       message: error instanceof Error ? error.message : String(error),
     });
     throw new ApiError(0, 'NETWORK_ERROR');
@@ -319,7 +324,6 @@ export async function getCompetitionMatchStats(competitionId: string): Promise<M
     `/api/match-stats/competition/${encodeURIComponent(competitionId)}`,
   );
 
-  // Keep clients tolerant if an older API snapshot omitted derived permission flags.
   return rows.map((row) => ({
     ...row,
     submittedByMe: Boolean(row.submittedByMe),

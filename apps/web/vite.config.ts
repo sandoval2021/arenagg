@@ -8,7 +8,10 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Updates are downloaded in the background, but activation is user-driven.
+      // The UI uses useRegisterSW() and calls updateServiceWorker(true) only when
+      // the user taps "Atualizar Agora".
+      registerType: 'prompt',
       manifest: false,
       includeAssets: [
         'manifest.webmanifest',
@@ -19,14 +22,12 @@ export default defineConfig({
       ],
       workbox: {
         cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            // API requests must always hit the Worker. Never let a PWA cache
-            // keep stale JSON around after schema/API changes.
+            // API state is authoritative in the Worker/Supabase. Never cache API
+            // JSON inside the PWA, including when an old app shell is active.
             urlPattern: /\/api\//,
             handler: 'NetworkOnly',
           },
