@@ -6,12 +6,14 @@ import { router } from './app/router';
 import { AuthProvider } from './hooks/useAuth';
 import { GlobalActivityLoader } from './components/brand/GlobalActivityLoader';
 import { PwaUpdatePrompt } from './components/pwa/PwaUpdatePrompt';
+import { DEFAULT_STALE_TIME, QUERY_GC_TIME } from './lib/query-cache';
 import './styles/globals.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      staleTime: DEFAULT_STALE_TIME,
+      gcTime: QUERY_GC_TIME,
       retry: 1,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
