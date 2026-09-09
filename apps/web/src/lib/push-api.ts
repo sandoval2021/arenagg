@@ -59,7 +59,7 @@ export async function enablePushNotifications(): Promise<void> {
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey: urlBase64ToArrayBuffer(publicKey),
     });
   }
 
@@ -99,9 +99,13 @@ export async function disablePushNotifications(): Promise<void> {
   }
 }
 
-function urlBase64ToUint8Array(value: string): Uint8Array {
+function urlBase64ToArrayBuffer(value: string): ArrayBuffer {
   const padding = '='.repeat((4 - (value.length % 4)) % 4);
   const normalized = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = window.atob(normalized);
-  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let index = 0; index < raw.length; index += 1) {
+    bytes[index] = raw.charCodeAt(index);
+  }
+  return bytes.buffer;
 }
