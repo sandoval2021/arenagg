@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { BottomNavigation } from '../components/navigation/BottomNavigation';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { useAuth } from '../hooks/useAuth';
@@ -101,7 +102,7 @@ export function ProfilePage() {
           </div>
         </section>
 
-        {profile.isLoading && <div className="mt-5 h-48 animate-pulse rounded-[2rem] bg-slate-100" />}
+        {profile.isLoading && <div className="mt-5"><GlobalLoader mode="section" label="Carregando seu Card de Jogador…" /></div>}
         {profile.isError && <button type="button" onClick={() => void profile.refetch()} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700"><RotateCcw className="h-4 w-4" />Carregar perfil novamente</button>}
 
         {!profile.isLoading && !profile.isError && totalGames === 0 && (
@@ -120,6 +121,7 @@ export function ProfilePage() {
           </section>
         )}
 
+        {requests.isLoading && <div className="mt-5"><GlobalLoader mode="section" label="Verificando pedidos de amizade…" /></div>}
         {(requests.data?.length ?? 0) > 0 && (
           <section className="mt-5 rounded-[2rem] border border-blue-200 bg-blue-50/60 p-4 shadow-sm">
             <div className="flex items-center gap-2 text-[#073B8C]"><UserPlus className="h-5 w-5" /><h3 className="font-black">Pedidos de amizade</h3></div>
@@ -129,7 +131,7 @@ export function ProfilePage() {
 
         <section className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between"><div className="flex items-center gap-2"><UsersRound className="h-5 w-5 text-[#073B8C]" /><h3 className="font-black">Amigos</h3></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-500">{friends.data?.length ?? 0}</span></div>
-          {friends.isLoading && <div className="mt-3 h-14 animate-pulse rounded-2xl bg-slate-100" />}
+          {friends.isLoading && <div className="mt-3"><GlobalLoader mode="section" label="Carregando amigos…" /></div>}
           {!friends.isLoading && (friends.data?.length ?? 0) === 0 && <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-center text-xs font-semibold text-slate-500">Seus amigos vão aparecer aqui.</p>}
           <div className="mt-3 space-y-2">{friends.data?.map((friend) => <Link key={friend.id} to={`/profile/${friend.id}`} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3"><MiniAvatar url={friend.avatarUrl} name={friend.displayName ?? friend.name} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-800">{friend.displayName ?? friend.name}</p><div className="mt-1"><ConsoleBadges consoles={friend.consoles} compact /></div></div></Link>)}</div>
         </section>
@@ -137,7 +139,7 @@ export function ProfilePage() {
         {isOwner && <Link to="/owner/settings" className="mt-5 flex min-h-16 items-center gap-3 rounded-3xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 text-[#073B8C] shadow-sm"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073B8C] text-white"><Crown className="h-6 w-6" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-black uppercase tracking-wider text-blue-500">Proprietário</span><span className="mt-1 block text-base font-black">Configuração Geral</span></span><Settings2 className="h-5 w-5" /></Link>}
 
         {(data?.email ?? auth.user?.email) && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"><Mail className="h-5 w-5 text-slate-400" /><div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Conta</p><p className="truncate text-sm font-bold">{data?.email ?? auth.user?.email}</p></div></div>}
-        <button onClick={logout} disabled={auth.logout.isPending} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 font-black text-[#E31B23] disabled:opacity-60"><LogOut className="h-5 w-5" />{auth.logout.isPending ? 'Saindo…' : 'Sair da conta'}</button>
+        <button onClick={logout} disabled={auth.logout.isPending} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 font-black text-[#E31B23] disabled:opacity-60">{auth.logout.isPending ? <GlobalLoader mode="inline" label="Saindo…" /> : <><LogOut className="h-5 w-5" />Sair da conta</>}</button>
       </main>
       <BottomNavigation />
     </div>
