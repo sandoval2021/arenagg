@@ -338,6 +338,7 @@ export async function submitMatchScore(
     version: number;
     evidence?: File;
     scorers?: MatchScorerInput[];
+    clipUrl?: string;
   },
 ) {
   const body = new FormData();
@@ -346,6 +347,7 @@ export async function submitMatchScore(
   body.set('version', String(input.version));
   body.set('scorers', JSON.stringify(input.scorers ?? []));
   if (input.evidence) body.set('evidence', input.evidence);
+  if (input.clipUrl?.trim()) body.set('clipUrl', input.clipUrl.trim());
 
   return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
     method: 'POST',
