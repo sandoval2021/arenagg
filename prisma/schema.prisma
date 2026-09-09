@@ -33,6 +33,11 @@ enum MatchPace {
   SCHEDULED
 }
 
+enum TeamSelection {
+  FREE
+  RANDOM
+}
+
 enum ParticipantStatus {
   PENDING
   ACTIVE
@@ -120,6 +125,7 @@ model Competition {
   status             CompetitionStatus @default(DRAFT)
   legFormat          LegFormat         @default(SINGLE)
   matchPace          MatchPace         @default(QUICK)
+  teamSelection      TeamSelection     @default(FREE)
   firstPrize         String?
   secondPrize        String?
   thirdPrize         String?
