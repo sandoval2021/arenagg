@@ -11,6 +11,7 @@ import {
 import { storeEvidence } from '../services/evidence.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { replaceMatchScorers } from '../services/match-scorers.service';
+import { detectClipPlatform } from './match-media.routes';
 
 export const matchScore = new Hono<Env>();
 
@@ -72,7 +73,7 @@ const accessInclude = {
 } satisfies Prisma.MatchInclude;
 
 // This router is mounted before the legacy matches router. It owns the exact
-// POST /:id/score route so score + optional scorers are one atomic DB change.
+// POST /:id/score route so score + scorers + optional highlight are one atomic DB change.
 matchScore.post('/:id/score', async (c) => {
   const id = c.req.param('id');
   const db = c.get('prisma');
@@ -96,10 +97,11 @@ matchScore.post('/:id/score', async (c) => {
   const parsed = scoreFields.safeParse(raw);
   if (!parsed.success) {
     const scorerIssue = parsed.error.issues.find((issue) => issue.path[0] === 'scorers');
+    const clipIssue = parsed.error.issues.find((issue) => issue.path[0] === 'clipUrl');
     return c.json(
       {
-        error: scorerIssue ? 'SCORER_TOTAL_EXCEEDS_SCORE' : 'INVALID_INPUT',
-        message: scorerIssue?.message,
+        error: scorerIssue ? 'SCORER_TOTAL_EXCEEDS_SCORE' : clipIssue ? 'INVALID_CLIP_URL' : 'INVALID_INPUT',
+        message: scorerIssue?.message ?? clipIssue?.message,
         issues: parsed.error.flatten(),
       },
       400,
@@ -143,6 +145,19 @@ matchScore.post('/:id/score', async (c) => {
       });
 
       await replaceMatchScorers(tx, row, parsed.data.scorers);
+
+      if (parsed.data.clipUrl) {
+        await tx.matchMedia.upsert({
+          where: { matchId_url: { matchId: id, url: parsed.data.clipUrl } },
+          create: {
+            matchId: id,
+            createdById: user.id,
+            url: parsed.data.clipUrl,
+            platform: detectClipPlatform(parsed.data.clipUrl),
+          },
+          update: {},
+        });
+      }
 
       if (next === 'FINISHED') {
         await advance(tx, row);
