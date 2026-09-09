@@ -56,7 +56,11 @@ export function RegisterPage() {
   return (
     <main className="min-h-dvh bg-white px-5 pb-10 pt-[max(2rem,env(safe-area-inset-top))] text-black">
       <div className="mx-auto max-w-md">
-        <Link to="/" className="inline-flex rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início"><Logo size="md" /></Link>
+        <div className="flex w-full justify-center">
+          <Link to="/" className="inline-flex rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início">
+            <Logo size="md" />
+          </Link>
+        </div>
         <h1 className="mt-7 text-3xl font-black">Criar conta</h1>
         <p className="mt-2 text-sm font-medium text-slate-500">Entre no Chavea e comece sua competição. 🎮</p>
 
