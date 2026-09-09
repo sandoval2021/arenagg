@@ -60,6 +60,7 @@ function safePrismaMeta(error: unknown) {
         : undefined,
     columnName: typeof error.meta?.column_name === 'string' ? error.meta.column_name : undefined,
     constraint: typeof error.meta?.constraint === 'string' ? error.meta.constraint : undefined,
+    modelName: typeof error.meta?.modelName === 'string' ? error.meta.modelName : undefined,
   };
 }
 
@@ -135,6 +136,12 @@ async function loadEditableParticipation(
   return { ok: true as const, participation };
 }
 
+/**
+ * Keep Participation and Team as one logical aggregate without Prisma upsert.
+ * Every participant created by the current join flow already has one Team row,
+ * so the normal path is an UPDATE. updateMany avoids P2025 on historical rows;
+ * CREATE is used only to repair an old participation that genuinely has no Team.
+ */
 async function saveTeamRow(
   tx: Prisma.TransactionClient,
   input: {
@@ -145,10 +152,22 @@ async function saveTeamRow(
     logoUrl: string | null;
   },
 ) {
-  return tx.team.upsert({
+  const updated = await tx.team.updateMany({
     where: { participationId: input.participationId },
-    update: { name: input.name, logoUrl: input.logoUrl },
-    create: {
+    data: { name: input.name, logoUrl: input.logoUrl },
+  });
+
+  if (updated.count === 1) {
+    return tx.team.findUniqueOrThrow({ where: { participationId: input.participationId } });
+  }
+
+  if (updated.count > 1) {
+    // participationId is UNIQUE, so this is a hard invariant violation.
+    throw new Error('TEAM_PARTICIPATION_INVARIANT_VIOLATION');
+  }
+
+  return tx.team.create({
+    data: {
       competitionId: input.competitionId,
       participationId: input.participationId,
       createdById: input.createdById,
@@ -192,10 +211,20 @@ teamSettings.patch('/:id/my-team', async (c) => {
           name: teamName,
           NOT: { participationId: participation.id },
         },
-        select: { id: true },
+        select: { id: true, participationId: true, createdById: true },
       });
 
-      if (collision) return { ok: false as const, error: 'TEAM_NAME_TAKEN' as const };
+      if (collision) {
+        console.warn('[team.update] name collision', {
+          requestId,
+          competitionId,
+          userId: user.id,
+          participationId: participation.id,
+          conflictingTeamId: collision.id,
+          conflictingParticipationId: collision.participationId,
+        });
+        return { ok: false as const, error: 'TEAM_NAME_TAKEN' as const };
+      }
 
       const teamLogoUrl = suppliedLogo === undefined
         ? participation.teamLogoUrl
@@ -206,7 +235,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
         data: { teamName, teamLogoUrl },
       });
 
-      await saveTeamRow(tx, {
+      const team = await saveTeamRow(tx, {
         competitionId,
         participationId: participation.id,
         createdById: user.id,
@@ -214,7 +243,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
         logoUrl: teamLogoUrl,
       });
 
-      return { ok: true as const, teamName, teamLogoUrl };
+      return { ok: true as const, teamName, teamLogoUrl, teamId: team.id };
     });
 
     if (!result.ok) {
@@ -226,6 +255,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
       requestId,
       competitionId,
       userId: user.id,
+      teamId: result.teamId,
       builtInLogo: typeof parsed.data.teamLogoUrl === 'string' && BUILT_IN_TEAM_ICON_PATH.test(parsed.data.teamLogoUrl),
       hasLogo: Boolean(result.teamLogoUrl),
     });
@@ -237,6 +267,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
       requestId,
       competitionId,
       userId: user.id,
+      teamName,
       teamNameLength: teamName.length,
       suppliedLogo: suppliedLogo !== undefined,
       logoLength: typeof suppliedLogo === 'string' ? suppliedLogo.length : 0,
@@ -246,7 +277,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
     });
 
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return c.json({ error: 'TEAM_NAME_TAKEN', requestId }, 409);
+      return c.json({ error: 'TEAM_NAME_TAKEN', prismaCode: error.code, requestId }, 409);
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code, requestId }, 500);
@@ -309,7 +340,7 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
         data: { teamLogoUrl: uploaded!.publicUrl },
       });
 
-      await saveTeamRow(tx, {
+      const team = await saveTeamRow(tx, {
         competitionId,
         participationId: participation.id,
         createdById: user.id,
@@ -317,7 +348,7 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
         logoUrl: uploaded!.publicUrl,
       });
 
-      return { ok: true as const, teamLogoUrl: uploaded!.publicUrl };
+      return { ok: true as const, teamLogoUrl: uploaded!.publicUrl, teamId: team.id };
     });
 
     if (!result.ok) {
@@ -325,6 +356,14 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
       const mapped = mapBusinessError(result.error);
       return c.json({ ...mapped.body, requestId: uploadRequestId }, mapped.status);
     }
+
+    console.info('[team.logo-upload] saved', {
+      uploadRequestId,
+      storageRequestId: uploaded.requestId,
+      competitionId,
+      userId: user.id,
+      teamId: result.teamId,
+    });
 
     return c.json({ teamLogoUrl: result.teamLogoUrl, requestId: uploaded.requestId }, 201);
   } catch (error) {
@@ -345,6 +384,9 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     if (error instanceof ShieldUploadError) {
       const mapped = mapStorageError(error);
       return c.json(mapped.body, mapped.status);
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return c.json({ error: 'TEAM_NAME_TAKEN', prismaCode: error.code, requestId: uploadRequestId }, 409);
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code, requestId: uploadRequestId }, 500);
