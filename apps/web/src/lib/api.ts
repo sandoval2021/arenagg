@@ -90,6 +90,21 @@ export type UserProfileStats = {
   championshipsWon: number;
 };
 
+export type MatchScorerInput = {
+  side: 'HOME' | 'AWAY';
+  playerName: string;
+  goals: number;
+};
+
+export type TopScorer = {
+  position: number;
+  playerName: string;
+  teamId: string;
+  teamName: string;
+  teamLogoUrl: string | null;
+  goals: number;
+};
+
 export type MatchStatsInput = {
   homePossession: number;
   awayPossession: number;
@@ -243,6 +258,10 @@ export async function getCompetition(competitionId: string): Promise<Competition
   };
 }
 
+export async function getCompetitionTopScorers(competitionId: string): Promise<TopScorer[]> {
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/top-scorers`);
+}
+
 export async function joinCompetition(competitionId: string): Promise<{ joined: true }> {
   return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/join`, {
     method: 'POST',
@@ -313,12 +332,19 @@ export async function startCompetition(competitionId: string): Promise<{ status:
 
 export async function submitMatchScore(
   matchId: string,
-  input: { homeScore: number; awayScore: number; version: number; evidence?: File },
+  input: {
+    homeScore: number;
+    awayScore: number;
+    version: number;
+    evidence?: File;
+    scorers?: MatchScorerInput[];
+  },
 ) {
   const body = new FormData();
   body.set('homeScore', String(input.homeScore));
   body.set('awayScore', String(input.awayScore));
   body.set('version', String(input.version));
+  body.set('scorers', JSON.stringify(input.scorers ?? []));
   if (input.evidence) body.set('evidence', input.evidence);
 
   return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
