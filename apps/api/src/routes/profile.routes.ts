@@ -10,12 +10,25 @@ import {
 export const profile = new Hono<Env>();
 
 const CONSOLES = ['PS5', 'PS4', 'PC', 'Xbox', 'Nintendo', 'PS3', 'Outros'] as const;
+const FORMATIONS = ['4-3-3', '4-2-4', '4-4-2', '4-4-1-1', '3-5-2', '3-4-3', '5-3-2', '5-4-1'] as const;
+const PLAYSTYLES = [
+  'Troca de Passes (Tiki-Taka)',
+  'Contra-ataque',
+  'Jogo Equilibrado',
+  'Retranca',
+  'Lançamento Longo',
+  'Pressão Alta',
+] as const;
 const consoleSchema = z.enum(CONSOLES);
+const formationSchema = z.enum(FORMATIONS);
+const playstyleSchema = z.enum(PLAYSTYLES);
 const builtInAvatar = z.string().regex(/^\/icons\/avatars\/[a-z0-9-]+\.svg$/);
 
 const updateProfileSchema = z.object({
   displayName: z.string().trim().min(2).max(40).optional(),
   consoles: z.array(consoleSchema).max(CONSOLES.length).optional(),
+  favoriteFormation: z.union([formationSchema, z.null()]).optional(),
+  playstyle: z.union([playstyleSchema, z.null()]).optional(),
   avatarUrl: z.union([builtInAvatar, z.null()]).optional(),
 });
 
@@ -28,6 +41,8 @@ function statsSelect() {
     totalGoalsConceded: true,
     championshipsWon: true,
     consoles: true,
+    favoriteFormation: true,
+    playstyle: true,
   } as const;
 }
 
@@ -69,10 +84,24 @@ profile.patch('/me', async (c) => {
       select: { id: true, name: true, displayName: true, avatarUrl: true, email: true, phone: true },
     });
 
+    const profileCreate = {
+      userId: user.id,
+      consoles: parsed.data.consoles ?? [],
+      favoriteFormation: parsed.data.favoriteFormation ?? null,
+      playstyle: parsed.data.playstyle ?? null,
+    };
+    const profileUpdate = {
+      ...(parsed.data.consoles !== undefined ? { consoles: parsed.data.consoles } : {}),
+      ...(parsed.data.favoriteFormation !== undefined
+        ? { favoriteFormation: parsed.data.favoriteFormation }
+        : {}),
+      ...(parsed.data.playstyle !== undefined ? { playstyle: parsed.data.playstyle } : {}),
+    };
+
     const stats = await tx.userProfile.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, consoles: parsed.data.consoles ?? [] },
-      update: parsed.data.consoles !== undefined ? { consoles: parsed.data.consoles } : {},
+      create: profileCreate,
+      update: profileUpdate,
       select: statsSelect(),
     });
 
@@ -190,6 +219,8 @@ profile.get('/:userId', async (c) => {
       totalGoalsConceded: 0,
       championshipsWon: 0,
       consoles: [],
+      favoriteFormation: null,
+      playstyle: null,
     }),
     friendship: friendship
       ? {
