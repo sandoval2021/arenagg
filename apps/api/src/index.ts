@@ -19,6 +19,7 @@ import { evidence } from './routes/evidence.routes';
 import { profile } from './routes/profile.routes';
 import { friends } from './routes/friends.routes';
 import { competitionFeed, headToHead } from './routes/phase-one-social.routes';
+import { ranking } from './routes/ranking.routes';
 
 const app = new Hono<Env>();
 
@@ -67,6 +68,7 @@ app.use('/api/evidence/*', requireAuth);
 app.use('/api/default-shields/*', requireAuth);
 app.use('/api/profile/*', requireAuth);
 app.use('/api/friends/*', requireAuth);
+app.use('/api/ranking/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
 
@@ -94,6 +96,7 @@ app.route('/api/evidence', evidence);
 app.route('/api/profile', headToHead);
 app.route('/api/profile', profile);
 app.route('/api/friends', friends);
+app.route('/api/ranking', ranking);
 
 app.onError((err, c) => {
   console.error('[api] unhandled error', err);
