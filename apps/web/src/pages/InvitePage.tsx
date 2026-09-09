@@ -5,12 +5,43 @@ import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError, joinCompetition } from '../lib/api';
 
+type JoinErrorDetails = {
+  message?: string;
+  prismaCode?: string;
+  requestId?: string;
+};
+
+function errorDetails(error: ApiError): JoinErrorDetails {
+  return error.details && typeof error.details === 'object'
+    ? (error.details as JoinErrorDetails)
+    : {};
+}
+
 function joinError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Não foi possível entrar neste campeonato.';
+  const details = errorDetails(error);
+
+  if (error.status === 0 || error.code === 'NETWORK_ERROR') {
+    return 'Falha de conexão. Verifique sua internet e tente novamente.';
+  }
+  if (error.status === 401 || error.code === 'UNAUTHORIZED') {
+    return 'Sua sessão expirou. Entre novamente no Chavea e abra o convite.';
+  }
   if (error.code === 'COMPETITION_NOT_FOUND') return 'Este convite não existe ou foi removido.';
-  if (error.code === 'REGISTRATION_CLOSED') return 'As inscrições desta copa já foram encerradas.';
-  if (error.code === 'COMPETITION_FULL') return 'Essa Copa já atingiu o limite máximo de jogadores.';
-  return 'Não foi possível entrar agora. Tente novamente.';
+  if (error.code === 'COMPETITION_FULL') return 'A copa já está lotada.';
+  if (error.code === 'COMPETITION_ALREADY_STARTED') return 'O campeonato já foi iniciado.';
+  if (error.code === 'REGISTRATION_CLOSED') return 'As inscrições deste campeonato estão encerradas.';
+  if (error.code === 'JOIN_CONFLICT') return 'Houve um conflito ao registrar sua entrada. Toque novamente para tentar.';
+  if (error.code === 'JOIN_DATABASE_ERROR') return details.message ?? 'O banco recusou a entrada no campeonato.';
+  if (error.code === 'JOIN_FAILED') return details.message ?? 'Não foi possível concluir sua entrada no campeonato.';
+  return details.message ?? `Não foi possível entrar agora (${error.code}).`;
+}
+
+function joinDiagnostic(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const details = errorDetails(error);
+  const parts = [details.prismaCode ?? error.code, details.requestId].filter(Boolean);
+  return parts.length > 0 ? `Diagnóstico: ${parts.join(' · ')}` : null;
 }
 
 export function InvitePage() {
@@ -22,14 +53,31 @@ export function InvitePage() {
   const join = useMutation({
     mutationFn: () => joinCompetition(id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['competitions', 'mine'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['competitions', 'mine'] }),
+        queryClient.invalidateQueries({ queryKey: ['competition', id] }),
+      ]);
       navigate(`/competitions/${id}`, { replace: true });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError) {
+        console.error('[invite.join] failed', {
+          competitionId: id,
+          status: error.status,
+          code: error.code,
+          details: error.details,
+        });
+        return;
+      }
+      console.error('[invite.join] failed', { competitionId: id, error });
     },
   });
 
   if (auth.isLoading) {
     return <GlobalLoader mode="screen" label="Preparando seu convite…" />;
   }
+
+  const diagnostic = join.isError ? joinDiagnostic(join.error) : null;
 
   return (
     <main className="grid min-h-dvh place-items-center bg-white px-5 py-10 text-black">
@@ -58,7 +106,12 @@ export function InvitePage() {
               <button disabled={join.isPending || !id} onClick={() => join.mutate()} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md disabled:opacity-60">
                 {join.isPending ? <GlobalLoader mode="inline" label="Entrando…" className="[&_*]:text-white" /> : <><ArrowRight className="h-5 w-5" />Entrar neste Campeonato</>}
               </button>
-              {join.isError && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{joinError(join.error)}</p>}
+              {join.isError && (
+                <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-3">
+                  <p className="text-sm font-bold text-[#E31B23]">{joinError(join.error)}</p>
+                  {diagnostic && <p className="mt-1 break-all text-[10px] font-bold text-red-400">{diagnostic}</p>}
+                </div>
+              )}
             </>
           )}
         </div>
