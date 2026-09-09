@@ -8,7 +8,7 @@ import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { CompetitionsPage } from '../pages/competitions/CompetitionsPage';
-import { CompetitionDetailPageLight } from '../pages/competitions/CompetitionDetailPageLight';
+import { CompetitionDetailExperience } from '../pages/competitions/CompetitionDetailExperience';
 import { CreateCompetitionPage } from '../pages/competitions/CreateCompetitionPage';
 import { StandingsPage } from '../pages/competitions/StandingsPage';
 import { DashboardPage } from '../pages/dashboard/DashboardPage';
@@ -32,7 +32,7 @@ export const router = createBrowserRouter([
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/competitions', element: <CompetitionsPage /> },
       { path: '/competitions/new', element: <CreateCompetitionPage /> },
-      { path: '/competitions/:competitionId', element: <CompetitionDetailPageLight /> },
+      { path: '/competitions/:competitionId', element: <CompetitionDetailExperience /> },
       { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
       { path: '/profile', element: <ProfilePage /> },
