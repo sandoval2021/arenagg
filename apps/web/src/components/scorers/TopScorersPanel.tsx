@@ -33,6 +33,12 @@ export function TopScorersPanel({ scorers, loading, error }: { scorers: TopScore
         </div>
       </header>
 
+      <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-[9px] font-black uppercase tracking-[.14em] text-slate-400 sm:px-5">
+        <span>Pos.</span>
+        <span>Goleador / Time</span>
+        <span className="text-right">Gols</span>
+      </div>
+
       <div className="divide-y divide-slate-100">
         {scorers.map((scorer) => (
           <ScorerRow key={`${scorer.teamId}:${scorer.playerName}:${scorer.position}`} scorer={scorer} />
@@ -50,7 +56,7 @@ function ScorerRow({ scorer }: { scorer: TopScorer }) {
     <article className={`relative flex items-center gap-3 px-4 py-4 sm:px-5 ${first ? 'bg-gradient-to-r from-amber-50/90 via-white to-yellow-50/70' : 'bg-white'}`}>
       {first && <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-yellow-300 to-amber-500" />}
 
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-black ${first ? 'bg-gradient-to-br from-yellow-300 to-amber-500 text-white shadow-md shadow-amber-200' : podium ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
+      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-black ${first ? 'bg-gradient-to-br from-yellow-300 to-amber-500 text-white shadow-md shadow-amber-200' : podium ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`} aria-label={`${scorer.position}º lugar`}>
         {first ? <Medal className="h-5 w-5" /> : scorer.position}
       </span>
 
