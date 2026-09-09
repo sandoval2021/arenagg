@@ -6,11 +6,13 @@ import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { getMyCompetitions } from '../../lib/api';
+import { PRIMARY_NAV_STALE_TIME } from '../../lib/query-cache';
 
 export function CompetitionsPage() {
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ['competitions', 'mine'],
     queryFn: getMyCompetitions,
+    staleTime: PRIMARY_NAV_STALE_TIME,
   });
 
   return (
