@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
-import { useIsFetching, useIsMutating } from '@tanstack/react-query';
+import { useIsMutating } from '@tanstack/react-query';
 import { GlobalLoader } from './GlobalLoader';
 
+/**
+ * Query navigation never blocks the whole screen. Pages render cached data
+ * immediately and refresh silently in the background. The app-wide Chavea
+ * overlay is reserved for explicit mutations; the initial auth bootstrap has
+ * its own branded screen loader in AuthProvider/ProtectedRoute.
+ */
 export function GlobalActivityLoader() {
-  // Only block the screen for initial requests that do not have usable data yet.
-  // Background refetches must never leave the Chavea logo floating over a page
-  // that has already rendered successfully.
-  const initialFetches = useIsFetching({
-    predicate: (query) => query.state.fetchStatus === 'fetching' && query.state.data === undefined,
-  });
   const activeMutations = useIsMutating();
-  const active = initialFetches + activeMutations > 0;
+  const active = activeMutations > 0;
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -19,16 +19,11 @@ export function GlobalActivityLoader() {
       return;
     }
 
-    const timer = window.setTimeout(() => setVisible(true), 180);
+    const timer = window.setTimeout(() => setVisible(true), 140);
     return () => window.clearTimeout(timer);
   }, [active]);
 
   if (!visible || !active) return null;
 
-  return (
-    <GlobalLoader
-      mode="overlay"
-      label={activeMutations > 0 ? 'Salvando…' : 'Carregando…'}
-    />
-  );
+  return <GlobalLoader mode="overlay" label="Salvando…" />;
 }
