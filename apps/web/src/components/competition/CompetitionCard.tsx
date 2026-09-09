@@ -19,6 +19,7 @@ const statusLabel: Record<CompetitionStatus, string> = {
 
 export function CompetitionCard({ competition }: { competition: CompetitionSummary }) {
   const showRound = competition.status === 'IN_PROGRESS' || competition.status === 'FINISHED';
+  const isFull = competition.participantCount >= competition.maxParticipants;
 
   return (
     <Link to={`/competitions/${competition.id}`} className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[.99]">
@@ -35,8 +36,8 @@ export function CompetitionCard({ competition }: { competition: CompetitionSumma
             <span className="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#073B8C]">{statusLabel[competition.status]}</span>
           </div>
           <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-            <span className="flex items-center gap-1.5 font-semibold text-slate-600"><Users className="h-4 w-4" />{competition.participantCount} jogadores</span>
-            <span className="flex items-center gap-1 font-bold text-black">{showRound ? `Rodada ${competition.currentRound ?? '—'}` : 'Abrir copa'}<ChevronRight className="h-4 w-4" /></span>
+            <span className={`flex items-center gap-1.5 font-semibold ${isFull ? 'text-amber-700' : 'text-slate-600'}`}><Users className="h-4 w-4" />{competition.participantCount}/{competition.maxParticipants} jogadores</span>
+            <span className="flex items-center gap-1 font-bold text-black">{showRound ? `Rodada ${competition.currentRound ?? '—'}` : isFull ? 'Lobby cheio' : 'Abrir copa'}<ChevronRight className="h-4 w-4" /></span>
           </div>
         </div>
       </div>
