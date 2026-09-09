@@ -20,6 +20,8 @@ import { profile } from './routes/profile.routes';
 import { friends } from './routes/friends.routes';
 import { competitionFeed, headToHead } from './routes/phase-one-social.routes';
 import { ranking } from './routes/ranking.routes';
+import { phaseThreeCompetitions } from './routes/phase-three-competition.routes';
+import { phaseThreeMatches } from './routes/phase-three-match.routes';
 
 const app = new Hono<Env>();
 
@@ -61,6 +63,7 @@ app.use('/api/*', async (c, next) => {
 });
 
 app.use('/api/*', dbMiddleware);
+app.use('/api/competitions', requireAuth);
 app.use('/api/competitions/*', requireAuth);
 app.use('/api/matches/*', requireAuth);
 app.use('/api/match-stats/*', requireAuth);
@@ -82,6 +85,7 @@ app.get('/api/health/db', async (c) => {
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 // Exact hardened/specialized competition routes are mounted before the legacy router.
+app.route('/api/competitions', phaseThreeCompetitions);
 app.route('/api/competitions', lobbyModeration);
 app.route('/api/competitions', competitionJoin);
 app.route('/api/competitions', teamSettings);
@@ -90,6 +94,7 @@ app.route('/api/competitions', competitionFeed);
 app.route('/api/competitions', competitions);
 app.route('/api/default-shields', defaultShields);
 app.route('/api/owner/default-shields', ownerShields);
+app.route('/api/matches', phaseThreeMatches);
 app.route('/api/matches', matchScore);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
