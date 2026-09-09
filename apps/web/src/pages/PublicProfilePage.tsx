@@ -5,6 +5,7 @@ import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { HeadToHeadCard } from '../components/profile/HeadToHeadCard';
 import { RankBadge, RankEmblem } from '../components/profile/RankBadge';
+import { ReputationBadge } from '../components/profile/ReputationBadge';
 import { TrophyRoom } from '../components/profile/TrophyRoom';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError } from '../lib/api';
@@ -62,6 +63,7 @@ export function PublicProfilePage() {
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2"><h2 className="truncate text-xl font-black sm:text-2xl">{playerName}</h2><span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-950 px-2.5 py-1 text-[10px] font-black text-white"><Medal className="h-3.5 w-3.5 text-amber-300" />{data.mmr} MMR</span></div>
               <div className="mt-2 flex flex-wrap items-center gap-2"><RankBadge mmr={data.mmr} /><ConsoleBadges consoles={data.consoles} /></div>
+              <ReputationBadge userId={data.id} />
               <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4 shrink-0" />{rank.subtitle} Chavea</p>
             </div>
           </div>
