@@ -15,6 +15,10 @@ type ProfileDelta = {
   mmrDelta: number;
 };
 
+async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
+}
+
 async function lockPlayerProfiles(tx: Tx, userIds: string[]): Promise<void> {
   const orderedIds = [...new Set(userIds)].sort();
   for (const userId of orderedIds) {
@@ -72,8 +76,9 @@ async function awardChampionship(tx: Tx, userId: string) {
  * progressão real da fase de grupos para a árvore eliminatória.
  */
 async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<void> {
-  // Serializa a decisão de campeão entre partidas que terminem ao mesmo tempo.
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
+  // Reentrante quando chamado pelo fluxo normal; mantém esta função segura
+  // caso seja reutilizada por outro ponto de consolidação no futuro.
+  await lockCompetition(tx, competitionId);
 
   const competition = await tx.competition.findUnique({
     where: { id: competitionId },
@@ -212,8 +217,9 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
 
 /**
  * Aplica uma partida finalizada ao UserProfile exatamente uma vez.
- * profileAppliedAt protege contra reprocessamento da mesma partida e os locks
- * por jogador serializam partidas diferentes que fechem em paralelo.
+ * A ordem de locks é sempre competição -> jogadores ordenados. Isso mantém o
+ * MMR consistente entre partidas concorrentes e evita ciclos de deadlock no
+ * fechamento de campeonatos.
  */
 export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Promise<boolean> {
   const match = await tx.match.findUnique({
@@ -252,7 +258,9 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
   });
   if (claimed.count !== 1) return false;
 
+  await lockCompetition(tx, match.competitionId);
   await lockPlayerProfiles(tx, [homeUserId, awayUserId]);
+
   const homeProfile = await ensureProfile(tx, homeUserId);
   const awayProfile = await ensureProfile(tx, awayUserId);
 
