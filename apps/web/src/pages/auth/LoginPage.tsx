@@ -3,11 +3,27 @@ import { Eye, EyeOff, LockKeyhole, Mail, Phone } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Logo } from '../../components/brand/Logo';
 import { useAuth } from '../../hooks/useAuth';
+import { ApiError } from '../../lib/api';
 
 type Mode = 'email' | 'phone';
 
 function safeNext(value: string | null): string | null {
   return value?.startsWith('/') && !value.startsWith('//') ? value : null;
+}
+
+function loginErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Não foi possível entrar. Tente novamente.';
+
+  switch (error.code) {
+    case 'NETWORK_ERROR':
+      return 'Não foi possível conectar ao servidor do Chavea.';
+    case 'INVALID_INPUT':
+      return 'Confira seu e-mail, telefone e senha.';
+    case 'INVALID_CREDENTIALS':
+      return 'E-mail, telefone ou senha inválidos.';
+    default:
+      return 'Não foi possível entrar. Tente novamente.';
+  }
 }
 
 export function LoginPage() {
@@ -37,7 +53,11 @@ export function LoginPage() {
   return (
     <main className="min-h-dvh bg-white px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-black">
       <div className="mx-auto max-w-md">
-        <Link to="/" className="inline-flex rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início"><Logo size="md" /></Link>
+        <div className="flex w-full justify-center">
+          <Link to="/" className="inline-flex rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início">
+            <Logo size="md" />
+          </Link>
+        </div>
         <h1 className="mt-7 text-3xl font-black tracking-tight">Entrar no Chavea</h1>
         <p className="mt-2 text-sm font-medium text-slate-500">Seus campeonatos começam aqui. 🎮🏆</p>
 
@@ -64,7 +84,7 @@ export function LoginPage() {
 
           <div className="flex justify-end"><Link to="/forgot-password" className="text-sm font-extrabold text-[#073B8C]">Esqueceu a senha?</Link></div>
 
-          {auth.login.isError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">E-mail, telefone ou senha inválidos.</p>}
+          {auth.login.isError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{loginErrorMessage(auth.login.error)}</p>}
           <button disabled={auth.login.isPending} className="min-h-14 w-full rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.login.isPending ? 'Entrando…' : 'Entrar'}</button>
         </form>
 
