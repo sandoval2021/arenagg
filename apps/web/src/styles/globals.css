@@ -13,3 +13,11 @@ html { background: #fff; -webkit-tap-highlight-color: transparent; }
 body { margin: 0; min-width: 320px; min-height: 100dvh; background: #fff; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-touch-callout: none; }
+
+/*
+ * Chavea loading language: the application-level Query activity indicator and
+ * GlobalLoader own the loading animation. Legacy Lucide LoaderCircle/Loader2
+ * glyphs are suppressed so an old screen cannot bring the generic blue spinner
+ * back while it is being incrementally migrated to GlobalLoader.
+ */
+svg.animate-spin { display: none !important; }

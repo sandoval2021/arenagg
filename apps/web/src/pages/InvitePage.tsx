@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Gamepad2, LoaderCircle, LogIn, Trophy, UserPlus } from 'lucide-react';
+import { ArrowRight, Gamepad2, LogIn, Trophy, UserPlus } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError, joinCompetition } from '../lib/api';
 
@@ -27,7 +28,7 @@ export function InvitePage() {
   });
 
   if (auth.isLoading) {
-    return <main className="grid min-h-dvh place-items-center bg-white"><LoaderCircle className="h-8 w-8 animate-spin text-[#073B8C]" /></main>;
+    return <GlobalLoader mode="screen" label="Preparando seu convite…" />;
   }
 
   return (
@@ -55,8 +56,7 @@ export function InvitePage() {
               <h2 className="text-xl font-black">Bora entrar, {auth.user?.displayName ?? auth.user?.name}? ⚽</h2>
               <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Ao entrar, seu nome será adicionado ao lobby. Isso não inicia a Copa: somente o Host pode gerar as partidas manualmente.</p>
               <button disabled={join.isPending || !id} onClick={() => join.mutate()} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md disabled:opacity-60">
-                {join.isPending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
-                {join.isPending ? 'Entrando…' : 'Entrar neste Campeonato'}
+                {join.isPending ? <GlobalLoader mode="inline" label="Entrando…" className="[&_*]:text-white" /> : <><ArrowRight className="h-5 w-5" />Entrar neste Campeonato</>}
               </button>
               {join.isError && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{joinError(join.error)}</p>}
             </>

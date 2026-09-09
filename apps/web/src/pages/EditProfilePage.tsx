@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ImagePlus, LoaderCircle, Save, Sparkles, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, ImagePlus, Save, Sparkles, UserRound } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ApiError } from '../lib/api';
 import { BUILT_IN_AVATARS } from '../lib/default-icons';
 import {
@@ -64,6 +65,10 @@ export function EditProfilePage() {
     setConsoles((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   }
 
+  if (profile.isLoading && !hydrated) {
+    return <GlobalLoader mode="screen" label="Carregando seu perfil…" />;
+  }
+
   const visibleAvatar = preview || avatarUrl;
 
   return (
@@ -108,7 +113,7 @@ export function EditProfilePage() {
           </div>
 
           {save.isError && <p className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{profileError(save.error)}</p>}
-          <button disabled={displayName.trim().length < 2 || save.isPending || profile.isLoading} onClick={() => save.mutate()} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-40">{save.isPending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}{save.isPending ? 'Salvando…' : 'Salvar Perfil'}</button>
+          <button disabled={displayName.trim().length < 2 || save.isPending || profile.isLoading} onClick={() => save.mutate()} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-40">{save.isPending ? <GlobalLoader mode="inline" label="Salvando…" className="[&_*]:text-white" /> : <><Save className="h-5 w-5" />Salvar Perfil</>}</button>
         </section>
       </main>
     </div>
