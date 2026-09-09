@@ -17,6 +17,17 @@ const scorersSchema = z.preprocess((value) => {
   }
 }, z.array(scorerInputSchema).max(40)).optional().default([]);
 
+const optionalClipUrlSchema = z.preprocess(
+  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z
+    .string()
+    .trim()
+    .max(2048)
+    .url()
+    .refine((value) => value.startsWith('https://'), 'O link do clipe deve usar HTTPS')
+    .optional(),
+);
+
 export const scoreFields = z
   .object({
     homeScore: z.coerce.number().int().min(0).max(99),
@@ -25,6 +36,7 @@ export const scoreFields = z
     awayPenaltyScore: z.coerce.number().int().min(0).max(99).optional(),
     version: z.coerce.number().int().positive(),
     scorers: scorersSchema,
+    clipUrl: optionalClipUrlSchema,
   })
   .superRefine((value, ctx) => {
     const homeScorerGoals = value.scorers
