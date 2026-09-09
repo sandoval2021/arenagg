@@ -12,6 +12,7 @@ enum CompetitionType {
   LEAGUE
   KNOCKOUT
   GROUPS_KNOCKOUT
+  ENDLESS
 }
 
 enum CompetitionStatus {
@@ -90,6 +91,7 @@ model User {
   isActive            Boolean         @default(true)
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
+  profile             UserProfile?
   accounts            AuthAccount[]
   sessions            Session[]
   hostedCompetitions  Competition[]   @relation("CompetitionHost")
@@ -99,6 +101,19 @@ model User {
   submittedMatchStats MatchStats[]    @relation("MatchStatsSubmittedBy")
   reviewedMatchStats  MatchStats[]    @relation("MatchStatsReviewedBy")
   defaultShields      DefaultShield[] @relation("DefaultShieldCreator")
+}
+
+model UserProfile {
+  userId               String   @id @db.Uuid
+  totalWins            Int      @default(0)
+  totalDraws           Int      @default(0)
+  totalLosses          Int      @default(0)
+  totalGoalsScored     Int      @default(0)
+  totalGoalsConceded   Int      @default(0)
+  championshipsWon     Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuthAccount {
@@ -131,6 +146,8 @@ model Competition {
   slug               String            @unique
   description        String?
   logoUrl            String?
+  game               String?
+  platform           String?
   type               CompetitionType
   status             CompetitionStatus @default(DRAFT)
   legFormat          LegFormat         @default(SINGLE)
@@ -161,6 +178,7 @@ model Competition {
   invites            CompetitionInvite[]
 
   @@index([hostId, status])
+  @@index([game, platform])
 }
 
 model Participation {
@@ -269,6 +287,10 @@ model Match {
   groupId              String?      @db.Uuid
   homeTeamId           String?      @db.Uuid
   awayTeamId           String?      @db.Uuid
+  /// Snapshot do clube escolhido pelo jogador mandante nesta partida (ex.: Real Madrid).
+  homeTeamName         String?
+  /// Snapshot do clube escolhido pelo jogador visitante nesta partida (ex.: Arsenal).
+  awayTeamName         String?
   status               MatchStatus  @default(PENDING)
   bracketPosition      Int?
   leg                  Int          @default(1)

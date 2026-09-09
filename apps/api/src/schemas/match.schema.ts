@@ -8,6 +8,13 @@ export const scoreFields = z.object({
   version: z.coerce.number().int().positive(),
 });
 
+// Base para Liga Infinita: o clube escolhido é um snapshot da partida e não
+// substitui a relação homeTeam/awayTeam, que continua identificando os jogadores.
+export const endlessMatchTeamNamesSchema = z.object({
+  homeTeamName: z.string().trim().min(2).max(80).optional(),
+  awayTeamName: z.string().trim().min(2).max(80).optional(),
+});
+
 export const approveSchema = z.object({ version: z.number().int().positive() });
 
 export const resolveSchema = z.discriminatedUnion('action', [
