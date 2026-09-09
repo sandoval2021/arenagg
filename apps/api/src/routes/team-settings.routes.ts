@@ -2,7 +2,13 @@ import { Hono } from 'hono';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Env } from '../types/env';
-import { removeShield, ShieldUploadError, uploadShield } from '../services/shield-storage.service';
+import {
+  isUploadFile,
+  removeShield,
+  ShieldUploadError,
+  uploadShield,
+  type UploadFile,
+} from '../services/shield-storage.service';
 
 export const teamSettings = new Hono<Env>();
 
@@ -20,9 +26,11 @@ const httpsUrl = z
   .url()
   .refine((value) => value.startsWith('https://'), 'Use uma URL HTTPS');
 
+const builtInTeamIcon = z.string().regex(/^\/icons\/teams\/[a-z0-9-]+\.svg$/);
+
 const updateTeamSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
-  teamLogoUrl: z.union([httpsUrl, z.literal(''), z.null()]).optional(),
+  teamLogoUrl: z.union([httpsUrl, builtInTeamIcon, z.literal(''), z.null()]).optional(),
 });
 
 async function lockCompetition(tx: Prisma.TransactionClient, competitionId: string): Promise<void> {
@@ -54,14 +62,31 @@ function mapBusinessError(error: TeamRouteError) {
 }
 
 function mapStorageError(error: ShieldUploadError) {
+  const body = { error: error.code, requestId: error.requestId };
   switch (error.code) {
     case 'STORAGE_NOT_CONFIGURED':
-      return { status: 503 as const, body: { error: error.code } };
+      return { status: 503 as const, body };
     case 'INVALID_IMAGE':
     case 'IMAGE_TOO_LARGE':
-      return { status: 400 as const, body: { error: error.code } };
+      return { status: 400 as const, body };
     case 'STORAGE_UPLOAD_FAILED':
-      return { status: 502 as const, body: { error: error.code } };
+      return { status: 502 as const, body };
+  }
+}
+
+async function readMultipartImage(request: Request): Promise<UploadFile | null> {
+  try {
+    const form = await request.formData();
+    const value = form.get('file');
+    return isUploadFile(value) ? value : null;
+  } catch (error) {
+    console.error('[team.logo-upload] multipart parse failed', {
+      contentType: request.headers.get('content-type'),
+      contentLength: request.headers.get('content-length'),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return null;
   }
 }
 
@@ -75,9 +100,7 @@ async function loadEditableParticipation(
     select: { id: true, status: true, teamSelection: true },
   });
 
-  if (!competition) {
-    return { ok: false as const, error: 'COMPETITION_NOT_FOUND' as const };
-  }
+  if (!competition) return { ok: false as const, error: 'COMPETITION_NOT_FOUND' as const };
   if (!['REGISTRATION', 'READY'].includes(competition.status)) {
     return { ok: false as const, error: 'TEAM_CONFIGURATION_LOCKED' as const };
   }
@@ -131,12 +154,8 @@ teamSettings.patch('/:id/my-team', async (c) => {
         select: { id: true },
       });
 
-      if (collision) {
-        return { ok: false as const, error: 'TEAM_NAME_TAKEN' as const };
-      }
+      if (collision) return { ok: false as const, error: 'TEAM_NAME_TAKEN' as const };
 
-      // Omitting teamLogoUrl means "keep the current shield". This prevents a
-      // name-only update from accidentally clearing a previously uploaded image.
       const teamLogoUrl = suppliedLogo === undefined
         ? participation.teamLogoUrl
         : suppliedLogo || null;
@@ -198,12 +217,29 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
   const db = c.get('prisma');
   const competitionId = c.req.param('id');
   const user = c.get('user');
-  const body = await c.req.parseBody();
-  const file = body.file;
+  const uploadRequestId = crypto.randomUUID();
+  const file = await readMultipartImage(c.req.raw);
 
-  if (!(file instanceof File)) {
-    return c.json({ error: 'IMAGE_REQUIRED' }, 400);
+  if (!file) {
+    console.warn('[team.logo-upload] image missing after multipart parse', {
+      uploadRequestId,
+      competitionId,
+      userId: user.id,
+      contentType: c.req.header('content-type'),
+      contentLength: c.req.header('content-length'),
+      userAgent: c.req.header('user-agent'),
+    });
+    return c.json({ error: 'IMAGE_REQUIRED', requestId: uploadRequestId }, 400);
   }
+
+  console.info('[team.logo-upload] request accepted', {
+    uploadRequestId,
+    competitionId,
+    userId: user.id,
+    fileName: file.name?.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'unnamed',
+    fileSize: file.size,
+    declaredType: file.type || 'unknown',
+  });
 
   const initial = await db.$transaction(async (tx) => {
     await lockCompetition(tx, competitionId);
@@ -215,7 +251,7 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     return c.json(mapped.body, mapped.status);
   }
 
-  let uploaded: { publicUrl: string; storagePath: string } | undefined;
+  let uploaded: { publicUrl: string; storagePath: string; requestId: string } | undefined;
 
   try {
     uploaded = await uploadShield(c.env, file, 'teams', `${competitionId}/${user.id}`);
@@ -257,17 +293,17 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
       return c.json(mapped.body, mapped.status);
     }
 
-    return c.json({ teamLogoUrl: result.teamLogoUrl }, 201);
+    return c.json({ teamLogoUrl: result.teamLogoUrl, requestId: uploaded.requestId }, 201);
   } catch (error) {
-    if (uploaded) {
-      await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
-    }
+    if (uploaded) await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
 
     console.error('[team.logo-upload] failed', {
+      uploadRequestId,
+      storageRequestId: error instanceof ShieldUploadError ? error.requestId : uploaded?.requestId,
       competitionId,
       userId: user.id,
       fileSize: file.size,
-      fileType: file.type,
+      declaredType: file.type || 'unknown',
       prisma: safePrismaMeta(error),
       errorName: error instanceof Error ? error.name : 'UnknownError',
       errorMessage: error instanceof Error ? error.message : String(error),
@@ -278,8 +314,8 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
       return c.json(mapped.body, mapped.status);
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code }, 500);
+      return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code, requestId: uploadRequestId }, 500);
     }
-    return c.json({ error: 'TEAM_LOGO_UPLOAD_FAILED' }, 500);
+    return c.json({ error: 'TEAM_LOGO_UPLOAD_FAILED', requestId: uploadRequestId }, 500);
   }
 });
