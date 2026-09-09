@@ -97,7 +97,7 @@ export function EditProfilePage() {
           </div>
 
           <label className="mt-6 block text-xs font-black uppercase tracking-wider text-slate-500">Nome de jogador</label>
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={40} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white" placeholder="Seu nome no ArenaGG" />
+          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={40} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white" placeholder="Seu nome no Chavea" />
 
           <p className="mt-6 text-xs font-black uppercase tracking-wider text-slate-500">Onde você joga?</p>
           <div className="mt-3 flex flex-wrap gap-2">
