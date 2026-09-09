@@ -46,8 +46,6 @@ function shuffled<T>(values: readonly T[]): T[] {
 }
 
 async function lockCompetition(tx: DbTransaction, competitionId: string): Promise<void> {
-  // Serializa join/start da mesma copa. Evita ultrapassar maxParticipants e impede
-  // que alguém entre exatamente enquanto o Host inicia a competição.
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
 }
 
@@ -280,7 +278,9 @@ async function buildGroups(
   }
 }
 
-function routeError(error: RouteError) {
+function routeError(error: RouteError | undefined) {
+  if (!error) return { status: 500 as const, body: { error: 'INTERNAL_SERVER_ERROR' } };
+
   switch (error) {
     case 'COMPETITION_NOT_FOUND':
       return { status: 404 as const, body: { error } };
