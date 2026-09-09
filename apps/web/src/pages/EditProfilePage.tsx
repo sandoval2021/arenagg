@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ImagePlus, Save, Sparkles, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, ImagePlus, Save, Sparkles, Swords, UserRound, Zap } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ApiError } from '../lib/api';
 import { BUILT_IN_AVATARS } from '../lib/default-icons';
 import {
   CONSOLE_OPTIONS,
+  FORMATION_OPTIONS,
+  PLAYSTYLE_OPTIONS,
   getMyGamerProfile,
   updateMyGamerProfile,
   uploadMyAvatar,
   type ConsoleTag,
+  type FormationOption,
+  type PlaystyleOption,
 } from '../lib/social-api';
 
 export function EditProfilePage() {
@@ -19,6 +23,8 @@ export function EditProfilePage() {
   const profile = useQuery({ queryKey: ['gamer-profile', 'me'], queryFn: getMyGamerProfile });
   const [displayName, setDisplayName] = useState('');
   const [consoles, setConsoles] = useState<ConsoleTag[]>([]);
+  const [favoriteFormation, setFavoriteFormation] = useState<FormationOption | ''>('');
+  const [playstyle, setPlaystyle] = useState<PlaystyleOption | ''>('');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
@@ -28,6 +34,8 @@ export function EditProfilePage() {
     if (!profile.data || hydrated) return;
     setDisplayName(profile.data.displayName ?? profile.data.name);
     setConsoles(profile.data.consoles ?? []);
+    setFavoriteFormation(profile.data.favoriteFormation ?? '');
+    setPlaystyle(profile.data.playstyle ?? '');
     setAvatarUrl(profile.data.avatarUrl ?? '');
     setHydrated(true);
   }, [profile.data, hydrated]);
@@ -52,6 +60,8 @@ export function EditProfilePage() {
       return updateMyGamerProfile({
         displayName: displayName.trim(),
         consoles,
+        favoriteFormation: favoriteFormation || null,
+        playstyle: playstyle || null,
         avatarUrl: file ? undefined : finalAvatar,
       });
     },
@@ -112,6 +122,32 @@ export function EditProfilePage() {
             })}
           </div>
 
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <label className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3">
+              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#073B8C]"><Swords className="h-4 w-4" />Formação Favorita</span>
+              <select
+                value={favoriteFormation}
+                onChange={(event) => setFavoriteFormation(event.target.value as FormationOption | '')}
+                className="mt-2 min-h-12 w-full rounded-xl border border-blue-100 bg-white px-3 text-sm font-black text-slate-900 outline-none focus:border-blue-400"
+              >
+                <option value="">Não informar</option>
+                {FORMATION_OPTIONS.map((formation) => <option key={formation} value={formation}>{formation}</option>)}
+              </select>
+            </label>
+
+            <label className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+              <span className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-700"><Zap className="h-4 w-4" />Estilo de Jogo</span>
+              <select
+                value={playstyle}
+                onChange={(event) => setPlaystyle(event.target.value as PlaystyleOption | '')}
+                className="mt-2 min-h-12 w-full rounded-xl border border-amber-100 bg-white px-3 text-sm font-black text-slate-900 outline-none focus:border-amber-400"
+              >
+                <option value="">Não informar</option>
+                {PLAYSTYLE_OPTIONS.map((style) => <option key={style} value={style}>{style}</option>)}
+              </select>
+            </label>
+          </div>
+
           {save.isError && <p className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{profileError(save.error)}</p>}
           <button disabled={displayName.trim().length < 2 || save.isPending || profile.isLoading} onClick={() => save.mutate()} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-40">{save.isPending ? <GlobalLoader mode="inline" label="Salvando…" className="[&_*]:text-white" /> : <><Save className="h-5 w-5" />Salvar Perfil</>}</button>
         </section>
@@ -122,7 +158,7 @@ export function EditProfilePage() {
 
 function profileError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Não foi possível salvar seu perfil.';
-  if (error.code === 'INVALID_PROFILE_INPUT') return 'Confira seu nome e as plataformas selecionadas.';
+  if (error.code === 'INVALID_PROFILE_INPUT') return 'Confira seu nome, consoles e identidade tática.';
   if (error.code === 'IMAGE_REQUIRED') return 'O celular não entregou a imagem corretamente. Selecione a foto novamente.';
   if (error.code === 'IMAGE_TOO_LARGE') return 'A foto deve ter no máximo 5 MB.';
   if (error.code === 'INVALID_IMAGE') return 'Use uma imagem JPG/JPEG, PNG ou WEBP válida.';
