@@ -3,11 +3,25 @@ import { ArrowLeft, Info, Trophy } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { StandingsTable } from '../../components/standings/StandingsTable';
-import { getStandings } from '../../lib/api';
+import { getCompetition, getStandings } from '../../lib/api';
 
 export function StandingsPage() {
   const { competitionId = '' } = useParams();
-  const { data = [], isLoading, isError } = useQuery({ queryKey: ['standings', competitionId], queryFn: () => getStandings(competitionId), enabled: Boolean(competitionId) });
+  const { data = [], isLoading, isError } = useQuery({
+    queryKey: ['standings', competitionId],
+    queryFn: () => getStandings(competitionId),
+    enabled: Boolean(competitionId),
+  });
+  const competition = useQuery({
+    queryKey: ['competition', competitionId],
+    queryFn: () => getCompetition(competitionId),
+    enabled: Boolean(competitionId),
+  });
+  const userIdByTeam = Object.fromEntries(
+    (competition.data?.participations ?? []).flatMap((participant) =>
+      participant.team?.id ? [[participant.team.id, participant.userId] as const] : [],
+    ),
+  );
 
   return (
     <div className="min-h-dvh bg-white text-black">
@@ -17,9 +31,9 @@ export function StandingsPage() {
         <section className="mt-5">
           {isLoading && <GlobalLoader mode="section" label="Carregando classificação…" />}
           {isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-semibold text-[#E31B23]">Não foi possível carregar a classificação.</div>}
-          {!isLoading && !isError && <StandingsTable standings={data} />}
+          {!isLoading && !isError && <StandingsTable standings={data} userIdByTeam={userIdByTeam} />}
         </section>
-        <div className="mt-4 flex gap-2 rounded-xl bg-slate-50 p-3 text-xs font-medium text-slate-500"><Info className="h-4 w-4 shrink-0" /><p>A classificação é calculada pelo servidor a partir das partidas finalizadas. A interface apenas apresenta o resultado.</p></div>
+        <div className="mt-4 flex gap-2 rounded-xl bg-slate-50 p-3 text-xs font-medium text-slate-500"><Info className="h-4 w-4 shrink-0" /><p>A classificação é calculada pelo servidor a partir das partidas finalizadas. Toque no jogador para abrir o perfil público.</p></div>
       </main>
     </div>
   );
