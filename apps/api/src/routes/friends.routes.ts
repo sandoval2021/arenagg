@@ -6,10 +6,6 @@ export const friends = new Hono<Env>();
 
 const friendRequestSchema = z.object({ friendId: z.string().uuid() });
 
-async function lockFriendPair(tx: Parameters<Parameters<ReturnType<typeof friends.post>>[0]>[0] extends never ? never : never) {
-  void tx;
-}
-
 function orderedPair(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
@@ -66,10 +62,7 @@ friends.post('/request', async (c) => {
     return { state: 'PENDING' as const, friendship };
   });
 
-  return c.json({
-    id: result.friendship.id,
-    status: result.state,
-  }, result.state === 'ACCEPTED' ? 200 : 201);
+  return c.json({ id: result.friendship.id, status: result.state }, result.state === 'ACCEPTED' ? 200 : 201);
 });
 
 friends.get('/', async (c) => {
@@ -105,15 +98,10 @@ friends.get('/requests', async (c) => {
   const db = c.get('prisma');
   const rows = await db.friendship.findMany({
     where: { addresseeId: user.id, status: 'PENDING' },
-    include: {
-      requester: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
-    },
+    include: { requester: { select: { id: true, name: true, displayName: true, avatarUrl: true } } },
     orderBy: { createdAt: 'desc' },
   });
-  return c.json(rows.map((row) => ({
-    friendshipId: row.id,
-    user: row.requester,
-  })));
+  return c.json(rows.map((row) => ({ friendshipId: row.id, user: row.requester })));
 });
 
 friends.post('/:id/accept', async (c) => {
