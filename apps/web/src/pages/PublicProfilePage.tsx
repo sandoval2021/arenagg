@@ -3,6 +3,7 @@ import { ArrowLeft, Check, ShieldCheck, Swords, Trophy, UserPlus, UserRound, Zap
 import { Link, useParams } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
+import { HeadToHeadCard } from '../components/profile/HeadToHeadCard';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError } from '../lib/api';
 import { PRIMARY_NAV_STALE_TIME } from '../lib/query-cache';
@@ -36,6 +37,7 @@ export function PublicProfilePage() {
   const isMe = auth.user?.id === data.id;
   const totalGames = data.totalWins + data.totalDraws + data.totalLosses;
   const friendState = data.friendship;
+  const playerName = data.displayName ?? data.name;
 
   return (
     <div className="min-h-dvh bg-white text-slate-900">
@@ -51,7 +53,7 @@ export function PublicProfilePage() {
               {data.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-xl font-black sm:text-2xl">{data.displayName ?? data.name}</h2>
+              <h2 className="truncate text-xl font-black sm:text-2xl">{playerName}</h2>
               <div className="mt-2"><ConsoleBadges consoles={data.consoles} /></div>
               <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4 shrink-0" />Jogador Chavea</p>
             </div>
@@ -84,6 +86,8 @@ export function PublicProfilePage() {
             </div>
           )}
         </section>
+
+        {!isMe && <HeadToHeadCard userId={data.id} opponentName={playerName} />}
 
         <section className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">Retrospecto público</p><h3 className="mt-1 text-lg font-black">{totalGames} partidas</h3></div><div className="flex shrink-0 items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-2 text-amber-700"><Trophy className="h-4 w-4" /><span className="font-black">{data.championshipsWon}</span></div></div>
