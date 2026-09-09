@@ -12,7 +12,7 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
     <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-md shadow-slate-200/60 ring-1 ring-slate-100">
       <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/60 to-white px-5 py-4">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#073B8C]">ArenaGG Ranking</p>
+          <p className="text-[10px] font-black uppercase tracking-[.22em] text-[#073B8C]">Chavea Ranking</p>
           <h3 className="mt-1 text-lg font-black text-slate-900">Classificação</h3>
         </div>
         <span className="grid h-11 w-11 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-amber-600 shadow-sm">

@@ -35,7 +35,7 @@ export function InvitePage() {
       <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl shadow-slate-200/60">
         <div className="bg-[#073B8C] p-6 text-white">
           <div className="flex items-center justify-between"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-white/10"><Trophy className="h-7 w-7" /></span><Gamepad2 className="h-8 w-8 text-blue-200" /></div>
-          <p className="mt-6 text-xs font-black uppercase tracking-[.2em] text-blue-100">Convite ArenaGG</p>
+          <p className="mt-6 text-xs font-black uppercase tracking-[.2em] text-blue-100">Convite Chavea</p>
           <h1 className="mt-2 text-3xl font-black leading-tight">Você foi convocado! 🎮🏆</h1>
           <p className="mt-3 text-sm font-medium leading-6 text-blue-100">A galera já está montando a chave. Entre na copa antes que comecem sem você. 😅</p>
         </div>
@@ -43,7 +43,7 @@ export function InvitePage() {
         <div className="p-6">
           {!auth.isAuthenticated ? (
             <>
-              <h2 className="text-xl font-black">Primeiro, entre no ArenaGG</h2>
+              <h2 className="text-xl font-black">Primeiro, entre no Chavea</h2>
               <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Crie sua conta grátis ou faça login. Depois você volta direto para este convite.</p>
               <div className="mt-5 space-y-3">
                 <Link to={`/register?next=${encodeURIComponent(next)}`} className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md"><UserPlus className="h-5 w-5" />Criar minha conta</Link>

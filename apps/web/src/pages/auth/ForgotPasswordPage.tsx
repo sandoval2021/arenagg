@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, KeyRound, LockKeyhole, Mail, ShieldAlert } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Logo } from '../../components/brand/Logo';
 import { ApiError, resetPasswordDev } from '../../lib/api';
 
 function errorMessage(error: unknown): string {
@@ -47,7 +48,8 @@ export function ForgotPasswordPage() {
     return (
       <main className="grid min-h-dvh place-items-center bg-white px-5 text-black">
         <div className="w-full max-w-md rounded-3xl border border-slate-200 p-6 text-center shadow-sm">
-          <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><KeyRound /></span>
+          <Logo size="sm" className="mx-auto" />
+          <span className="mx-auto mt-5 grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><KeyRound /></span>
           <h1 className="mt-4 text-2xl font-black">Senha atualizada ✅</h1>
           <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Suas sessões anteriores foram encerradas. Entre novamente com a nova senha.</p>
           <button onClick={() => navigate('/login', { replace: true })} className="mt-6 min-h-14 w-full rounded-2xl bg-[#073B8C] font-black text-white">Ir para o login</button>
@@ -59,7 +61,10 @@ export function ForgotPasswordPage() {
   return (
     <main className="min-h-dvh bg-white px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-black">
       <div className="mx-auto max-w-md">
-        <Link to="/login" className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 shadow-sm" aria-label="Voltar para o login"><ArrowLeft className="h-5 w-5" /></Link>
+        <div className="flex items-start justify-between gap-4">
+          <Link to="/login" className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 shadow-sm" aria-label="Voltar para o login"><ArrowLeft className="h-5 w-5" /></Link>
+          <Link to="/" className="rounded-2xl px-1 py-1" aria-label="Chavea - início"><Logo size="sm" /></Link>
+        </div>
         <span className="mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-[#073B8C]"><KeyRound /></span>
         <h1 className="mt-5 text-3xl font-black tracking-tight">Esqueceu a senha?</h1>
         <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Enquanto o e-mail automático não chega, usamos uma recuperação temporária protegida por código de desenvolvimento.</p>

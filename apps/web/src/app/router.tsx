@@ -16,7 +16,7 @@ import { DashboardPage } from '../pages/dashboard/DashboardPage';
 const Placeholder = ({ title }: { title: string }) => (
   <main className="mx-auto max-w-lg bg-white p-6 text-slate-900">
     <h1 className="text-2xl font-black">{title}</h1>
-    <p className="mt-2 text-slate-500">Esta área está em evolução no ArenaGG.</p>
+    <p className="mt-2 text-slate-500">Esta área está em evolução no Chavea.</p>
   </main>
 );
 

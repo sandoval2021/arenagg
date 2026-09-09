@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../../components/brand/Logo';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { getMyCompetitions } from '../../lib/api';
@@ -14,12 +15,13 @@ export function CompetitionsPage() {
   return (
     <div className="min-h-dvh bg-white pb-28 text-black">
       <main className="mx-auto max-w-lg px-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <header className="flex items-center justify-between py-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">ArenaGG</p>
-            <h1 className="text-2xl font-black tracking-tight">Minhas Copas 🏆</h1>
+        <header className="flex items-center gap-3 py-3">
+          <Link to="/dashboard" className="shrink-0 rounded-2xl px-1 py-1" aria-label="Chavea - início"><Logo size="sm" /></Link>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">Chavea</p>
+            <h1 className="truncate text-2xl font-black tracking-tight">Minhas Copas 🏆</h1>
           </div>
-          <Link to="/competitions/new" aria-label="Criar campeonato" className="grid h-11 w-11 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md"><Plus className="h-5 w-5" /></Link>
+          <Link to="/competitions/new" aria-label="Criar campeonato" className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md"><Plus className="h-5 w-5" /></Link>
         </header>
 
         <section className="mt-5 space-y-3">

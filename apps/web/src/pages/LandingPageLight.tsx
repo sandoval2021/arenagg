@@ -10,11 +10,12 @@ import {
   Zap,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../components/brand/Logo';
 
 const features = [
   { icon: Trophy, title: 'Copas sem planilha', description: 'Crie mata-mata, ligas e campeonatos entre amigos em poucos toques.' },
   { icon: Camera, title: 'Placar com prova 📸', description: 'Ative a validação por foto e reduza aquela discussão clássica do “foi 4x1 mesmo?”.' },
-  { icon: UsersRound, title: 'Convite por link', description: 'Mande o link no grupo, reúna a galera e deixe o ArenaGG organizar o resto.' },
+  { icon: UsersRound, title: 'Convite por link', description: 'Mande o link no grupo, reúna a galera e deixe o Chavea organizar o resto.' },
 ];
 
 export function LandingPageLight() {
@@ -27,9 +28,8 @@ export function LandingPageLight() {
 
       <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
         <header className="flex items-center justify-between py-3">
-          <Link to="/" className="flex items-center gap-2 font-black tracking-tight" aria-label="ArenaGG - início">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md shadow-blue-200"><Trophy className="h-6 w-6" /></span>
-            <span className="text-xl">ArenaGG</span>
+          <Link to="/" className="rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início">
+            <Logo size="sm" />
           </Link>
           <Link to="/login" className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-extrabold text-[#073B8C] shadow-sm transition active:scale-95">Entrar</Link>
         </header>
@@ -59,7 +59,7 @@ export function LandingPageLight() {
 
         <section className="relative grid gap-4 overflow-hidden rounded-[2rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-6 shadow-lg shadow-blue-100/70 lg:grid-cols-[1fr_auto] lg:items-center lg:p-9"><div className="absolute -right-20 -top-24 h-64 w-64 rounded-full bg-cyan-300/20 blur-3xl" /><div className="relative"><div className="flex items-center gap-2 text-[#073B8C]"><Zap className="h-5 w-5" /><span className="text-xs font-black uppercase tracking-wider">Começa em minutos</span></div><h2 className="mt-2 text-2xl font-black sm:text-3xl">A próxima resenha merece uma chave organizada. 🏆</h2><p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-600">Crie o campeonato, copie o convite, mande no grupo e deixe o sorteio com a gente.</p></div><Link to="/register" className="relative flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-6 font-black text-white shadow-md">Bora criar! <Smartphone className="h-5 w-5" /></Link></section>
 
-        <footer className="mt-12 flex items-center justify-center gap-2 text-center text-xs font-semibold text-slate-500"><ShieldCheck className="h-4 w-4" /> ArenaGG • campeonatos de EA FC e e-Sports direto do celular</footer>
+        <footer className="mt-12 flex items-center justify-center gap-2 text-center text-xs font-semibold text-slate-500"><ShieldCheck className="h-4 w-4" /> Chavea • campeonatos de EA FC e e-Sports direto do celular</footer>
       </div>
     </main>
   );

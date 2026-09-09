@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../components/brand/Logo';
 
 const features = [
   {
@@ -25,7 +26,7 @@ const features = [
   {
     icon: UsersRound,
     title: 'Convite por link',
-    description: 'Mande o link no grupo, reúna a galera e deixe o ArenaGG organizar o resto.',
+    description: 'Mande o link no grupo, reúna a galera e deixe o Chavea organizar o resto.',
   },
 ];
 
@@ -39,11 +40,8 @@ export function LandingPage() {
 
       <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-[max(1rem,env(safe-area-inset-top))] sm:px-8">
         <header className="flex items-center justify-between py-3">
-          <Link to="/" className="flex items-center gap-2 font-black tracking-tight" aria-label="ArenaGG - início">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-950/40 ring-1 ring-white/10">
-              <Trophy className="h-6 w-6" />
-            </span>
-            <span className="text-xl">ArenaGG</span>
+          <Link to="/" className="rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início">
+            <Logo size="sm" />
           </Link>
           <Link
             to="/login"
@@ -137,7 +135,7 @@ export function LandingPage() {
         </section>
 
         <footer className="mt-12 flex items-center justify-center gap-2 text-center text-xs font-semibold text-slate-500">
-          <ShieldCheck className="h-4 w-4" /> ArenaGG • campeonatos de EA FC e e-Sports direto do celular
+          <ShieldCheck className="h-4 w-4" /> Chavea • campeonatos de EA FC e e-Sports direto do celular
         </footer>
       </div>
     </main>

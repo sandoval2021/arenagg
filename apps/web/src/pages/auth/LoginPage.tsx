@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Eye, EyeOff, LockKeyhole, Mail, Phone, Trophy } from 'lucide-react';
+import { Eye, EyeOff, LockKeyhole, Mail, Phone } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Logo } from '../../components/brand/Logo';
 import { useAuth } from '../../hooks/useAuth';
 
 type Mode = 'email' | 'phone';
@@ -36,9 +37,9 @@ export function LoginPage() {
   return (
     <main className="min-h-dvh bg-white px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))] text-black">
       <div className="mx-auto max-w-md">
-        <Link to="/" className="grid h-14 w-14 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md" aria-label="ArenaGG - início"><Trophy /></Link>
-        <h1 className="mt-7 text-3xl font-black tracking-tight">Entrar no ArenaGG</h1>
-        <p className="mt-2 text-sm font-medium text-slate-500">Sua arena de campeonatos começa aqui. 🎮🏆</p>
+        <Link to="/" className="inline-flex rounded-2xl px-1 py-1 transition active:scale-95" aria-label="Chavea - início"><Logo size="md" /></Link>
+        <h1 className="mt-7 text-3xl font-black tracking-tight">Entrar no Chavea</h1>
+        <p className="mt-2 text-sm font-medium text-slate-500">Seus campeonatos começam aqui. 🎮🏆</p>
 
         <div className="mt-7 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
           <button type="button" onClick={() => { setMode('email'); setIdentifier(''); }} className={`rounded-xl py-3 text-sm font-bold ${mode === 'email' ? 'bg-white text-[#073B8C] shadow-sm' : 'text-slate-500'}`}>E-mail</button>
