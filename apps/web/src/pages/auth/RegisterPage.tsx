@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff, LockKeyhole, Mail, Phone, UserRound } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { Logo } from '../../components/brand/Logo';
 import { useAuth } from '../../hooks/useAuth';
 import { ApiError } from '../../lib/api';
@@ -84,7 +85,7 @@ export function RegisterPage() {
 
           {auth.register.isError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{registrationErrorMessage(auth.register.error)}</p>}
 
-          <button disabled={auth.register.isPending} className="min-h-14 w-full rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.register.isPending ? 'Criando…' : 'Criar minha conta'}</button>
+          <button disabled={auth.register.isPending} className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.register.isPending ? <GlobalLoader mode="inline" label="Criando…" className="[&_*]:text-white" /> : 'Criar minha conta'}</button>
         </form>
 
         <p className="mt-7 text-center text-sm text-slate-500">Já possui conta? <Link to="/login" className="font-extrabold text-[#073B8C]">Entrar</Link></p>
