@@ -9,6 +9,7 @@ import {
   type MatchState,
 } from '@chavea/domain/match/states';
 import { storeEvidence } from '../services/evidence.service';
+import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 
 export const matches = new Hono<Env>();
 
@@ -146,7 +147,10 @@ matches.post('/:id/score', async (c) => {
       if (changed.count !== 1) throw new Error('VERSION_CONFLICT');
 
       const row = await tx.match.findUniqueOrThrow({ where: { id }, include: { competition: true } });
-      if (next === 'FINISHED') await advance(tx, row);
+      if (next === 'FINISHED') {
+        await advance(tx, row);
+        await applyFinishedMatchToProfiles(tx, id);
+      }
       return row;
     });
 
@@ -178,6 +182,7 @@ matches.post('/:id/approve', async (c) => {
 
       const fresh = await tx.match.findUniqueOrThrow({ where: { id }, include: { competition: true } });
       await advance(tx, fresh);
+      await applyFinishedMatchToProfiles(tx, id);
       return fresh;
     });
     return c.json(row);
@@ -247,7 +252,10 @@ matches.post('/:id/resolve', async (c) => {
       if (changed.count !== 1) throw new Error('VERSION_CONFLICT');
 
       const fresh = await tx.match.findUniqueOrThrow({ where: { id }, include: { competition: true } });
-      if (next === 'FINISHED') await advance(tx, fresh);
+      if (next === 'FINISHED') {
+        await advance(tx, fresh);
+        await applyFinishedMatchToProfiles(tx, id);
+      }
       return fresh;
     });
     return c.json(row);
@@ -315,6 +323,7 @@ matches.post('/:id/stats', async (c) => {
       },
     });
 
+    if (statsStatus === 'APPROVED') await applyFinishedMatchToProfiles(tx, id);
     return { stats };
   });
 
@@ -336,7 +345,10 @@ matches.post('/:id/stats/approve', async (c) => {
     if (!match) return { error: 'MATCH_NOT_FOUND' as const };
     if (!hasMatchAccess(match, user.id)) return { error: 'FORBIDDEN' as const };
     if (!match.stats) return { error: 'STATS_NOT_FOUND' as const };
-    if (match.stats.statsStatus === 'APPROVED') return { stats: match.stats };
+    if (match.stats.statsStatus === 'APPROVED') {
+      await applyFinishedMatchToProfiles(tx, id);
+      return { stats: match.stats };
+    }
 
     const hostReview = isHost(match, user.id);
     if (!hostReview) {
@@ -357,6 +369,7 @@ matches.post('/:id/stats/approve', async (c) => {
         reviewedAt: new Date(),
       },
     });
+    await applyFinishedMatchToProfiles(tx, id);
     return { stats };
   });
 

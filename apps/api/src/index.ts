@@ -12,6 +12,7 @@ import { defaultShields, ownerShields } from './routes/default-shields.routes';
 import { matches } from './routes/matches.routes';
 import { matchStats } from './routes/match-stats.routes';
 import { evidence } from './routes/evidence.routes';
+import { profile } from './routes/profile.routes';
 
 const app = new Hono<Env>();
 
@@ -36,10 +37,6 @@ app.use(
       const requestOrigin = normalizeOrigin(origin);
       const configuredOrigin = c.env.WEB_APP_URL ? normalizeOrigin(c.env.WEB_APP_URL) : undefined;
 
-      // Cloudflare Pages emits immutable deployment aliases such as
-      // https://0a4acdfc.chavea.pages.dev. Those aliases are controlled by the
-      // same Pages project and must be able to call the API during smoke tests
-      // and direct-preview access. Any unrelated origin is denied fail-closed.
       return isAllowedWebOrigin(requestOrigin, configuredOrigin) ? requestOrigin : '';
     },
     credentials: true,
@@ -49,8 +46,6 @@ app.use(
   }),
 );
 
-// API responses are dynamic Supabase state. Explicitly prevent browser,
-// intermediary and legacy PWA caches from reusing JSON across deployments.
 app.use('/api/*', async (c, next) => {
   await next();
   c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -64,6 +59,7 @@ app.use('/api/matches/*', requireAuth);
 app.use('/api/match-stats/*', requireAuth);
 app.use('/api/evidence/*', requireAuth);
 app.use('/api/default-shields/*', requireAuth);
+app.use('/api/profile/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
 
@@ -75,8 +71,6 @@ app.get('/api/health/db', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
-// Register the hardened team settings router first so PATCH /:id/my-team is
-// handled here instead of the legacy implementation kept for compatibility.
 app.route('/api/competitions', teamSettings);
 app.route('/api/competitions', competitions);
 app.route('/api/default-shields', defaultShields);
@@ -84,6 +78,7 @@ app.route('/api/owner/default-shields', ownerShields);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
+app.route('/api/profile', profile);
 
 app.onError((err, c) => {
   console.error('[api] unhandled error', err);

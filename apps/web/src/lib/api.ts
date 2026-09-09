@@ -1,4 +1,4 @@
-export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT';
+export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
   | 'DRAFT'
   | 'REGISTRATION'
@@ -81,6 +81,15 @@ export type Standing = {
   goalDifference: number;
 };
 
+export type UserProfileStats = {
+  totalWins: number;
+  totalDraws: number;
+  totalLosses: number;
+  totalGoalsScored: number;
+  totalGoalsConceded: number;
+  championshipsWon: number;
+};
+
 export type MatchStatsInput = {
   homePossession: number;
   awayPossession: number;
@@ -146,11 +155,6 @@ function resolveApiUrl(): string {
 export const API_URL = resolveApiUrl();
 
 function resolveRequestUrl(path: string): string {
-  // In production, all application API calls are same-origin through the
-  // Cloudflare Pages Function at /api/*. This makes chavea_session a first-party
-  // HttpOnly cookie on chavea.pages.dev, avoiding Safari/ITP third-party-cookie
-  // loss between pages.dev and workers.dev. Development still talks directly to
-  // the configured/local Worker.
   if (import.meta.env.PROD && path.startsWith('/api/')) return path;
   return `${API_URL}${path}`;
 }
@@ -216,6 +220,10 @@ export async function createCompetition(input: CreateCompetitionInput) {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export async function getMyUserProfile(): Promise<UserProfileStats> {
+  return apiRequest<UserProfileStats>('/api/profile/me');
 }
 
 export async function getCompetition(competitionId: string): Promise<CompetitionDetail> {

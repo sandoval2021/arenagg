@@ -17,12 +17,17 @@ import { ApiError, createCompetition, type CompetitionFormat, type TeamSelection
 
 type FormValues = {
   name: string;
+  game: string;
+  platform: string;
   format: CompetitionFormat;
   requireValidation: boolean;
   isHomeAndAway: boolean;
   teamSelection: TeamSelection;
   maxParticipants: number;
 };
+
+const games = ['EA FC 25', 'eFootball', 'Call of Duty', 'Outros'];
+const platforms = ['PS5', 'PS4', 'Xbox', 'PC', 'Mobile'];
 
 const formats = [
   { value: 'KNOCKOUT' as const, title: 'Mata-mata', description: 'Perdeu, está fora. Rápido e direto.', icon: Trophy },
@@ -46,7 +51,7 @@ const teamSelectionOptions = [
 ];
 
 function createError(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira o nome, limite de jogadores, formato e regras do campeonato.';
+  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira o nome, jogo, plataforma, limite de jogadores, formato e regras do campeonato.';
   return 'Não foi possível criar a copa agora. Tente novamente.';
 }
 
@@ -55,6 +60,8 @@ export function CreateCompetitionPage() {
   const queryClient = useQueryClient();
   const { register, control, handleSubmit, watch, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
+      game: 'EA FC 25',
+      platform: 'PS5',
       format: 'KNOCKOUT',
       requireValidation: true,
       isHomeAndAway: false,
@@ -65,6 +72,8 @@ export function CreateCompetitionPage() {
   const mutation = useMutation({
     mutationFn: (values: FormValues) => createCompetition({
       name: values.name,
+      game: values.game,
+      platform: values.platform,
       type: values.format,
       requireValidation: values.requireValidation,
       isHomeAndAway: values.isHomeAndAway,
@@ -96,6 +105,27 @@ export function CreateCompetitionPage() {
             {errors.name && <p className="mt-1 text-xs font-bold text-[#E31B23]">{errors.name.message}</p>}
           </section>
 
+          <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-xl bg-slate-950 text-white shadow-sm"><Gamepad2 className="h-5 w-5" /></span>
+              <div><p className="text-sm font-black">Jogo e Plataforma</p><p className="text-xs font-medium text-slate-500">Essas tags aparecem nos cards da competição.</p></div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-black uppercase tracking-wider text-slate-500">
+                Jogo
+                <select {...register('game', { required: true })} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 outline-none focus:border-[#073B8C] focus:ring-4 focus:ring-blue-50">
+                  {games.map((game) => <option key={game} value={game}>{game}</option>)}
+                </select>
+              </label>
+              <label className="text-xs font-black uppercase tracking-wider text-slate-500">
+                Plataforma
+                <select {...register('platform', { required: true })} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-900 outline-none focus:border-[#073B8C] focus:ring-4 focus:ring-blue-50">
+                  {platforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+                </select>
+              </label>
+            </div>
+          </section>
+
           <section>
             <p className="text-sm font-black">Formato</p>
             <Controller name="format" control={control} render={({ field }) => (
@@ -124,28 +154,8 @@ export function CreateCompetitionPage() {
             </div>
             <Controller name="maxParticipants" control={control} rules={{ min: 2, max: 20 }} render={({ field }) => (
               <div className="mt-4 grid grid-cols-[1fr_72px] items-center gap-3">
-                <input
-                  aria-label="Máximo de jogadores"
-                  type="range"
-                  min={2}
-                  max={20}
-                  step={1}
-                  value={field.value}
-                  onChange={(event) => field.onChange(Number(event.target.value))}
-                  className="w-full accent-[#073B8C]"
-                />
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={2}
-                  max={20}
-                  value={field.value}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    field.onChange(Number.isFinite(value) ? Math.min(20, Math.max(2, value)) : 2);
-                  }}
-                  className="h-11 rounded-xl border border-zinc-200 text-center text-sm font-black outline-none focus:border-[#073B8C]"
-                />
+                <input aria-label="Máximo de jogadores" type="range" min={2} max={20} step={1} value={field.value} onChange={(event) => field.onChange(Number(event.target.value))} className="w-full accent-[#073B8C]" />
+                <input type="number" inputMode="numeric" min={2} max={20} value={field.value} onChange={(event) => { const value = Number(event.target.value); field.onChange(Number.isFinite(value) ? Math.min(20, Math.max(2, value)) : 2); }} className="h-11 rounded-xl border border-zinc-200 text-center text-sm font-black outline-none focus:border-[#073B8C]" />
               </div>
             )} />
           </section>
