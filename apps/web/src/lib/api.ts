@@ -10,6 +10,7 @@ export type TeamSelection = 'FREE' | 'RANDOM';
 export type MatchStatsStatus = 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPUTED';
 
 export const PLATFORM_OWNER_EMAIL = 'sandovaloliveira284@gmail.com';
+const PRODUCTION_API_URL = 'https://arenagg-api.sandovaloliveira284.workers.dev';
 
 export type CompetitionSummary = {
   id: string;
@@ -130,8 +131,12 @@ function resolveApiUrl(): string {
 
   if (import.meta.env.DEV) return 'http://localhost:8787';
 
-  console.error('[api] VITE_API_URL is missing in production build');
-  return 'http://localhost:8787';
+  // Cloudflare Pages can also build directly from Git. That build does not
+  // inherit GitHub Actions env vars, so falling back to localhost would make
+  // login/register look offline on real phones. Keep a fail-safe production
+  // endpoint while still preferring VITE_API_URL whenever CI injects it.
+  console.warn('[api] VITE_API_URL is missing; using the Chavea production Worker fallback');
+  return PRODUCTION_API_URL;
 }
 
 export const API_URL = resolveApiUrl();
