@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import type { Env } from '../types/env';
 import { generateKnockout } from '../domain/bracket/knockout';
-import { syncGroupStandings } from '../services/group-stage.service';
+import { generateRoundRobin } from '../domain/matchmaking/roundRobin';
+import { initializeGroupStandings, syncGroupStandings } from '../services/group-stage.service';
 import { sendPushToUsers } from '../services/push.service';
 
 export const phaseSixCompetitions = new Hono<Env>();
@@ -10,6 +11,85 @@ type Tx = Prisma.TransactionClient;
 
 async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-stage:${competitionId}`}))`;
+}
+
+function shuffled<T>(values: readonly T[]): T[] {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const random = crypto.getRandomValues(new Uint32Array(1))[0] % (index + 1);
+    [result[index], result[random]] = [result[random], result[index]];
+  }
+  return result;
+}
+
+async function createGroupStage(
+  tx: Tx,
+  competitionId: string,
+  teamIds: readonly string[],
+  groupCount: number,
+  homeAway: boolean,
+): Promise<number> {
+  const buckets = Array.from({ length: groupCount }, () => [] as string[]);
+  teamIds.forEach((teamId, index) => buckets[index % groupCount].push(teamId));
+
+  const stage = await tx.stage.create({
+    data: {
+      competitionId,
+      type: 'GROUP',
+      name: 'Fase de Grupos',
+      order: 1,
+      status: 'ACTIVE',
+    },
+  });
+
+  const schedules = buckets.map((bucket) => generateRoundRobin(bucket, homeAway));
+  const maxRounds = Math.max(...schedules.map((schedule) => schedule.length));
+  const rounds = new Map<number, string>();
+  for (let number = 1; number <= maxRounds; number += 1) {
+    const round = await tx.round.create({
+      data: {
+        stageId: stage.id,
+        number,
+        name: `Grupos · Rodada ${number}`,
+        status: number === 1 ? 'ACTIVE' : 'PENDING',
+      },
+    });
+    rounds.set(number, round.id);
+  }
+
+  let matchCount = 0;
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index];
+    const group = await tx.group.create({
+      data: {
+        stageId: stage.id,
+        name: `Grupo ${String.fromCharCode(65 + index)}`,
+        order: index + 1,
+      },
+    });
+    await tx.groupTeam.createMany({
+      data: bucket.map((teamId, seed) => ({ groupId: group.id, teamId, seed: seed + 1 })),
+    });
+    await initializeGroupStandings(tx, group.id, bucket);
+
+    for (const roundSchedule of schedules[index]) {
+      const roundId = rounds.get(roundSchedule.number);
+      if (!roundId || roundSchedule.matches.length === 0) continue;
+      await tx.match.createMany({
+        data: roundSchedule.matches.map((match) => ({
+          competitionId,
+          stageId: stage.id,
+          groupId: group.id,
+          roundId,
+          homeTeamId: match.homeTeamId,
+          awayTeamId: match.awayTeamId,
+        })),
+      });
+      matchCount += roundSchedule.matches.length;
+    }
+  }
+
+  return matchCount;
 }
 
 async function createKnockoutStage(
@@ -84,13 +164,87 @@ function seedQualifiedTeams(groups: Array<{ standings: Array<{ teamId: string }>
   const runners = groups.map((group) => group.standings[1]?.teamId).filter((id): id is string => Boolean(id));
   if (winners.length !== groups.length || runners.length !== groups.length) return [];
 
-  // A1 x B2, B1 x C2, ... avoids an immediate rematch from the same group.
   const seeded: string[] = [];
   for (let index = 0; index < winners.length; index += 1) {
     seeded.push(winners[index], runners[(index + 1) % runners.length]);
   }
   return seeded;
 }
+
+// Intercepts only GROUP_STAGE. Other formats continue into the battle-tested
+// legacy start route untouched.
+phaseSixCompetitions.post('/:id/start', async (c, next) => {
+  const db = c.get('prisma');
+  const competitionId = c.req.param('id');
+  const probe = await db.competition.findUnique({
+    where: { id: competitionId },
+    select: { format: true, type: true },
+  });
+  if (!probe || (probe.format !== 'GROUP_STAGE' && probe.type !== 'GROUPS_KNOCKOUT')) return next();
+
+  const host = c.get('user');
+  const result = await db.$transaction(async (tx) => {
+    await lockCompetition(tx, competitionId);
+    const competition = await tx.competition.findUnique({
+      where: { id: competitionId },
+      select: {
+        id: true,
+        hostId: true,
+        status: true,
+        format: true,
+        type: true,
+        groupCount: true,
+        legFormat: true,
+        participations: {
+          where: { status: 'ACTIVE' },
+          orderBy: { joinedAt: 'asc' },
+          select: { team: { select: { id: true } } },
+        },
+        _count: { select: { matches: true } },
+      },
+    });
+    if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
+    if (competition.hostId !== host.id) return { error: 'HOST_ONLY' as const };
+    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
+      return { error: 'COMPETITION_ALREADY_STARTED' as const };
+    }
+    if (competition._count.matches > 0) return { error: 'MATCHES_ALREADY_EXIST' as const };
+
+    const groupCount = competition.groupCount ?? 4;
+    if (![2, 4, 8].includes(groupCount)) return { error: 'INVALID_GROUP_COUNT' as const };
+    const teamIds = competition.participations
+      .map((entry) => entry.team?.id)
+      .filter((teamId): teamId is string => Boolean(teamId));
+    if (teamIds.length < groupCount * 2) {
+      return { error: 'NOT_ENOUGH_PARTICIPANTS_FOR_GROUPS' as const, required: groupCount * 2 };
+    }
+
+    const claimed = await tx.competition.updateMany({
+      where: { id: competitionId, hostId: host.id, status: { in: ['REGISTRATION', 'READY'] } },
+      data: { status: 'IN_PROGRESS', startsAt: new Date() },
+    });
+    if (claimed.count !== 1) return { error: 'START_CONFLICT' as const };
+
+    const matchCount = await createGroupStage(
+      tx,
+      competitionId,
+      shuffled(teamIds),
+      groupCount,
+      competition.legFormat === 'HOME_AWAY',
+    );
+    return { status: 'IN_PROGRESS' as const, matchCount };
+  });
+
+  if ('error' in result) {
+    const status = result.error === 'COMPETITION_NOT_FOUND'
+      ? 404
+      : result.error === 'HOST_ONLY'
+        ? 403
+        : 409;
+    return c.json(result, status);
+  }
+  return c.json(result);
+});
 
 phaseSixCompetitions.get('/:id/group-stage', async (c) => {
   const db = c.get('prisma');
@@ -106,7 +260,6 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
     },
     select: {
       id: true,
-      name: true,
       hostId: true,
       format: true,
       type: true,
@@ -147,9 +300,7 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
                       name: true,
                       logoUrl: true,
                       participation: {
-                        select: {
-                          user: { select: { id: true, name: true, displayName: true } },
-                        },
+                        select: { user: { select: { id: true, name: true, displayName: true } } },
                       },
                     },
                   },
