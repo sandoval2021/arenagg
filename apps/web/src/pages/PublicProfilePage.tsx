@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, LoaderCircle, ShieldCheck, Trophy, UserPlus, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, ShieldCheck, Trophy, UserPlus, UserRound } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError } from '../lib/api';
@@ -26,7 +27,7 @@ export function PublicProfilePage() {
     },
   });
 
-  if (profile.isLoading) return <main className="grid min-h-dvh place-items-center bg-white"><LoaderCircle className="h-8 w-8 animate-spin text-[#073B8C]" /></main>;
+  if (profile.isLoading) return <GlobalLoader mode="screen" label="Carregando Card do Jogador…" />;
   if (profile.isError || !profile.data) return <main className="grid min-h-dvh place-items-center bg-white px-4"><div className="text-center"><h1 className="text-xl font-black">Jogador não encontrado</h1><Link to="/profile" className="mt-4 inline-flex rounded-2xl bg-[#073B8C] px-5 py-3 text-sm font-black text-white">Voltar ao perfil</Link></div></main>;
 
   const data = profile.data;
@@ -56,10 +57,10 @@ export function PublicProfilePage() {
 
           {!isMe && (
             <div className="mt-5">
-              {!friendState && <button disabled={add.isPending} onClick={() => add.mutate()} className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-3 text-center text-sm font-black text-white shadow-md disabled:opacity-50">{add.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}{add.isPending ? 'Enviando…' : 'Adicionar como Amigo'}</button>}
+              {!friendState && <button disabled={add.isPending} onClick={() => add.mutate()} className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-3 text-center text-sm font-black text-white shadow-md disabled:opacity-50">{add.isPending ? <GlobalLoader mode="inline" label="Enviando…" className="[&_*]:text-white" /> : <><UserPlus className="h-4 w-4" />Adicionar como Amigo</>}</button>}
               {friendState?.status === 'ACCEPTED' && <div className="flex min-h-13 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-center text-sm font-black text-emerald-700"><Check className="h-4 w-4 shrink-0" />Vocês são amigos</div>}
               {friendState?.status === 'PENDING' && <div className="flex min-h-13 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-3 text-center text-sm font-black text-amber-700">{friendState.direction === 'OUTGOING' ? 'Pedido de amizade enviado' : 'Este jogador enviou um pedido para você'}</div>}
-              {friendState?.status === 'REJECTED' && <button disabled={add.isPending} onClick={() => add.mutate()} className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-center text-sm font-black text-[#073B8C]"><UserPlus className="h-4 w-4 shrink-0" />Enviar novo pedido</button>}
+              {friendState?.status === 'REJECTED' && <button disabled={add.isPending} onClick={() => add.mutate()} className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-center text-sm font-black text-[#073B8C]">{add.isPending ? <GlobalLoader mode="inline" label="Enviando…" /> : <><UserPlus className="h-4 w-4 shrink-0" />Enviar novo pedido</>}</button>}
               {add.isError && <p className="mt-2 rounded-xl bg-red-50 p-2 text-center text-xs font-bold text-red-700">{friendError(add.error)}</p>}
             </div>
           )}
