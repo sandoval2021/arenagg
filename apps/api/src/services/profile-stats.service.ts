@@ -1,6 +1,8 @@
 import type { Prisma } from '@prisma/client';
-import { calculateStandings } from '../domain/standings/calculate';
+import { badgesForResult } from '../domain/achievements/badges';
 import { resolveWinner } from '../domain/bracket/knockout';
+import { calculateElo, type EloOutcome } from '../domain/ranking/elo';
+import { calculateStandings } from '../domain/standings/calculate';
 
 type Tx = Prisma.TransactionClient;
 
@@ -10,31 +12,49 @@ type ProfileDelta = {
   totalLosses: number;
   totalGoalsScored: number;
   totalGoalsConceded: number;
-  championshipsWon?: number;
+  mmrDelta: number;
 };
 
-async function incrementProfile(tx: Tx, userId: string, delta: ProfileDelta) {
-  await tx.userProfile.upsert({
+async function lockPlayerProfiles(tx: Tx, userIds: string[]): Promise<void> {
+  const orderedIds = [...new Set(userIds)].sort();
+  for (const userId of orderedIds) {
+    const lockKey = `profile:${userId}`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+  }
+}
+
+async function ensureProfile(tx: Tx, userId: string): Promise<{ mmr: number }> {
+  return tx.userProfile.upsert({
     where: { userId },
-    create: {
-      userId,
-      totalWins: delta.totalWins,
-      totalDraws: delta.totalDraws,
-      totalLosses: delta.totalLosses,
-      totalGoalsScored: delta.totalGoalsScored,
-      totalGoalsConceded: delta.totalGoalsConceded,
-      championshipsWon: delta.championshipsWon ?? 0,
-    },
-    update: {
+    create: { userId },
+    update: {},
+    select: { mmr: true },
+  });
+}
+
+async function incrementProfile(tx: Tx, userId: string, delta: ProfileDelta): Promise<void> {
+  await tx.userProfile.update({
+    where: { userId },
+    data: {
       totalWins: { increment: delta.totalWins },
       totalDraws: { increment: delta.totalDraws },
       totalLosses: { increment: delta.totalLosses },
       totalGoalsScored: { increment: delta.totalGoalsScored },
       totalGoalsConceded: { increment: delta.totalGoalsConceded },
-      ...(delta.championshipsWon
-        ? { championshipsWon: { increment: delta.championshipsWon } }
-        : {}),
+      mmr: { increment: delta.mmrDelta },
     },
+  });
+}
+
+async function awardResultBadges(
+  tx: Tx,
+  userId: string,
+  input: { goalsScored: number; goalsConceded: number; won: boolean },
+): Promise<void> {
+  const badgeCodes = badgesForResult(input);
+  await tx.userBadge.createMany({
+    data: badgeCodes.map((badgeCode) => ({ userId, badgeCode })),
+    skipDuplicates: true,
   });
 }
 
@@ -192,8 +212,8 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
 
 /**
  * Aplica uma partida finalizada ao UserProfile exatamente uma vez.
- * A marca profileAppliedAt torna o processo idempotente mesmo se placar,
- * aprovação de estatísticas e resolução do Host dispararem o serviço novamente.
+ * profileAppliedAt protege contra reprocessamento da mesma partida e os locks
+ * por jogador serializam partidas diferentes que fechem em paralelo.
  */
 export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Promise<boolean> {
   const match = await tx.match.findUnique({
@@ -232,6 +252,10 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
   });
   if (claimed.count !== 1) return false;
 
+  await lockPlayerProfiles(tx, [homeUserId, awayUserId]);
+  const homeProfile = await ensureProfile(tx, homeUserId);
+  const awayProfile = await ensureProfile(tx, awayUserId);
+
   const tiedInRegulation = match.homeScore === match.awayScore;
   const homePenaltyWin =
     tiedInRegulation &&
@@ -247,6 +271,8 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
   const homeWon = match.homeScore > match.awayScore || homePenaltyWin;
   const awayWon = match.awayScore > match.homeScore || awayPenaltyWin;
   const draw = !homeWon && !awayWon;
+  const outcome: EloOutcome = homeWon ? 'HOME_WIN' : awayWon ? 'AWAY_WIN' : 'DRAW';
+  const elo = calculateElo(homeProfile.mmr, awayProfile.mmr, outcome);
 
   await incrementProfile(tx, homeUserId, {
     totalWins: homeWon ? 1 : 0,
@@ -254,6 +280,7 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
     totalLosses: awayWon ? 1 : 0,
     totalGoalsScored: match.homeScore,
     totalGoalsConceded: match.awayScore,
+    mmrDelta: elo.homeDelta,
   });
   await incrementProfile(tx, awayUserId, {
     totalWins: awayWon ? 1 : 0,
@@ -261,6 +288,18 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
     totalLosses: homeWon ? 1 : 0,
     totalGoalsScored: match.awayScore,
     totalGoalsConceded: match.homeScore,
+    mmrDelta: elo.awayDelta,
+  });
+
+  await awardResultBadges(tx, homeUserId, {
+    goalsScored: match.homeScore,
+    goalsConceded: match.awayScore,
+    won: homeWon,
+  });
+  await awardResultBadges(tx, awayUserId, {
+    goalsScored: match.awayScore,
+    goalsConceded: match.homeScore,
+    won: awayWon,
   });
 
   await maybeFinalizeCompetition(tx, match.competitionId);
