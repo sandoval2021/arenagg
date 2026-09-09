@@ -17,7 +17,7 @@ env:
 
 jobs:
   database:
-    name: Database · Supabase migrations
+    name: Database · Supabase schema
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -35,10 +35,18 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate --schema prisma/schema.prisma
 
-      - name: Apply migrations to Supabase
+      - name: Apply Prisma schema to Supabase
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
-        run: npx prisma migrate deploy --schema prisma/schema.prisma
+        run: |
+          set -euo pipefail
+          if [ -d prisma/migrations ] && find prisma/migrations -mindepth 1 -maxdepth 1 -type d | grep -q .; then
+            echo 'Applying committed Prisma migrations.'
+            npx prisma migrate deploy --schema prisma/schema.prisma
+          else
+            echo 'No committed Prisma migrations found. Bootstrapping Supabase from schema.prisma.'
+            npx prisma db push --schema prisma/schema.prisma --skip-generate
+          fi
 
   worker:
     name: Worker · ArenaGG Hono API
