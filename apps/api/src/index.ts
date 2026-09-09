@@ -8,6 +8,7 @@ import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { competitionJoin } from './routes/competition-join.routes';
+import { lobbyModeration } from './routes/lobby-moderation.routes';
 import { teamSettings } from './routes/team-settings.routes';
 import { scorers } from './routes/scorers.routes';
 import { matchScore } from './routes/match-score.routes';
@@ -77,6 +78,7 @@ app.get('/api/health/db', async (c) => {
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 // Exact hardened/specialized competition routes are mounted before the legacy router.
+app.route('/api/competitions', lobbyModeration);
 app.route('/api/competitions', competitionJoin);
 app.route('/api/competitions', teamSettings);
 app.route('/api/competitions', scorers);
