@@ -8,6 +8,7 @@ function joinError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Não foi possível entrar neste campeonato.';
   if (error.code === 'COMPETITION_NOT_FOUND') return 'Este convite não existe ou foi removido.';
   if (error.code === 'REGISTRATION_CLOSED') return 'As inscrições desta copa já foram encerradas.';
+  if (error.code === 'COMPETITION_FULL') return 'Essa Copa já atingiu o limite máximo de jogadores.';
   return 'Não foi possível entrar agora. Tente novamente.';
 }
 
@@ -52,7 +53,7 @@ export function InvitePage() {
           ) : (
             <>
               <h2 className="text-xl font-black">Bora entrar, {auth.user?.displayName ?? auth.user?.name}? ⚽</h2>
-              <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Ao entrar, seu nome será adicionado ao lobby e o Host poderá incluir você no sorteio das partidas.</p>
+              <p className="mt-2 text-sm font-medium leading-6 text-slate-500">Ao entrar, seu nome será adicionado ao lobby. Isso não inicia a Copa: somente o Host pode gerar as partidas manualmente.</p>
               <button disabled={join.isPending || !id} onClick={() => join.mutate()} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md disabled:opacity-60">
                 {join.isPending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <ArrowRight className="h-5 w-5" />}
                 {join.isPending ? 'Entrando…' : 'Entrar neste Campeonato'}
