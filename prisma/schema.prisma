@@ -140,45 +140,47 @@ model Session {
 }
 
 model Competition {
-  id                 String            @id @default(uuid()) @db.Uuid
-  hostId             String            @db.Uuid
-  name               String
-  slug               String            @unique
-  description        String?
-  logoUrl            String?
-  game               String?
-  platform           String?
-  type               CompetitionType
-  status             CompetitionStatus @default(DRAFT)
-  legFormat          LegFormat         @default(SINGLE)
-  matchPace          MatchPace         @default(QUICK)
-  teamSelection      TeamSelection     @default(FREE)
-  maxParticipants    Int               @default(20)
-  firstPrize         String?
-  secondPrize        String?
-  thirdPrize         String?
-  maxTeams           Int?
-  groupCount         Int?
-  qualifiersPerGroup Int?
-  thirdPlaceMatch    Boolean           @default(false)
-  requireValidation  Boolean           @default(false)
-  pointsWin          Int               @default(3)
-  pointsDraw         Int               @default(1)
-  pointsLoss         Int               @default(0)
-  timezone           String            @default("America/Sao_Paulo")
-  startsAt           DateTime?
-  endsAt             DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  host               User              @relation("CompetitionHost", fields: [hostId], references: [id], onDelete: Restrict)
-  participations     Participation[]
-  teams              Team[]
-  stages             Stage[]
-  matches            Match[]
-  invites            CompetitionInvite[]
+  id                             String            @id @default(uuid()) @db.Uuid
+  hostId                         String            @db.Uuid
+  name                           String
+  slug                           String            @unique
+  description                    String?
+  logoUrl                        String?
+  game                           String?
+  platform                       String?
+  type                           CompetitionType
+  status                         CompetitionStatus @default(DRAFT)
+  legFormat                      LegFormat         @default(SINGLE)
+  matchPace                      MatchPace         @default(QUICK)
+  teamSelection                  TeamSelection     @default(FREE)
+  maxParticipants                Int               @default(20)
+  firstPrize                     String?
+  secondPrize                    String?
+  thirdPrize                     String?
+  maxTeams                       Int?
+  groupCount                     Int?
+  qualifiersPerGroup             Int?
+  thirdPlaceMatch                Boolean           @default(false)
+  requireValidation              Boolean           @default(false)
+  pointsWin                      Int               @default(3)
+  pointsDraw                     Int               @default(1)
+  pointsLoss                     Int               @default(0)
+  timezone                       String            @default("America/Sao_Paulo")
+  startsAt                       DateTime?
+  endsAt                         DateTime?
+  championshipProfileAppliedAt   DateTime?
+  createdAt                      DateTime           @default(now())
+  updatedAt                      DateTime           @updatedAt
+  host                           User               @relation("CompetitionHost", fields: [hostId], references: [id], onDelete: Restrict)
+  participations                 Participation[]
+  teams                          Team[]
+  stages                         Stage[]
+  matches                        Match[]
+  invites                        CompetitionInvite[]
 
   @@index([hostId, status])
   @@index([game, platform])
+  @@index([championshipProfileAppliedAt])
 }
 
 model Participation {
@@ -305,6 +307,7 @@ model Match {
   nextMatchId          String?      @db.Uuid
   nextMatchSlot        String?
   version              Int          @default(1)
+  profileAppliedAt     DateTime?
   competition          Competition  @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   stage                Stage        @relation(fields: [stageId], references: [id], onDelete: Cascade)
   round                Round?       @relation(fields: [roundId], references: [id], onDelete: Cascade)
@@ -319,6 +322,7 @@ model Match {
   @@index([competitionId, status])
   @@index([stageId, roundId])
   @@index([groupId])
+  @@index([profileAppliedAt])
 }
 
 model MatchStats {
