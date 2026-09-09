@@ -8,7 +8,6 @@ import {
   Crown,
   Dices,
   Gamepad2,
-  GitBranch,
   Link2,
   LoaderCircle,
   LockKeyhole,
@@ -17,7 +16,6 @@ import {
   Repeat2,
   Save,
   Shield,
-  Sparkles,
   Swords,
   Target,
   Trophy,
@@ -28,6 +26,7 @@ import {
   ApiError,
   getCompetition,
   getCompetitionMatchStats,
+  getCompetitionTopScorers,
   getStandings,
   startCompetition,
   submitMatchScore,
@@ -36,9 +35,16 @@ import {
 } from '../../lib/api';
 import { TeamConfiguratorLight } from '../../components/competition/TeamConfiguratorLight';
 import { MatchStatsPanelLight } from '../../components/matches/MatchStatsPanelLight';
+import {
+  MatchScorersEditor,
+  compactScorerDrafts,
+  validateScorerDrafts,
+  type ScorerDraft,
+} from '../../components/matches/MatchScorersEditor';
+import { TopScorersPanel } from '../../components/scorers/TopScorersPanel';
 import { StandingsTable } from '../../components/standings/StandingsTable';
 
-type CompetitionTab = 'standings' | 'rounds';
+type CompetitionTab = 'standings' | 'rounds' | 'scorers';
 type Participation = CompetitionDetail['participations'][number];
 type CompetitionMatch = CompetitionDetail['matches'][number];
 
@@ -61,6 +67,13 @@ export function CompetitionDetailPageLight() {
     queryKey: ['standings', competitionId],
     queryFn: () => getStandings(competitionId),
     enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'standings',
+  });
+
+  const topScorers = useQuery({
+    queryKey: ['top-scorers', competitionId],
+    queryFn: () => getCompetitionTopScorers(competitionId),
+    enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'scorers',
+    staleTime: 5_000,
   });
 
   const matchStats = useQuery({
@@ -157,12 +170,18 @@ export function CompetitionDetailPageLight() {
 
         {isStarted && (
           <section className="mt-7">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-2 shadow-sm"><div className="grid grid-cols-2 gap-2"><TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} icon={Medal} label="Classificação" /><TabButton active={activeTab === 'rounds'} onClick={() => setActiveTab('rounds')} icon={Swords} label="Rodadas" /></div></div>
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} icon={Medal} label="Classificação" />
+                <TabButton active={activeTab === 'rounds'} onClick={() => setActiveTab('rounds')} icon={Swords} label="Rodadas" />
+                <TabButton active={activeTab === 'scorers'} onClick={() => setActiveTab('scorers')} icon={Target} label="Artilharia" />
+              </div>
+            </div>
             <div className="mt-5">
               {activeTab === 'standings' && <>{standings.isLoading && <div className="h-80 animate-pulse rounded-[2rem] border border-slate-200 bg-slate-50" />}{standings.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar a classificação.</div>}{!standings.isLoading && !standings.isError && <StandingsTable standings={standings.data ?? []} />}</>}
               {activeTab === 'rounds' && <RoundsView rounds={rounds} competitionId={data.id} myTeamId={myTeamId} isHost={data.isHost} requireValidation={data.requireValidation} statsByMatch={statsByMatch} statsLoading={matchStats.isLoading} />}
+              {activeTab === 'scorers' && <TopScorersPanel scorers={topScorers.data ?? []} loading={topScorers.isLoading} error={topScorers.isError} />}
             </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2"><ComingSoon icon={Target} title="Artilharia" description="Ranking de gols e destaques por jogador." /><ComingSoon icon={GitBranch} title="Árvore de Mata-Mata" description="Chave visual completa com caminho até a final." /></div>
           </section>
         )}
 
@@ -185,23 +204,39 @@ function MatchCard({ match, competitionId, canEdit, isHost, requireValidation, s
   const queryClient = useQueryClient();
   const [homeScore, setHomeScore] = useState(match.homeScore ?? 0);
   const [awayScore, setAwayScore] = useState(match.awayScore ?? 0);
+  const [scorers, setScorers] = useState<ScorerDraft[]>([]);
   const [evidence, setEvidence] = useState<File | undefined>();
   const [localError, setLocalError] = useState<string | null>(null);
   const editable = canEdit && match.status === 'PENDING' && Boolean(match.homeTeam && match.awayTeam);
-  const score = useMutation({ mutationFn: () => submitMatchScore(match.id, { homeScore, awayScore, version: match.version, evidence }), onSuccess: async () => { setLocalError(null); await Promise.all([queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }), queryClient.invalidateQueries({ queryKey: ['standings', competitionId] })]); } });
+  const score = useMutation({
+    mutationFn: () => submitMatchScore(match.id, { homeScore, awayScore, version: match.version, evidence, scorers: compactScorerDrafts(scorers) }),
+    onSuccess: async () => {
+      setLocalError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
+      ]);
+    },
+  });
 
-  function saveScore() { if (requireValidation && !evidence) { setLocalError('Anexe a foto do placar para enviar o resultado.'); return; } setLocalError(null); score.mutate(); }
+  function saveScore() {
+    if (requireValidation && !evidence) { setLocalError('Anexe a foto do placar para enviar o resultado.'); return; }
+    const scorerError = validateScorerDrafts(scorers, homeScore, awayScore);
+    if (scorerError) { setLocalError(scorerError); return; }
+    setLocalError(null);
+    score.mutate();
+  }
 
-  return <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-wider text-slate-400"><span>{match.leg === 2 ? 'Jogo de volta' : match.leg === 1 ? 'Jogo de ida' : 'Confronto'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{match.status.replaceAll('_', ' ')}</span></div><div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3"><TeamSide team={match.homeTeam} align="right" /><div className="flex items-center gap-1.5"><ScoreInput value={homeScore} onChange={setHomeScore} disabled={!editable} label="Placar mandante" /><span className="font-black text-slate-300">×</span><ScoreInput value={awayScore} onChange={setAwayScore} disabled={!editable} label="Placar visitante" /></div><TeamSide team={match.awayTeam} align="left" /></div>{editable && requireValidation && <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-blue-200 bg-blue-50 px-3 text-xs font-black text-[#073B8C]"><Camera className="h-4 w-4" />{evidence ? evidence.name : 'Anexar foto do placar'}<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setEvidence(event.target.files?.[0])} /></label>}{editable && <button onClick={saveScore} disabled={score.isPending} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-black text-[#073B8C] disabled:opacity-40">{score.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{score.isPending ? 'Enviando…' : 'Registrar placar'}</button>}{(localError || score.isError) && <p className="mt-2 text-center text-[11px] font-bold text-red-600">{localError ?? scoreError(score.error)}</p>}<MatchStatsPanelLight competitionId={competitionId} match={match} stats={stats} statsLoading={statsLoading} canEdit={canEdit} isHost={isHost} /></article>;
+  return <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-wider text-slate-400"><span>{match.leg === 2 ? 'Jogo de volta' : match.leg === 1 ? 'Jogo de ida' : 'Confronto'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{match.status.replaceAll('_', ' ')}</span></div><div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3"><TeamSide team={match.homeTeam} align="right" /><div className="flex items-center gap-1.5"><ScoreInput value={homeScore} onChange={setHomeScore} disabled={!editable} label="Placar mandante" /><span className="font-black text-slate-300">×</span><ScoreInput value={awayScore} onChange={setAwayScore} disabled={!editable} label="Placar visitante" /></div><TeamSide team={match.awayTeam} align="left" /></div>{editable && <MatchScorersEditor value={scorers} onChange={setScorers} homeTeamName={match.homeTeam?.name ?? 'Mandante'} awayTeamName={match.awayTeam?.name ?? 'Visitante'} homeScore={homeScore} awayScore={awayScore} />}{editable && requireValidation && <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-blue-200 bg-blue-50 px-3 text-xs font-black text-[#073B8C]"><Camera className="h-4 w-4" />{evidence ? evidence.name : 'Anexar foto do placar'}<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => setEvidence(event.target.files?.[0])} /></label>}{editable && <button onClick={saveScore} disabled={score.isPending} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-black text-[#073B8C] disabled:opacity-40">{score.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{score.isPending ? 'Enviando…' : 'Registrar placar'}</button>}{(localError || score.isError) && <p className="mt-2 text-center text-[11px] font-bold text-red-600">{localError ?? scoreError(score.error)}</p>}<MatchStatsPanelLight competitionId={competitionId} match={match} stats={stats} statsLoading={statsLoading} canEdit={canEdit} isHost={isHost} /></article>;
 }
 
 function TeamSide({ team, align }: { team: CompetitionMatch['homeTeam']; align: 'left' | 'right' }) { return <div className={`min-w-0 ${align === 'right' ? 'text-right' : 'text-left'}`}><TeamAvatar name={team?.name ?? 'A definir'} logoUrl={team?.logoUrl ?? undefined} compact /><p className="mt-2 truncate text-xs font-black text-slate-900">{team?.name ?? 'A definir'}</p></div>; }
 function TeamAvatar({ name, logoUrl, compact = false }: { name: string; logoUrl?: string; compact?: boolean }) { const size = compact ? 'h-10 w-10' : 'h-11 w-11'; if (logoUrl) return <img src={logoUrl} alt="" className={`${size} inline-block shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm`} loading="lazy" referrerPolicy="no-referrer" />; return <span className={`inline-grid ${size} shrink-0 place-items-center rounded-xl border border-blue-100 bg-blue-50 text-[10px] font-black text-[#073B8C]`}>{name.slice(0, 2).toUpperCase()}</span>; }
 function ScoreInput({ value, onChange, disabled, label }: { value: number; onChange: (value: number) => void; disabled: boolean; label: string }) { return <input aria-label={label} type="number" inputMode="numeric" min={0} max={99} disabled={disabled} value={value} onChange={(event) => onChange(Math.min(99, Math.max(0, Number(event.target.value) || 0)))} className="h-11 w-11 rounded-xl border border-slate-200 bg-slate-50 text-center text-lg font-black text-slate-900 outline-none focus:border-blue-400 disabled:text-slate-400" />; }
-function scoreError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível registrar o placar.'; if (error.code === 'EVIDENCE_REQUIRED') return 'A foto do placar é obrigatória nesta Copa.'; if (error.code === 'INVALID_MATCH_TRANSITION') return 'Este jogo não aceita um novo placar neste momento.'; if (error.code === 'FORBIDDEN') return 'Você não pode registrar o placar deste jogo.'; return 'Falha ao registrar o placar.'; }
+function scoreError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível registrar o placar.'; if (error.code === 'EVIDENCE_REQUIRED') return 'A foto do placar é obrigatória nesta Copa.'; if (error.code === 'SCORER_TOTAL_EXCEEDS_SCORE') return 'A soma dos gols dos goleadores não pode ultrapassar o placar.'; if (error.code === 'INVALID_MATCH_TRANSITION') return 'Este jogo não aceita um novo placar neste momento.'; if (error.code === 'FORBIDDEN') return 'Você não pode registrar o placar deste jogo.'; return 'Falha ao registrar o placar.'; }
 function startError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível iniciar o campeonato.'; if (error.code === 'NOT_ENOUGH_PARTICIPANTS') return 'Convide pelo menos mais um jogador antes de começar.'; if (error.code === 'COMPETITION_ALREADY_STARTED' || error.code === 'START_CONFLICT') return 'Este campeonato já começou em outra ação.'; if (error.code === 'MATCHES_ALREADY_EXIST') return 'As partidas desta copa já foram geradas.'; return 'Não foi possível gerar as partidas. Tente novamente.'; }
-function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Medal; label: string }) { return <button type="button" onClick={onClick} className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl text-sm font-black transition ${active ? 'bg-[#073B8C] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="h-4 w-4" />{label}</button>; }
-function ComingSoon({ icon: Icon, title, description }: { icon: typeof Target; title: string; description: string }) { return <button disabled className="flex min-h-24 items-center gap-4 rounded-3xl border border-slate-200 bg-white p-4 text-left opacity-80 shadow-sm"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-slate-50 text-slate-400"><Icon className="h-5 w-5" /></span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><strong className="text-sm font-black text-slate-700">{title}</strong><span className="rounded-full bg-fuchsia-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-fuchsia-600">Em breve</span></span><span className="mt-1 block text-xs font-medium leading-5 text-slate-500">{description}</span></span><Sparkles className="h-4 w-4 text-slate-300" /></button>; }
+function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Medal; label: string }) { return <button type="button" onClick={onClick} className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-2xl px-2 text-[11px] font-black transition sm:gap-2 sm:text-sm ${active ? 'bg-[#073B8C] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="h-4 w-4 shrink-0" /><span className="truncate">{label}</span></button>; }
 type RuleTone = 'blue' | 'violet' | 'amber' | 'emerald' | 'rose';
 function RuleBadge({ icon: Icon, label, tone }: { icon: typeof Repeat2; label: string; tone: RuleTone }) { const tones: Record<RuleTone, string> = { blue: 'border-blue-200 bg-blue-50 text-[#073B8C]', violet: 'border-violet-200 bg-violet-50 text-violet-700', amber: 'border-amber-200 bg-amber-50 text-amber-700', emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700', rose: 'border-rose-200 bg-rose-50 text-rose-700' }; return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-black ${tones[tone]}`}><Icon className="h-3.5 w-3.5" />{label}</span>; }
 function groupMatchesByRound(matches: CompetitionMatch[]) { const grouped = new Map<number, CompetitionMatch[]>(); for (const match of matches) { const number = match.round?.number ?? 0; const bucket = grouped.get(number) ?? []; bucket.push(match); grouped.set(number, bucket); } return [...grouped.entries()].sort(([a], [b]) => a - b).map(([number, roundMatches]) => ({ number, name: roundMatches[0]?.round?.name || (number > 0 ? `Rodada ${number}` : 'Partidas'), matches: roundMatches })); }
