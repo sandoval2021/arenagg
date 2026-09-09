@@ -46,8 +46,8 @@ function initialTeamName(user: Env['Variables']['user']): string {
 }
 
 /**
- * Rota canônica de criação da Fase 3. Ela é montada antes do router legado e
- * mantém competição + participação do host + time inicial na mesma transação.
+ * Rota canônica de criação. Competition.type permanece para compatibilidade
+ * histórica; Competition.format é o contrato explícito da Fase 6.
  */
 phaseThreeCompetitions.post('/', async (c) => {
   const parsed = createPhaseThreeCompetitionSchema.safeParse(await c.req.json().catch(() => null));
@@ -59,6 +59,12 @@ phaseThreeCompetitions.post('/', async (c) => {
   const host = c.get('user');
   const input = parsed.data;
   const teamName = initialTeamName(host);
+  const format = input.format ?? (input.type === 'GROUPS_KNOCKOUT' ? 'GROUP_STAGE' : 'KNOCKOUT');
+  const persistedType = format === 'GROUP_STAGE'
+    ? 'GROUPS_KNOCKOUT' as const
+    : input.type === 'GROUPS_KNOCKOUT'
+      ? 'KNOCKOUT' as const
+      : input.type;
 
   const competition = await db.$transaction(async (tx) => {
     const created = await tx.competition.create({
@@ -66,7 +72,10 @@ phaseThreeCompetitions.post('/', async (c) => {
         hostId: host.id,
         name: input.name,
         slug: slugify(input.name),
-        type: input.type,
+        type: persistedType,
+        format,
+        groupCount: format === 'GROUP_STAGE' ? input.groupCount ?? 4 : null,
+        qualifiersPerGroup: format === 'GROUP_STAGE' ? 2 : null,
         game: input.game,
         platform: input.platform,
         legFormat: input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
