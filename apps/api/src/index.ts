@@ -28,6 +28,7 @@ app.use(
     credentials: true,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type'],
+    maxAge: 86_400,
   }),
 );
 
@@ -37,13 +38,18 @@ app.use('/api/matches/*', requireAuth);
 app.use('/api/evidence/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
+app.get('/api/health/db', async (c) => {
+  await c.get('prisma').$queryRaw`SELECT 1`;
+  return c.json({ status: 'ok', database: 'ok' });
+});
+
 app.route('/api/auth', auth);
 app.route('/api/competitions', competitions);
 app.route('/api/matches', matches);
 app.route('/api/evidence', evidence);
 
 app.onError((err, c) => {
-  console.error(err);
+  console.error('[api] unhandled error', err);
   if (err.message === 'VERSION_CONFLICT') {
     return c.json({ error: 'VERSION_CONFLICT' }, 409);
   }
