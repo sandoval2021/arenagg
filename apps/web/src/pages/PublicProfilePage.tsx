@@ -4,10 +4,12 @@ import { Link, useParams } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { HeadToHeadCard } from '../components/profile/HeadToHeadCard';
+import { RankBadge, RankEmblem } from '../components/profile/RankBadge';
 import { TrophyRoom } from '../components/profile/TrophyRoom';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError } from '../lib/api';
 import { PRIMARY_NAV_STALE_TIME } from '../lib/query-cache';
+import { resolveRankLocally } from '../lib/gamification-api';
 import { getPublicGamerProfile, requestFriend } from '../lib/social-api';
 
 export function PublicProfilePage() {
@@ -39,6 +41,7 @@ export function PublicProfilePage() {
   const totalGames = data.totalWins + data.totalDraws + data.totalLosses;
   const friendState = data.friendship;
   const playerName = data.displayName ?? data.name;
+  const rank = resolveRankLocally(data.mmr);
 
   return (
     <div className="min-h-dvh bg-white text-slate-900">
@@ -50,30 +53,23 @@ export function PublicProfilePage() {
 
         <section className="relative mt-4 overflow-hidden rounded-[2rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-amber-50 p-4 shadow-xl shadow-blue-100/50 sm:p-5">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[1.4rem] border border-blue-200 bg-white shadow-md sm:h-24 sm:w-24 sm:rounded-[1.6rem]">
-              {data.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
+            <div className="relative shrink-0">
+              <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-[1.4rem] border border-blue-200 bg-white shadow-md sm:h-24 sm:w-24 sm:rounded-[1.6rem]">
+                {data.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
+              </div>
+              <span className="absolute -bottom-2 -right-2"><RankEmblem rank={rank} /></span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2"><h2 className="truncate text-xl font-black sm:text-2xl">{playerName}</h2><span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-950 px-2.5 py-1 text-[10px] font-black text-white"><Medal className="h-3.5 w-3.5 text-amber-300" />{data.mmr} MMR</span></div>
-              <div className="mt-2"><ConsoleBadges consoles={data.consoles} /></div>
-              <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4 shrink-0" />Jogador Chavea</p>
+              <div className="flex min-w-0 flex-wrap items-center gap-2"><h2 className="truncate text-xl font-black sm:text-2xl">{playerName}</h2><span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-950 px-2.5 py-1 text-[10px] font-black text-white"><Medal className="h-3.5 w-3.5 text-amber-300" />{data.mmr} MMR</span></div>
+              <div className="mt-2 flex flex-wrap items-center gap-2"><RankBadge mmr={data.mmr} /><ConsoleBadges consoles={data.consoles} /></div>
+              <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4 shrink-0" />{rank.subtitle} Chavea</p>
             </div>
           </div>
 
           {(data.favoriteFormation || data.playstyle) && (
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {data.favoriteFormation && (
-                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-blue-200 bg-white/90 p-3 shadow-sm">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#073B8C] text-white"><Swords className="h-4 w-4" /></span>
-                  <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-blue-500">Formação favorita</p><p className="mt-0.5 truncate text-sm font-black text-slate-950">{data.favoriteFormation}</p></div>
-                </div>
-              )}
-              {data.playstyle && (
-                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-amber-200 bg-white/90 p-3 shadow-sm">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white"><Zap className="h-4 w-4" /></span>
-                  <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-amber-600">Estilo de jogo</p><p className="mt-0.5 text-sm font-black leading-5 text-slate-950">{data.playstyle}</p></div>
-                </div>
-              )}
+              {data.favoriteFormation && <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-blue-200 bg-white/90 p-3 shadow-sm"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#073B8C] text-white"><Swords className="h-4 w-4" /></span><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-blue-500">Formação favorita</p><p className="mt-0.5 truncate text-sm font-black text-slate-950">{data.favoriteFormation}</p></div></div>}
+              {data.playstyle && <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-amber-200 bg-white/90 p-3 shadow-sm"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white"><Zap className="h-4 w-4" /></span><div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-amber-600">Estilo de jogo</p><p className="mt-0.5 text-sm font-black leading-5 text-slate-950">{data.playstyle}</p></div></div>}
             </div>
           )}
 
@@ -89,9 +85,7 @@ export function PublicProfilePage() {
         </section>
 
         {!isMe && <HeadToHeadCard userId={data.id} opponentName={playerName} />}
-
         <TrophyRoom badges={data.badges} />
-
         <section className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">Retrospecto público</p><h3 className="mt-1 text-lg font-black">{totalGames} partidas</h3></div><div className="flex shrink-0 items-center gap-1.5 rounded-2xl bg-amber-50 px-3 py-2 text-amber-700"><Trophy className="h-4 w-4" /><span className="font-black">{data.championshipsWon}</span></div></div>
           <div className="mt-4 grid grid-cols-3 gap-1.5 sm:gap-2"><Metric label="Vitórias" value={data.totalWins} /><Metric label="Empates" value={data.totalDraws} /><Metric label="Derrotas" value={data.totalLosses} /></div>
