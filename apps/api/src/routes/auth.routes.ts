@@ -192,19 +192,19 @@ auth.get('/google/callback', async (c) => {
   });
   if (!tokenResponse.ok) return c.json({ error: 'OAUTH_TOKEN_EXCHANGE_FAILED' }, 401);
 
-  const tokens = await tokenResponse.json<{ access_token: string }>();
+  const tokens = (await tokenResponse.json()) as { access_token: string };
   const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
   });
   if (!profileResponse.ok) return c.json({ error: 'OAUTH_PROFILE_FAILED' }, 401);
 
-  const profile = await profileResponse.json<{
+  const profile = (await profileResponse.json()) as {
     sub: string;
     email: string;
     email_verified?: boolean;
     name?: string;
     picture?: string;
-  }>();
+  };
   if (!profile.email || !profile.email_verified) {
     return c.json({ error: 'GOOGLE_EMAIL_NOT_VERIFIED' }, 401);
   }
