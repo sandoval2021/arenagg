@@ -68,6 +68,7 @@ app.use('/api/evidence/*', requireAuth);
 app.use('/api/default-shields/*', requireAuth);
 app.use('/api/profile/*', requireAuth);
 app.use('/api/friends/*', requireAuth);
+app.use('/api/ranking', requireAuth);
 app.use('/api/ranking/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
