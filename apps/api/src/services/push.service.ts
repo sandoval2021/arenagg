@@ -4,6 +4,7 @@ import type { Env } from '../types/env';
 
 const VAPID_SUBJECT = 'https://chavea.pages.dev';
 const MAX_SUBSCRIPTIONS_PER_DELIVERY = 200;
+const MAX_DEVICES_PER_USER_PER_EVENT = 2;
 
 export type ChaveaPushNotification = {
   title: string;
@@ -24,6 +25,11 @@ export function getVapidPublicKey(env: Env['Bindings']): string | null {
  * Push é best-effort e fica fora das transações esportivas. Uma indisponibilidade
  * de FCM/APNs/Mozilla jamais pode reverter placar, check-in, chave ou MMR.
  * Endpoints expirados são removidos automaticamente (404/410).
+ *
+ * Mantemos até 8 subscriptions cadastradas por conta para troca de aparelhos,
+ * mas cada evento entrega apenas nos 2 endpoints mais recentes de cada jogador.
+ * Em uma Copa cheia de 20 pessoas, o maior broadcast atual (start, excluindo o
+ * Host) fica limitado a 38 entregas externas, tornando o fan-out previsível.
  */
 export async function sendPushToUsers(
   db: PrismaClient,
@@ -36,12 +42,20 @@ export async function sendPushToUsers(
     return { delivered: 0, removed: 0, failed: 0 };
   }
 
-  const subscriptions = await db.pushSubscription.findMany({
+  const candidates = await db.pushSubscription.findMany({
     where: { userId: { in: uniqueUserIds } },
     orderBy: { updatedAt: 'desc' },
     take: MAX_SUBSCRIPTIONS_PER_DELIVERY,
   });
-  if (subscriptions.length === 0) return { delivered: 0, removed: 0, failed: 0 };
+  if (candidates.length === 0) return { delivered: 0, removed: 0, failed: 0 };
+
+  const perUserCount = new Map<string, number>();
+  const subscriptions = candidates.filter((subscription) => {
+    const count = perUserCount.get(subscription.userId) ?? 0;
+    if (count >= MAX_DEVICES_PER_USER_PER_EVENT) return false;
+    perUserCount.set(subscription.userId, count + 1);
+    return true;
+  });
 
   const vapid = {
     subject: VAPID_SUBJECT,
