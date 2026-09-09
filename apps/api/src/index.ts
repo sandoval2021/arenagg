@@ -8,6 +8,8 @@ import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { teamSettings } from './routes/team-settings.routes';
+import { scorers } from './routes/scorers.routes';
+import { matchScore } from './routes/match-score.routes';
 import { defaultShields, ownerShields } from './routes/default-shields.routes';
 import { matches } from './routes/matches.routes';
 import { matchStats } from './routes/match-stats.routes';
@@ -71,10 +73,13 @@ app.get('/api/health/db', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
+// Exact hardened/specialized routes are mounted before their legacy routers.
 app.route('/api/competitions', teamSettings);
+app.route('/api/competitions', scorers);
 app.route('/api/competitions', competitions);
 app.route('/api/default-shields', defaultShields);
 app.route('/api/owner/default-shields', ownerShields);
+app.route('/api/matches', matchScore);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
