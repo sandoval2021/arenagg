@@ -1,6 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
-import { LandingPage } from '../pages/LandingPage';
+import { LandingPageLight } from '../pages/LandingPageLight';
 import { InvitePage } from '../pages/InvitePage';
 import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
 import { ProfilePage } from '../pages/ProfilePage';
@@ -8,7 +8,7 @@ import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { CompetitionsPage } from '../pages/competitions/CompetitionsPage';
-import { CompetitionDetailPage } from '../pages/competitions/CompetitionDetailPage';
+import { CompetitionDetailPageLight } from '../pages/competitions/CompetitionDetailPageLight';
 import { CreateCompetitionPage } from '../pages/competitions/CreateCompetitionPage';
 import { StandingsPage } from '../pages/competitions/StandingsPage';
 import { DashboardPage } from '../pages/dashboard/DashboardPage';
@@ -21,7 +21,7 @@ const Placeholder = ({ title }: { title: string }) => (
 );
 
 export const router = createBrowserRouter([
-  { path: '/', element: <LandingPage /> },
+  { path: '/', element: <LandingPageLight /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
@@ -32,7 +32,7 @@ export const router = createBrowserRouter([
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/competitions', element: <CompetitionsPage /> },
       { path: '/competitions/new', element: <CreateCompetitionPage /> },
-      { path: '/competitions/:competitionId', element: <CompetitionDetailPage /> },
+      { path: '/competitions/:competitionId', element: <CompetitionDetailPageLight /> },
       { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
       { path: '/profile', element: <ProfilePage /> },
