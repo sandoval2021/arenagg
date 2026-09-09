@@ -8,7 +8,7 @@ import {
   uploadMyCompetitionTeamLogo,
   type CompetitionDetail,
 } from '../../lib/api';
-import { BUILT_IN_TEAM_ICONS } from '../../lib/default-icons';
+import { BUILT_IN_TEAM_ICONS, TEAM_ICON_CATEGORIES } from '../../lib/default-icons';
 
 type Participation = CompetitionDetail['participations'][number];
 
@@ -43,10 +43,10 @@ export function TeamConfiguratorLight({
     enabled: open,
   });
 
-  const gallery = useMemo(() => [
-    ...BUILT_IN_TEAM_ICONS.map((icon) => ({ id: `built-in:${icon.url}`, name: icon.name, url: icon.url })),
-    ...(shields.data ?? []).map((shield) => ({ id: shield.id, name: shield.name, url: shield.url })),
-  ], [shields.data]);
+  const builtInGroups = useMemo(() => TEAM_ICON_CATEGORIES.map((category) => ({
+    category,
+    icons: BUILT_IN_TEAM_ICONS.filter((icon) => icon.category === category),
+  })), []);
 
   const visibleLogo = filePreview || selectedLogoUrl || participant.teamLogoUrl || participant.team?.logoUrl || '';
 
@@ -131,36 +131,75 @@ export function TeamConfiguratorLight({
       </label>
       <p className="mt-2 text-[11px] font-medium text-slate-400">JPG/JPEG, PNG ou WEBP · máximo 5 MB · compatível com fotos do iPhone.</p>
 
-      <div className="mt-5 flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-[#073B8C]" />
-        <p className="text-xs font-black uppercase tracking-wider text-slate-500">Ícones padrão</p>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[#073B8C]" />
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Ícones padrão</p>
+        </div>
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-[#073B8C]">36 opções</span>
       </div>
-      <p className="mt-1 text-[11px] font-medium text-slate-400">Escolha um vetor pronto ou um escudo publicado pelo ArenaGG.</p>
+      <p className="mt-1 text-[11px] font-medium text-slate-400">Escolha um escudo leve em vetor. A galeria é rolável no celular.</p>
 
-      {shields.isLoading && <div className="mt-3 h-16 animate-pulse rounded-2xl bg-slate-100" />}
-      {shields.isError && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-700">A galeria online não carregou, mas os ícones padrão continuam disponíveis.</p>}
-
-      <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
-        {gallery.map((shield) => {
-          const selected = !file && selectedLogoUrl === shield.url;
-          return (
-            <button
-              key={shield.id}
-              type="button"
-              onClick={() => {
-                setFile(null);
-                setSelectedLogoUrl(shield.url);
-              }}
-              className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-1.5 shadow-sm transition ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
-              aria-label={`Usar escudo ${shield.name}`}
-              title={shield.name}
-            >
-              <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" />
-              {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
-            </button>
-          );
-        })}
+      <div className="mt-3 max-h-[26rem] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-slate-50/70 p-3 pr-2 [-webkit-overflow-scrolling:touch]">
+        {builtInGroups.map((group) => (
+          <section key={group.category}>
+            <div className="sticky top-0 z-10 -mx-1 mb-2 rounded-xl bg-white/95 px-2 py-2 shadow-sm backdrop-blur">
+              <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-500">{group.category}</p>
+            </div>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+              {group.icons.map((shield) => {
+                const selected = !file && selectedLogoUrl === shield.url;
+                return (
+                  <button
+                    key={shield.url}
+                    type="button"
+                    onClick={() => {
+                      setFile(null);
+                      setSelectedLogoUrl(shield.url);
+                    }}
+                    className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-1.5 shadow-sm transition active:scale-95 ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                    aria-label={`Usar escudo ${shield.name}`}
+                    title={shield.name}
+                  >
+                    <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" />
+                    {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
+
+      {(shields.data?.length ?? 0) > 0 && (
+        <section className="mt-4">
+          <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-500">Escudos publicados</p>
+          <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6">
+            {shields.data?.map((shield) => {
+              const selected = !file && selectedLogoUrl === shield.url;
+              return (
+                <button
+                  key={shield.id}
+                  type="button"
+                  onClick={() => {
+                    setFile(null);
+                    setSelectedLogoUrl(shield.url);
+                  }}
+                  className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-1.5 shadow-sm transition ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                  aria-label={`Usar escudo ${shield.name}`}
+                  title={shield.name}
+                >
+                  <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" />
+                  {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {shields.isLoading && <div className="mt-3 h-12 animate-pulse rounded-2xl bg-slate-100" />}
+      {shields.isError && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-700">A galeria online não carregou, mas as 36 opções padrão continuam disponíveis.</p>}
 
       {save.isError && (
         <p className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{teamSaveError(save.error)}</p>
