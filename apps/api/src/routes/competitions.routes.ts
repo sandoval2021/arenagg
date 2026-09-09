@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import type { Env } from '../types/env';
-import { createCompetitionSchema } from '../schemas/competition.schema';
+import { createCompetitionSchema, updateMyTeamSchema } from '../schemas/competition.schema';
 import { generateRoundRobin } from '../domain/matchmaking/roundRobin';
 import { generateKnockout } from '../domain/bracket/knockout';
 import { calculateStandings } from '../domain/standings/calculate';
@@ -9,6 +9,20 @@ import { calculateStandings } from '../domain/standings/calculate';
 export const competitions = new Hono<Env>();
 
 type DbTransaction = Prisma.TransactionClient;
+
+type RouteError =
+  | 'COMPETITION_NOT_FOUND'
+  | 'REGISTRATION_CLOSED'
+  | 'COMPETITION_FULL'
+  | 'NOT_A_PARTICIPANT'
+  | 'TEAM_CONFIGURATION_LOCKED'
+  | 'TEAM_CONFIGURATION_NOT_ALLOWED'
+  | 'TEAM_NAME_TAKEN'
+  | 'HOST_ONLY'
+  | 'COMPETITION_ALREADY_STARTED'
+  | 'MATCHES_ALREADY_EXIST'
+  | 'NOT_ENOUGH_PARTICIPANTS'
+  | 'START_CONFLICT';
 
 function slugify(name: string): string {
   const base = name
@@ -31,6 +45,12 @@ function shuffled<T>(values: readonly T[]): T[] {
   return result;
 }
 
+async function lockCompetition(tx: DbTransaction, competitionId: string): Promise<void> {
+  // Serializa join/start da mesma copa. Evita ultrapassar maxParticipants e impede
+  // que alguém entre exatamente enquanto o Host inicia a competição.
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
+}
+
 async function createParticipantTeam(
   tx: DbTransaction,
   competitionId: string,
@@ -45,7 +65,7 @@ async function createParticipantTeam(
   const suffix = user.id.slice(0, 6);
   const name = collision ? `${requested.slice(0, 52)}-${suffix}` : requested;
 
-  return tx.team.create({
+  const team = await tx.team.create({
     data: {
       competitionId,
       participationId,
@@ -53,6 +73,13 @@ async function createParticipantTeam(
       name,
     },
   });
+
+  await tx.participation.update({
+    where: { id: participationId },
+    data: { teamName: name, teamLogoUrl: null },
+  });
+
+  return team;
 }
 
 async function buildLeague(
@@ -110,44 +137,73 @@ async function buildKnockout(
       status: 'ACTIVE',
     },
   });
-  const round = await tx.round.create({
-    data: {
-      stageId: stage.id,
-      number: 1,
-      name: 'Mata-mata',
-      status: 'ACTIVE',
-    },
-  });
 
-  for (const slot of generateKnockout(teamIds)) {
-    await tx.match.create({
+  const slots = generateKnockout(teamIds);
+  const bracketSize = 2 ** Math.ceil(Math.log2(teamIds.length));
+  let cursor = 0;
+  let slotsInRound = bracketSize / 2;
+  let roundNumber = 1;
+  const firstLegMatchByPosition = new Map<number, string>();
+
+  while (slotsInRound >= 1) {
+    const round = await tx.round.create({
       data: {
-        competitionId,
         stageId: stage.id,
-        roundId: round.id,
-        bracketPosition: slot.position,
-        homeTeamId: slot.homeTeamId,
-        awayTeamId: slot.awayTeamId,
-        nextMatchSlot: slot.nextSlot,
-        leg: 1,
+        number: roundNumber,
+        name: `Rodada ${roundNumber}`,
+        status: roundNumber === 1 ? 'ACTIVE' : 'PENDING',
       },
     });
 
-    if (homeAway) {
-      await tx.match.create({
+    const roundSlots = slots.slice(cursor, cursor + slotsInRound);
+    for (const slot of roundSlots) {
+      const firstLeg = await tx.match.create({
         data: {
           competitionId,
           stageId: stage.id,
           roundId: round.id,
           bracketPosition: slot.position,
-          homeTeamId: slot.awayTeamId,
-          awayTeamId: slot.homeTeamId,
+          homeTeamId: slot.homeTeamId,
+          awayTeamId: slot.awayTeamId,
           nextMatchSlot: slot.nextSlot,
-          leg: 2,
+          leg: 1,
         },
       });
+      firstLegMatchByPosition.set(slot.position, firstLeg.id);
+
+      if (homeAway) {
+        await tx.match.create({
+          data: {
+            competitionId,
+            stageId: stage.id,
+            roundId: round.id,
+            bracketPosition: slot.position,
+            homeTeamId: slot.awayTeamId,
+            awayTeamId: slot.homeTeamId,
+            nextMatchSlot: slot.nextSlot,
+            leg: 2,
+          },
+        });
+      }
+    }
+
+    cursor += slotsInRound;
+    slotsInRound /= 2;
+    roundNumber += 1;
+  }
+
+  if (!homeAway) {
+    for (const slot of slots) {
+      if (!slot.nextPosition) continue;
+      const matchId = firstLegMatchByPosition.get(slot.position);
+      const nextMatchId = firstLegMatchByPosition.get(slot.nextPosition);
+      if (matchId && nextMatchId) {
+        await tx.match.update({ where: { id: matchId }, data: { nextMatchId } });
+      }
     }
   }
+
+  // TODO(Bracket): exibir e resolver progressão agregada de ida/volta na Árvore de Mata-Mata.
 }
 
 async function buildGroups(
@@ -224,6 +280,26 @@ async function buildGroups(
   }
 }
 
+function routeError(error: RouteError) {
+  switch (error) {
+    case 'COMPETITION_NOT_FOUND':
+      return { status: 404 as const, body: { error } };
+    case 'HOST_ONLY':
+    case 'NOT_A_PARTICIPANT':
+      return { status: 403 as const, body: { error } };
+    case 'COMPETITION_FULL':
+    case 'REGISTRATION_CLOSED':
+    case 'TEAM_CONFIGURATION_LOCKED':
+    case 'TEAM_CONFIGURATION_NOT_ALLOWED':
+    case 'TEAM_NAME_TAKEN':
+    case 'COMPETITION_ALREADY_STARTED':
+    case 'MATCHES_ALREADY_EXIST':
+    case 'NOT_ENOUGH_PARTICIPANTS':
+    case 'START_CONFLICT':
+      return { status: 409 as const, body: { error } };
+  }
+}
+
 competitions.get('/', async (c) => {
   const db = c.get('prisma');
   const user = c.get('user');
@@ -258,6 +334,7 @@ competitions.get('/', async (c) => {
       name: competition.name,
       format: competition.type,
       participantCount: competition.participations.length,
+      maxParticipants: competition.maxParticipants,
       currentRound: competition.stages.flatMap((stage) => stage.rounds)[0]?.number,
       status: competition.status,
       logoUrl: competition.logoUrl ?? undefined,
@@ -286,6 +363,7 @@ competitions.post('/', async (c) => {
         legFormat: input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
         matchPace: input.matchPace,
         teamSelection: input.teamSelection,
+        maxParticipants: input.maxParticipants,
         requireValidation: input.requireValidation,
         status: 'REGISTRATION',
       },
@@ -330,11 +408,12 @@ competitions.get('/:id', async (c) => {
         },
       },
       matches: {
-        take: 100,
-        orderBy: [{ bracketPosition: 'asc' }, { leg: 'asc' }],
+        take: 500,
+        orderBy: [{ round: { number: 'asc' } }, { bracketPosition: 'asc' }, { leg: 'asc' }],
         include: {
-          homeTeam: { select: { id: true, name: true } },
-          awayTeam: { select: { id: true, name: true } },
+          round: { select: { id: true, number: true, name: true } },
+          homeTeam: { select: { id: true, name: true, logoUrl: true } },
+          awayTeam: { select: { id: true, name: true, logoUrl: true } },
         },
       },
     },
@@ -344,6 +423,7 @@ competitions.get('/:id', async (c) => {
 
   return c.json({
     ...competition,
+    currentUserId: user.id,
     isHost: competition.hostId === user.id,
     hasJoined: competition.participations.some((participation) => participation.userId === user.id),
   });
@@ -353,28 +433,39 @@ competitions.post('/:id/join', async (c) => {
   const db = c.get('prisma');
   const id = c.req.param('id');
   const user = c.get('user');
-  const competition = await db.competition.findUnique({
-    where: { id },
-    select: { id: true, status: true },
-  });
 
-  if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
-  if (!['REGISTRATION', 'READY'].includes(competition.status)) {
-    return c.json({ error: 'REGISTRATION_CLOSED' }, 409);
-  }
+  const result = await db.$transaction(async (tx) => {
+    await lockCompetition(tx, id);
 
-  await db.$transaction(async (tx) => {
+    const competition = await tx.competition.findUnique({
+      where: { id },
+      select: { id: true, status: true, maxParticipants: true },
+    });
+    if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
+    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
+      return { error: 'REGISTRATION_CLOSED' as const };
+    }
+
     let participation = await tx.participation.findUnique({
       where: { competitionId_userId: { competitionId: id, userId: user.id } },
       include: { team: true },
     });
+
+    if (participation?.status === 'ACTIVE') return { joined: true as const };
+
+    const activeCount = await tx.participation.count({
+      where: { competitionId: id, status: 'ACTIVE' },
+    });
+    if (activeCount >= competition.maxParticipants) {
+      return { error: 'COMPETITION_FULL' as const };
+    }
 
     if (!participation) {
       participation = await tx.participation.create({
         data: { competitionId: id, userId: user.id, status: 'ACTIVE' },
         include: { team: true },
       });
-    } else if (participation.status !== 'ACTIVE') {
+    } else {
       participation = await tx.participation.update({
         where: { id: participation.id },
         data: { status: 'ACTIVE', joinedAt: new Date() },
@@ -385,9 +476,90 @@ competitions.post('/:id/join', async (c) => {
     if (!participation.team) {
       await createParticipantTeam(tx, id, user, participation.id);
     }
+
+    return { joined: true as const };
   });
 
-  return c.json({ joined: true });
+  if ('error' in result) {
+    const mapped = routeError(result.error);
+    return c.json(mapped.body, mapped.status);
+  }
+  return c.json(result);
+});
+
+competitions.patch('/:id/my-team', async (c) => {
+  const parsed = updateMyTeamSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'INVALID_INPUT', issues: parsed.error.flatten() }, 400);
+
+  const db = c.get('prisma');
+  const id = c.req.param('id');
+  const user = c.get('user');
+  const teamName = parsed.data.teamName;
+  const teamLogoUrl = parsed.data.teamLogoUrl || null;
+
+  const result = await db.$transaction(async (tx) => {
+    await lockCompetition(tx, id);
+
+    const competition = await tx.competition.findUnique({
+      where: { id },
+      select: { status: true, teamSelection: true },
+    });
+    if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
+    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
+      return { error: 'TEAM_CONFIGURATION_LOCKED' as const };
+    }
+    if (competition.teamSelection !== 'FREE') {
+      return { error: 'TEAM_CONFIGURATION_NOT_ALLOWED' as const };
+    }
+
+    const participation = await tx.participation.findUnique({
+      where: { competitionId_userId: { competitionId: id, userId: user.id } },
+      include: { team: true },
+    });
+    if (!participation || participation.status !== 'ACTIVE') {
+      return { error: 'NOT_A_PARTICIPANT' as const };
+    }
+
+    const collision = await tx.team.findFirst({
+      where: {
+        competitionId: id,
+        name: teamName,
+        ...(participation.team ? { NOT: { id: participation.team.id } } : {}),
+      },
+      select: { id: true },
+    });
+    if (collision) return { error: 'TEAM_NAME_TAKEN' as const };
+
+    await tx.participation.update({
+      where: { id: participation.id },
+      data: { teamName, teamLogoUrl },
+    });
+
+    if (participation.team) {
+      await tx.team.update({
+        where: { id: participation.team.id },
+        data: { name: teamName, logoUrl: teamLogoUrl },
+      });
+    } else {
+      await tx.team.create({
+        data: {
+          competitionId: id,
+          participationId: participation.id,
+          createdById: user.id,
+          name: teamName,
+          logoUrl: teamLogoUrl,
+        },
+      });
+    }
+
+    return { teamName, teamLogoUrl };
+  });
+
+  if ('error' in result) {
+    const mapped = routeError(result.error);
+    return c.json(mapped.body, mapped.status);
+  }
+  return c.json(result);
 });
 
 competitions.post('/:id/start', async (c) => {
@@ -395,34 +567,35 @@ competitions.post('/:id/start', async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
-  const competition = await db.competition.findUnique({
-    where: { id },
-    include: {
-      participations: {
-        where: { status: 'ACTIVE' },
-        include: { team: true },
-        orderBy: { joinedAt: 'asc' },
+  // ÚNICO gatilho de matchmaking: esta rota só é chamada explicitamente pelo botão do Host.
+  // Entrar no lobby nunca gera partidas nem altera o status para IN_PROGRESS.
+  const result = await db.$transaction(async (tx) => {
+    await lockCompetition(tx, id);
+
+    const competition = await tx.competition.findUnique({
+      where: { id },
+      include: {
+        participations: {
+          where: { status: 'ACTIVE' },
+          include: { team: true },
+          orderBy: { joinedAt: 'asc' },
+        },
+        _count: { select: { matches: true } },
       },
-      _count: { select: { matches: true } },
-    },
-  });
+    });
 
-  if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
-  if (competition.hostId !== user.id) return c.json({ error: 'HOST_ONLY' }, 403);
-  if (!['REGISTRATION', 'READY'].includes(competition.status)) {
-    return c.json({ error: 'COMPETITION_ALREADY_STARTED' }, 409);
-  }
-  if (competition._count.matches > 0) return c.json({ error: 'MATCHES_ALREADY_EXIST' }, 409);
+    if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
+    if (competition.hostId !== user.id) return { error: 'HOST_ONLY' as const };
+    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
+      return { error: 'COMPETITION_ALREADY_STARTED' as const };
+    }
+    if (competition._count.matches > 0) return { error: 'MATCHES_ALREADY_EXIST' as const };
 
-  const teamIds = competition.participations
-    .map((participation) => participation.team?.id)
-    .filter((teamId): teamId is string => Boolean(teamId));
+    const teamIds = competition.participations
+      .map((participation) => participation.team?.id)
+      .filter((teamId): teamId is string => Boolean(teamId));
+    if (teamIds.length < 2) return { error: 'NOT_ENOUGH_PARTICIPANTS' as const };
 
-  if (teamIds.length < 2) return c.json({ error: 'NOT_ENOUGH_PARTICIPANTS' }, 409);
-  const randomizedTeamIds = shuffled(teamIds);
-  const homeAway = competition.legFormat === 'HOME_AWAY';
-
-  await db.$transaction(async (tx) => {
     const claimed = await tx.competition.updateMany({
       where: {
         id,
@@ -431,8 +604,10 @@ competitions.post('/:id/start', async (c) => {
       },
       data: { status: 'IN_PROGRESS' },
     });
+    if (claimed.count !== 1) return { error: 'START_CONFLICT' as const };
 
-    if (claimed.count !== 1) throw new Error('START_CONFLICT');
+    const randomizedTeamIds = shuffled(teamIds);
+    const homeAway = competition.legFormat === 'HOME_AWAY';
 
     if (competition.type === 'LEAGUE') {
       await buildLeague(tx, id, randomizedTeamIds, homeAway);
@@ -441,16 +616,35 @@ competitions.post('/:id/start', async (c) => {
     } else {
       await buildKnockout(tx, id, randomizedTeamIds, homeAway);
     }
+
+    const matchCount = await tx.match.count({ where: { competitionId: id } });
+    return { status: 'IN_PROGRESS' as const, matchCount };
   });
 
-  const matchCount = await db.match.count({ where: { competitionId: id } });
-  return c.json({ status: 'IN_PROGRESS', matchCount });
+  if ('error' in result) {
+    const mapped = routeError(result.error);
+    return c.json(mapped.body, mapped.status);
+  }
+  return c.json(result);
 });
 
 competitions.get('/:id/standings', async (c) => {
   const db = c.get('prisma');
   const id = c.req.param('id');
-  const competition = await db.competition.findUnique({ where: { id }, include: { teams: true } });
+  const competition = await db.competition.findUnique({
+    where: { id },
+    include: {
+      teams: {
+        include: {
+          participation: {
+            include: {
+              user: { select: { id: true, name: true, displayName: true } },
+            },
+          },
+        },
+      },
+    },
+  });
   if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
 
   const matches = await db.match.findMany({
@@ -471,10 +665,16 @@ competitions.get('/:id/standings', async (c) => {
   });
 
   return c.json(
-    calculateStandings(competition.teams.map((team) => team.id), matches as never).map((row, index) => ({
-      ...row,
-      position: index + 1,
-      team: competition.teams.find((team) => team.id === row.teamId)?.name ?? 'Time',
-    })),
+    calculateStandings(competition.teams.map((team) => team.id), matches as never).map((row, index) => {
+      const team = competition.teams.find((item) => item.id === row.teamId);
+      return {
+        ...row,
+        position: index + 1,
+        team: team?.name ?? 'Time',
+        logoUrl: team?.logoUrl ?? team?.participation.teamLogoUrl ?? undefined,
+        playerName:
+          team?.participation.user.displayName ?? team?.participation.user.name ?? 'Jogador',
+      };
+    }),
   );
 });
