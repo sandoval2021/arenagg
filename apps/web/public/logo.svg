@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Chavea</title>
+  <desc id="desc">Ícone do Chavea com troféu dourado e chaveamento sobre fundo azul-marinho.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071A3D"/>
+      <stop offset="1" stop-color="#020817"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF1A6"/>
+      <stop offset="0.42" stop-color="#F7C23B"/>
+      <stop offset="1" stop-color="#C98208"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="38%" r="46%">
+      <stop offset="0" stop-color="#FACC15" stop-opacity=".30"/>
+      <stop offset="1" stop-color="#FACC15" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".45"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#FBBF24" flood-opacity=".34"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <rect x="18" y="18" width="476" height="476" rx="88" fill="none" stroke="#F4B41A" stroke-width="6" opacity=".96"/>
+  <circle cx="256" cy="207" r="168" fill="url(#glow)"/>
+
+  <g fill="none" stroke="url(#gold)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <path d="M174 129H128v35c0 53 27 85 72 85"/>
+    <path d="M338 129h46v35c0 53-27 85-72 85"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <path d="M171 107h170v102c0 38-31 69-69 69h-32c-38 0-69-31-69-69V107Z" fill="url(#gold)"/>
+    <rect x="197" y="88" width="118" height="40" rx="18" fill="#FFE38A"/>
+    <rect x="238" y="270" width="36" height="66" rx="12" fill="url(#gold)"/>
+    <rect x="188" y="326" width="136" height="38" rx="18" fill="#FFE38A"/>
+  </g>
+
+  <g fill="none" stroke="#F4B41A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity=".98">
+    <path d="M126 400h82v25h48v38"/>
+    <path d="M386 400h-82v25h-48"/>
+  </g>
+  <circle cx="256" cy="466" r="9" fill="#FFD65A"/>
+</svg>
