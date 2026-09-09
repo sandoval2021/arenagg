@@ -1,8 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import { badgesForResult } from '../domain/achievements/badges';
+import { BADGE_CODES, type BadgeCode } from '../domain/achievements/badges';
 import { resolveWinner } from '../domain/bracket/knockout';
 import { calculateElo, type EloOutcome } from '../domain/ranking/elo';
 import { calculateStandings } from '../domain/standings/calculate';
+import { awardBadgeCodes, evaluateMatchAchievementBatch } from './achievement-engine.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -50,24 +51,18 @@ async function incrementProfile(tx: Tx, userId: string, delta: ProfileDelta): Pr
   });
 }
 
-async function awardResultBadges(
-  tx: Tx,
-  userId: string,
-  input: { goalsScored: number; goalsConceded: number; won: boolean },
-): Promise<void> {
-  const badgeCodes = badgesForResult(input);
-  await tx.userBadge.createMany({
-    data: badgeCodes.map((badgeCode) => ({ userId, badgeCode })),
-    skipDuplicates: true,
-  });
-}
-
-async function awardChampionship(tx: Tx, userId: string) {
-  await tx.userProfile.upsert({
+async function awardChampionship(tx: Tx, userId: string): Promise<void> {
+  const profile = await tx.userProfile.upsert({
     where: { userId },
     create: { userId, championshipsWon: 1 },
     update: { championshipsWon: { increment: 1 } },
+    select: { championshipsWon: true },
   });
+  const codes: BadgeCode[] = [];
+  if (profile.championshipsWon >= 1) codes.push(BADGE_CODES.CHAMPION_FIRST);
+  if (profile.championshipsWon >= 3) codes.push(BADGE_CODES.CHAMPION_3);
+  if (profile.championshipsWon >= 5) codes.push(BADGE_CODES.CHAMPION_5);
+  await awardBadgeCodes(tx, userId, codes);
 }
 
 /**
@@ -76,8 +71,6 @@ async function awardChampionship(tx: Tx, userId: string) {
  * progressão real da fase de grupos para a árvore eliminatória.
  */
 async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<void> {
-  // Reentrante quando chamado pelo fluxo normal; mantém esta função segura
-  // caso seja reutilizada por outro ponto de consolidação no futuro.
   await lockCompetition(tx, competitionId);
 
   const competition = await tx.competition.findUnique({
@@ -97,9 +90,7 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     !['IN_PROGRESS', 'FINISHED'].includes(competition.status) ||
     competition.type === 'ENDLESS' ||
     competition.type === 'GROUPS_KNOCKOUT'
-  ) {
-    return;
-  }
+  ) return;
 
   let championTeamId: string | null = null;
 
@@ -114,25 +105,17 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
         awayScore: true,
       },
     });
-
     if (
       matches.length === 0 ||
-      matches.some(
-        (match) =>
-          match.status !== 'FINISHED' ||
-          !match.homeTeamId ||
-          !match.awayTeamId ||
-          match.homeScore == null ||
-          match.awayScore == null,
-      )
-    ) {
-      return;
-    }
+      matches.some((match) =>
+        match.status !== 'FINISHED'
+        || !match.homeTeamId
+        || !match.awayTeamId
+        || match.homeScore == null
+        || match.awayScore == null)
+    ) return;
 
-    const teams = await tx.team.findMany({
-      where: { competitionId },
-      select: { id: true },
-    });
+    const teams = await tx.team.findMany({ where: { competitionId }, select: { id: true } });
     championTeamId = calculateStandings(
       teams.map((team) => team.id),
       matches.map((match) => ({
@@ -145,10 +128,7 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
   }
 
   if (competition.type === 'KNOCKOUT') {
-    // A progressão agregada de ida/volta ainda está marcada como TODO no motor
-    // atual; não proclamamos campeão automaticamente nesse caso.
     if (competition.legFormat !== 'SINGLE') return;
-
     const final = await tx.match.findFirst({
       where: { competitionId, leg: 1 },
       orderBy: [{ round: { number: 'desc' } }, { bracketPosition: 'desc' }],
@@ -162,18 +142,14 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
         awayPenaltyScore: true,
       },
     });
-
     if (
-      !final ||
-      final.status !== 'FINISHED' ||
-      !final.homeTeamId ||
-      !final.awayTeamId ||
-      final.homeScore == null ||
-      final.awayScore == null
-    ) {
-      return;
-    }
-
+      !final
+      || final.status !== 'FINISHED'
+      || !final.homeTeamId
+      || !final.awayTeamId
+      || final.homeScore == null
+      || final.awayScore == null
+    ) return;
     try {
       championTeamId = resolveWinner({
         homeTeamId: final.homeTeamId,
@@ -189,7 +165,6 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
   }
 
   if (!championTeamId) return;
-
   const champion = await tx.team.findUnique({
     where: { id: championTeamId },
     select: { participation: { select: { userId: true } } },
@@ -209,17 +184,13 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
       championshipProfileAppliedAt: now,
     },
   });
-
-  if (claimed.count === 1) {
-    await awardChampionship(tx, champion.participation.userId);
-  }
+  if (claimed.count === 1) await awardChampionship(tx, champion.participation.userId);
 }
 
 /**
  * Aplica uma partida finalizada ao UserProfile exatamente uma vez.
- * A ordem de locks é sempre competição -> jogadores ordenados. Isso mantém o
- * MMR consistente entre partidas concorrentes e evita ciclos de deadlock no
- * fechamento de campeonatos.
+ * Ordem de locks: competição -> jogadores ordenados. O motor de conquistas
+ * roda em batch depois dos contadores/MMR e não executa uma query por badge.
  */
 export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Promise<boolean> {
   const match = await tx.match.findUnique({
@@ -239,14 +210,12 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
   });
 
   if (
-    !match ||
-    match.status !== 'FINISHED' ||
-    match.profileAppliedAt ||
-    match.homeScore == null ||
-    match.awayScore == null
-  ) {
-    return false;
-  }
+    !match
+    || match.status !== 'FINISHED'
+    || match.profileAppliedAt
+    || match.homeScore == null
+    || match.awayScore == null
+  ) return false;
 
   const homeUserId = match.homeTeam?.participation.userId;
   const awayUserId = match.awayTeam?.participation.userId;
@@ -263,19 +232,15 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
 
   const homeProfile = await ensureProfile(tx, homeUserId);
   const awayProfile = await ensureProfile(tx, awayUserId);
-
   const tiedInRegulation = match.homeScore === match.awayScore;
-  const homePenaltyWin =
-    tiedInRegulation &&
-    match.homePenaltyScore != null &&
-    match.awayPenaltyScore != null &&
-    match.homePenaltyScore > match.awayPenaltyScore;
-  const awayPenaltyWin =
-    tiedInRegulation &&
-    match.homePenaltyScore != null &&
-    match.awayPenaltyScore != null &&
-    match.awayPenaltyScore > match.homePenaltyScore;
-
+  const homePenaltyWin = tiedInRegulation
+    && match.homePenaltyScore != null
+    && match.awayPenaltyScore != null
+    && match.homePenaltyScore > match.awayPenaltyScore;
+  const awayPenaltyWin = tiedInRegulation
+    && match.homePenaltyScore != null
+    && match.awayPenaltyScore != null
+    && match.awayPenaltyScore > match.homePenaltyScore;
   const homeWon = match.homeScore > match.awayScore || homePenaltyWin;
   const awayWon = match.awayScore > match.homeScore || awayPenaltyWin;
   const draw = !homeWon && !awayWon;
@@ -299,17 +264,20 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
     mmrDelta: elo.awayDelta,
   });
 
-  await awardResultBadges(tx, homeUserId, {
-    goalsScored: match.homeScore,
-    goalsConceded: match.awayScore,
-    won: homeWon,
-  });
-  await awardResultBadges(tx, awayUserId, {
-    goalsScored: match.awayScore,
-    goalsConceded: match.homeScore,
-    won: awayWon,
-  });
-
   await maybeFinalizeCompetition(tx, match.competitionId);
+  await evaluateMatchAchievementBatch(tx, {
+    matchId,
+    homeUserId,
+    awayUserId,
+    homeScore: match.homeScore,
+    awayScore: match.awayScore,
+    homePenaltyScore: match.homePenaltyScore,
+    awayPenaltyScore: match.awayPenaltyScore,
+    homeWon,
+    awayWon,
+    draw,
+    homePreMmr: homeProfile.mmr,
+    awayPreMmr: awayProfile.mmr,
+  });
   return true;
 }
