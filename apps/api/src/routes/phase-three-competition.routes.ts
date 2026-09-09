@@ -27,7 +27,9 @@ const financeSchema = z.object({
   prizeDistribution: prizeDistributionSchema.default('60,30,10'),
 });
 
-const createPhaseThreeCompetitionSchema = createCompetitionSchema.merge(financeSchema);
+// createCompetitionSchema has cross-field refinements in Phase 6, therefore
+// intersection (`and`) preserves those refinements while composing finance.
+const createPhaseThreeCompetitionSchema = createCompetitionSchema.and(financeSchema);
 
 function slugify(name: string): string {
   const base = name
