@@ -95,7 +95,12 @@ async function buildLeague(
   }
 }
 
-async function buildKnockout(tx: DbTransaction, competitionId: string, teamIds: string[]) {
+async function buildKnockout(
+  tx: DbTransaction,
+  competitionId: string,
+  teamIds: string[],
+  homeAway: boolean,
+) {
   const stage = await tx.stage.create({
     data: {
       competitionId,
@@ -124,14 +129,35 @@ async function buildKnockout(tx: DbTransaction, competitionId: string, teamIds: 
         homeTeamId: slot.homeTeamId,
         awayTeamId: slot.awayTeamId,
         nextMatchSlot: slot.nextSlot,
+        leg: 1,
       },
     });
+
+    if (homeAway) {
+      await tx.match.create({
+        data: {
+          competitionId,
+          stageId: stage.id,
+          roundId: round.id,
+          bracketPosition: slot.position,
+          homeTeamId: slot.awayTeamId,
+          awayTeamId: slot.homeTeamId,
+          nextMatchSlot: slot.nextSlot,
+          leg: 2,
+        },
+      });
+    }
   }
 }
 
-async function buildGroups(tx: DbTransaction, competitionId: string, teamIds: string[]) {
+async function buildGroups(
+  tx: DbTransaction,
+  competitionId: string,
+  teamIds: string[],
+  homeAway: boolean,
+) {
   if (teamIds.length < 4) {
-    await buildKnockout(tx, competitionId, teamIds);
+    await buildKnockout(tx, competitionId, teamIds, homeAway);
     return;
   }
 
@@ -149,8 +175,7 @@ async function buildGroups(tx: DbTransaction, competitionId: string, teamIds: st
     },
   });
 
-  const groups = [];
-  const schedules = buckets.map((bucket) => generateRoundRobin(bucket, false));
+  const schedules = buckets.map((bucket) => generateRoundRobin(bucket, homeAway));
   const maxRounds = Math.max(...schedules.map((schedule) => schedule.length));
   const rounds = new Map<number, string>();
 
@@ -173,7 +198,6 @@ async function buildGroups(tx: DbTransaction, competitionId: string, teamIds: st
         order: index + 1,
       },
     });
-    groups.push(group);
 
     await tx.groupTeam.createMany({
       data: buckets[index].map((teamId, seed) => ({
@@ -259,8 +283,9 @@ competitions.post('/', async (c) => {
         name: input.name,
         slug: slugify(input.name),
         type: input.type,
-        legFormat: input.legFormat,
+        legFormat: input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
         matchPace: input.matchPace,
+        teamSelection: input.teamSelection,
         requireValidation: input.requireValidation,
         status: 'REGISTRATION',
       },
@@ -306,6 +331,7 @@ competitions.get('/:id', async (c) => {
       },
       matches: {
         take: 100,
+        orderBy: [{ bracketPosition: 'asc' }, { leg: 'asc' }, { createdAt: 'asc' }],
         include: {
           homeTeam: { select: { id: true, name: true } },
           awayTeam: { select: { id: true, name: true } },
@@ -394,6 +420,7 @@ competitions.post('/:id/start', async (c) => {
 
   if (teamIds.length < 2) return c.json({ error: 'NOT_ENOUGH_PARTICIPANTS' }, 409);
   const randomizedTeamIds = shuffled(teamIds);
+  const homeAway = competition.legFormat === 'HOME_AWAY';
 
   await db.$transaction(async (tx) => {
     const claimed = await tx.competition.updateMany({
@@ -408,11 +435,11 @@ competitions.post('/:id/start', async (c) => {
     if (claimed.count !== 1) throw new Error('START_CONFLICT');
 
     if (competition.type === 'LEAGUE') {
-      await buildLeague(tx, id, randomizedTeamIds, competition.legFormat === 'HOME_AWAY');
+      await buildLeague(tx, id, randomizedTeamIds, homeAway);
     } else if (competition.type === 'GROUPS_KNOCKOUT') {
-      await buildGroups(tx, id, randomizedTeamIds);
+      await buildGroups(tx, id, randomizedTeamIds, homeAway);
     } else {
-      await buildKnockout(tx, id, randomizedTeamIds);
+      await buildKnockout(tx, id, randomizedTeamIds, homeAway);
     }
   });
 
