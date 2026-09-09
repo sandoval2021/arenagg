@@ -1,4 +1,5 @@
-import { Crown, Shield } from 'lucide-react';
+import { ChevronRight, Crown, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { Standing } from '../../lib/api';
 
 const podiumStyles = [
@@ -7,7 +8,13 @@ const podiumStyles = [
   'border-orange-300 bg-gradient-to-br from-orange-100 via-orange-300 to-amber-700 text-orange-950 shadow-md shadow-orange-200/60',
 ] as const;
 
-export function StandingsTable({ standings }: { standings: Standing[] }) {
+export function StandingsTable({
+  standings,
+  userIdByTeam = {},
+}: {
+  standings: Standing[];
+  userIdByTeam?: Record<string, string>;
+}) {
   return (
     <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-md shadow-slate-200/60 ring-1 ring-slate-100">
       <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/60 to-white px-5 py-4">
@@ -34,6 +41,18 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
           <tbody>
             {standings.map((row, index) => {
               const podium = index < 3;
+              const userId = userIdByTeam[row.teamId];
+              const identity = (
+                <>
+                  <TeamLogo name={row.team} logoUrl={row.logoUrl} podium={podium} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-black text-slate-900">{row.team}</p>
+                    <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.playerName}</p>
+                  </div>
+                  {userId && <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-[#073B8C]" />}
+                </>
+              );
+
               return (
                 <tr key={row.teamId} className="border-b border-slate-100 bg-white transition hover:bg-blue-50/30 last:border-b-0">
                   <td className="sticky left-0 z-10 bg-white px-3 py-3 text-center">
@@ -41,14 +60,18 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
                       {index + 1}
                     </span>
                   </td>
-                  <td className="sticky left-14 z-10 bg-white px-3 py-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <TeamLogo name={row.team} logoUrl={row.logoUrl} podium={podium} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-slate-900">{row.team}</p>
-                        <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.playerName}</p>
-                      </div>
-                    </div>
+                  <td className="sticky left-14 z-10 bg-white px-3 py-2">
+                    {userId ? (
+                      <Link
+                        to={`/profile/${encodeURIComponent(userId)}`}
+                        className="group flex min-h-12 min-w-0 items-center gap-3 rounded-xl px-1 py-1 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        aria-label={`Abrir perfil de ${row.playerName}`}
+                      >
+                        {identity}
+                      </Link>
+                    ) : (
+                      <div className="flex min-h-12 min-w-0 items-center gap-3 px-1 py-1">{identity}</div>
+                    )}
                   </td>
                   <td className="px-3 py-3 text-center text-base font-black text-[#073B8C]">{row.points}</td>
                   <td className="px-3 py-3 text-center font-extrabold text-slate-600">{row.played}</td>
@@ -71,7 +94,7 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
         </div>
       )}
 
-      <p className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-[10px] font-semibold text-slate-500">Deslize para o lado no celular para ver todas as estatísticas.</p>
+      <p className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-[10px] font-semibold text-slate-500">Toque no jogador para abrir o perfil. Deslize para o lado no celular para ver todas as estatísticas.</p>
     </div>
   );
 }
