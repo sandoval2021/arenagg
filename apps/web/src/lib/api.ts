@@ -9,6 +9,8 @@ export type CompetitionStatus =
 export type TeamSelection = 'FREE' | 'RANDOM';
 export type MatchStatsStatus = 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPUTED';
 
+export const PLATFORM_OWNER_EMAIL = 'sandovaloliveira284@gmail.com';
+
 export type CompetitionSummary = {
   id: string;
   name: string;
@@ -101,6 +103,17 @@ export type MatchStats = MatchStatsInput & {
   canDispute: boolean;
 };
 
+export type DefaultShield = {
+  id: string;
+  name: string;
+  url: string;
+  isActive?: boolean;
+  sortOrder?: number;
+  storagePath?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CreateCompetitionInput = {
   name: string;
   type: CompetitionFormat;
@@ -127,6 +140,7 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly details?: unknown,
   ) {
     super(code);
     this.name = 'ApiError';
@@ -158,8 +172,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   if (!response.ok) {
     const body = (await response.json().catch(() => ({ error: 'REQUEST_FAILED' }))) as {
       error?: string;
+      issues?: unknown;
+      message?: string;
+      prismaCode?: string;
     };
-    throw new ApiError(response.status, body.error ?? 'REQUEST_FAILED');
+    throw new ApiError(response.status, body.error ?? 'REQUEST_FAILED', body);
   }
 
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
@@ -193,6 +210,52 @@ export async function updateMyCompetitionTeam(
   return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/my-team`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  });
+}
+
+export async function uploadMyCompetitionTeamLogo(
+  competitionId: string,
+  file: File,
+): Promise<{ teamLogoUrl: string }> {
+  const body = new FormData();
+  body.set('file', file);
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/my-team/logo`, {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function getDefaultShields(): Promise<DefaultShield[]> {
+  return apiRequest('/api/default-shields');
+}
+
+export async function getOwnerDefaultShields(): Promise<DefaultShield[]> {
+  return apiRequest('/api/owner/default-shields');
+}
+
+export async function uploadOwnerDefaultShield(name: string, file: File): Promise<DefaultShield> {
+  const body = new FormData();
+  body.set('name', name);
+  body.set('file', file);
+  return apiRequest('/api/owner/default-shields', {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function updateOwnerDefaultShield(
+  id: string,
+  input: { name?: string; isActive?: boolean; sortOrder?: number },
+): Promise<DefaultShield> {
+  return apiRequest(`/api/owner/default-shields/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteOwnerDefaultShield(id: string): Promise<void> {
+  return apiRequest(`/api/owner/default-shields/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   });
 }
 
