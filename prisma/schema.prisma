@@ -78,29 +78,37 @@ enum TeamSource {
   GALLERY
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
-  id                  String          @id @default(uuid()) @db.Uuid
-  name                String
-  displayName         String?
-  avatarUrl           String?
-  email               String?         @unique
-  emailVerified       DateTime?
-  phone               String?         @unique
-  phoneVerified       DateTime?
-  passwordHash        String?
-  isActive            Boolean         @default(true)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-  profile             UserProfile?
-  accounts            AuthAccount[]
-  sessions            Session[]
-  hostedCompetitions  Competition[]   @relation("CompetitionHost")
-  participations      Participation[]
-  createdTeams        Team[]          @relation("TeamCreator")
-  submittedMatches    Match[]         @relation("MatchSubmittedBy")
-  submittedMatchStats MatchStats[]    @relation("MatchStatsSubmittedBy")
-  reviewedMatchStats  MatchStats[]    @relation("MatchStatsReviewedBy")
-  defaultShields      DefaultShield[] @relation("DefaultShieldCreator")
+  id                    String          @id @default(uuid()) @db.Uuid
+  name                  String
+  displayName           String?
+  avatarUrl             String?
+  email                 String?         @unique
+  emailVerified         DateTime?
+  phone                 String?         @unique
+  phoneVerified         DateTime?
+  passwordHash          String?
+  isActive              Boolean         @default(true)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  profile               UserProfile?
+  accounts              AuthAccount[]
+  sessions              Session[]
+  hostedCompetitions    Competition[]   @relation("CompetitionHost")
+  participations        Participation[]
+  createdTeams          Team[]          @relation("TeamCreator")
+  submittedMatches      Match[]         @relation("MatchSubmittedBy")
+  submittedMatchStats   MatchStats[]    @relation("MatchStatsSubmittedBy")
+  reviewedMatchStats    MatchStats[]    @relation("MatchStatsReviewedBy")
+  defaultShields        DefaultShield[] @relation("DefaultShieldCreator")
+  sentFriendships       Friendship[]    @relation("FriendshipRequester")
+  receivedFriendships   Friendship[]    @relation("FriendshipAddressee")
 }
 
 model UserProfile {
@@ -111,9 +119,25 @@ model UserProfile {
   totalGoalsScored     Int      @default(0)
   totalGoalsConceded   Int      @default(0)
   championshipsWon     Int      @default(0)
+  consoles             String[] @default([])
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Friendship {
+  id          String           @id @default(uuid()) @db.Uuid
+  requesterId String           @db.Uuid
+  addresseeId String           @db.Uuid
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  requester   User             @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User             @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([requesterId, status])
+  @@index([addresseeId, status])
 }
 
 model AuthAccount {
@@ -263,8 +287,8 @@ model GroupTeam {
   groupId String @db.Uuid
   teamId  String @db.Uuid
   seed    Int?
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  team    Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, teamId])
 }
@@ -290,9 +314,7 @@ model Match {
   groupId              String?      @db.Uuid
   homeTeamId           String?      @db.Uuid
   awayTeamId           String?      @db.Uuid
-  /// Snapshot do clube escolhido pelo jogador mandante nesta partida (ex.: Real Madrid).
   homeTeamName         String?
-  /// Snapshot do clube escolhido pelo jogador visitante nesta partida (ex.: Arsenal).
   awayTeamName         String?
   status               MatchStatus  @default(PENDING)
   bracketPosition      Int?

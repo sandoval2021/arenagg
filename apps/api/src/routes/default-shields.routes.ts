@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
-import { removeShield, ShieldUploadError, uploadShield } from '../services/shield-storage.service';
+import { isUploadFile, removeShield, ShieldUploadError, uploadShield } from '../services/shield-storage.service';
 
 export const defaultShields = new Hono<Env>();
 export const ownerShields = new Hono<Env>();
@@ -37,19 +37,31 @@ ownerShields.get('/', async (c) => {
 });
 
 ownerShields.post('/', async (c) => {
-  const body = await c.req.parseBody();
-  const parsedName = shieldName.safeParse(body.name);
-  const file = body.file;
+  const requestId = crypto.randomUUID();
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch (error) {
+    console.error('[default-shield.create] multipart parse failed', {
+      requestId,
+      contentType: c.req.header('content-type'),
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: 'IMAGE_REQUIRED', requestId }, 400);
+  }
+
+  const parsedName = shieldName.safeParse(form.get('name'));
+  const file = form.get('file');
 
   if (!parsedName.success) {
     return c.json({ error: 'INVALID_SHIELD_NAME', issues: parsedName.error.flatten() }, 400);
   }
-  if (!(file instanceof File)) {
-    return c.json({ error: 'IMAGE_REQUIRED' }, 400);
+  if (!isUploadFile(file)) {
+    return c.json({ error: 'IMAGE_REQUIRED', requestId }, 400);
   }
 
   const user = c.get('user');
-  let uploaded: { publicUrl: string; storagePath: string } | undefined;
+  let uploaded: { publicUrl: string; storagePath: string; requestId: string } | undefined;
 
   try {
     uploaded = await uploadShield(c.env, file, 'defaults', user.id);
@@ -62,22 +74,24 @@ ownerShields.post('/', async (c) => {
       },
       select: { id: true, name: true, url: true, isActive: true, sortOrder: true },
     });
-    return c.json(row, 201);
+    return c.json({ ...row, requestId: uploaded.requestId }, 201);
   } catch (error) {
     if (uploaded) await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
     console.error('[default-shield.create] failed', {
+      requestId,
+      storageRequestId: error instanceof ShieldUploadError ? error.requestId : uploaded?.requestId,
       userId: user.id,
       fileSize: file.size,
-      fileType: file.type,
+      declaredType: file.type || 'unknown',
       errorName: error instanceof Error ? error.name : 'UnknownError',
       errorMessage: error instanceof Error ? error.message : String(error),
     });
 
     if (error instanceof ShieldUploadError) {
       const mapped = storageResponse(error);
-      return c.json({ error: mapped.error }, mapped.status);
+      return c.json({ error: mapped.error, requestId: error.requestId }, mapped.status);
     }
-    return c.json({ error: 'DEFAULT_SHIELD_CREATE_FAILED' }, 500);
+    return c.json({ error: 'DEFAULT_SHIELD_CREATE_FAILED', requestId }, 500);
   }
 });
 
@@ -94,10 +108,7 @@ ownerShields.patch('/:id', async (c) => {
   if (!parsed.success) return c.json({ error: 'INVALID_INPUT', issues: parsed.error.flatten() }, 400);
 
   try {
-    const row = await c.get('prisma').defaultShield.update({
-      where: { id: c.req.param('id') },
-      data: parsed.data,
-    });
+    const row = await c.get('prisma').defaultShield.update({ where: { id: c.req.param('id') }, data: parsed.data });
     return c.json(row);
   } catch (error) {
     console.error('[default-shield.update] failed', {

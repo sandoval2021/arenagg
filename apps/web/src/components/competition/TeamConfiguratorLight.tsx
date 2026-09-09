@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ImagePlus, LoaderCircle, Save, Shield, Sparkles } from 'lucide-react';
 import {
@@ -8,6 +8,7 @@ import {
   uploadMyCompetitionTeamLogo,
   type CompetitionDetail,
 } from '../../lib/api';
+import { BUILT_IN_TEAM_ICONS } from '../../lib/default-icons';
 
 type Participation = CompetitionDetail['participations'][number];
 
@@ -23,6 +24,17 @@ export function TeamConfiguratorLight({
   const [teamName, setTeamName] = useState(participant.teamName || participant.team?.name || 'Meu Time');
   const [selectedLogoUrl, setSelectedLogoUrl] = useState(participant.teamLogoUrl ?? participant.team?.logoUrl ?? '');
   const [file, setFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string>('');
+
+  useEffect(() => {
+    if (!file) {
+      setFilePreview('');
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setFilePreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
 
   const shields = useQuery({
     queryKey: ['default-shields'],
@@ -30,6 +42,13 @@ export function TeamConfiguratorLight({
     staleTime: 5 * 60_000,
     enabled: open,
   });
+
+  const gallery = useMemo(() => [
+    ...BUILT_IN_TEAM_ICONS.map((icon) => ({ id: `built-in:${icon.url}`, name: icon.name, url: icon.url })),
+    ...(shields.data ?? []).map((shield) => ({ id: shield.id, name: shield.name, url: shield.url })),
+  ], [shields.data]);
+
+  const visibleLogo = filePreview || selectedLogoUrl || participant.teamLogoUrl || participant.team?.logoUrl || '';
 
   const save = useMutation({
     mutationFn: async () => {
@@ -86,12 +105,22 @@ export function TeamConfiguratorLight({
       />
 
       <p className="mt-5 text-xs font-black uppercase tracking-wider text-slate-500">Escudo do time</p>
-      <label className="mt-2 flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-4 text-sm font-black text-[#073B8C]">
+      <div className="mt-2 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {visibleLogo ? <img src={visibleLogo} alt="Preview do escudo" className="h-full w-full object-cover" /> : <Shield className="h-8 w-8 text-slate-300" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-black text-slate-800">Preview instantâneo</p>
+          <p className="mt-1 text-[11px] font-medium leading-4 text-slate-500">A imagem aparece aqui antes de qualquer envio ao servidor.</p>
+        </div>
+      </div>
+
+      <label className="mt-3 flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-4 text-sm font-black text-[#073B8C]">
         <ImagePlus className="h-5 w-5" />
-        {file ? file.name : 'Enviar foto da galeria'}
+        <span className="truncate">{file ? file.name : 'Enviar foto da galeria'}</span>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
           className="sr-only"
           onChange={(event) => {
             const selected = event.target.files?.[0] ?? null;
@@ -100,21 +129,19 @@ export function TeamConfiguratorLight({
           }}
         />
       </label>
-      <p className="mt-2 text-[11px] font-medium text-slate-400">JPG, PNG ou WEBP · máximo 5 MB.</p>
+      <p className="mt-2 text-[11px] font-medium text-slate-400">JPG/JPEG, PNG ou WEBP · máximo 5 MB · compatível com fotos do iPhone.</p>
 
       <div className="mt-5 flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-[#073B8C]" />
-        <p className="text-xs font-black uppercase tracking-wider text-slate-500">Ou escolha um escudo padrão</p>
+        <p className="text-xs font-black uppercase tracking-wider text-slate-500">Ícones padrão</p>
       </div>
+      <p className="mt-1 text-[11px] font-medium text-slate-400">Escolha um vetor pronto ou um escudo publicado pelo ArenaGG.</p>
 
       {shields.isLoading && <div className="mt-3 h-16 animate-pulse rounded-2xl bg-slate-100" />}
-      {shields.isError && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-700">Não foi possível carregar a galeria agora. Você ainda pode enviar sua própria imagem.</p>}
-      {!shields.isLoading && !shields.isError && (shields.data?.length ?? 0) === 0 && (
-        <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-medium text-slate-500">A galeria padrão ainda está vazia. Use uma foto da sua galeria.</p>
-      )}
+      {shields.isError && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-700">A galeria online não carregou, mas os ícones padrão continuam disponíveis.</p>}
 
       <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6">
-        {shields.data?.map((shield) => {
+        {gallery.map((shield) => {
           const selected = !file && selectedLogoUrl === shield.url;
           return (
             <button
@@ -140,7 +167,7 @@ export function TeamConfiguratorLight({
       )}
 
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => setOpen(false)} className="min-h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-600">Cancelar</button>
+        <button type="button" onClick={() => { setFile(null); setOpen(false); }} className="min-h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-600">Cancelar</button>
         <button
           type="button"
           disabled={teamName.trim().length < 2 || save.isPending}
@@ -159,7 +186,7 @@ function teamSaveError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Não foi possível salvar seu time.';
   switch (error.code) {
     case 'INVALID_TEAM_INPUT':
-      return 'Confira o nome do time. Use entre 2 e 60 caracteres.';
+      return 'Confira o nome do time e o escudo selecionado.';
     case 'TEAM_NAME_TAKEN':
       return 'Esse nome de time já está sendo usado nesta Copa.';
     case 'TEAM_CONFIGURATION_LOCKED':
@@ -168,15 +195,17 @@ function teamSaveError(error: unknown): string {
       return 'Esta Copa usa sorteio de times e não permite personalização manual.';
     case 'NOT_A_PARTICIPANT':
       return 'Sua participação nesta Copa não foi encontrada.';
+    case 'IMAGE_REQUIRED':
+      return 'O celular não entregou a imagem corretamente. Selecione a foto novamente.';
     case 'IMAGE_TOO_LARGE':
       return 'O escudo deve ter no máximo 5 MB.';
     case 'INVALID_IMAGE':
-      return 'Use uma imagem JPG, PNG ou WEBP.';
+      return 'O conteúdo do arquivo não é uma imagem JPG/JPEG, PNG ou WEBP válida.';
     case 'STORAGE_NOT_CONFIGURED':
       return 'O upload de escudos ainda não está configurado no servidor.';
     case 'STORAGE_UPLOAD_FAILED':
     case 'TEAM_LOGO_UPLOAD_FAILED':
-      return 'Falha ao enviar o escudo. Tente novamente.';
+      return 'Falha ao gravar o escudo no Storage. O servidor registrou um código de diagnóstico.';
     case 'TEAM_DATABASE_ERROR':
       return 'O banco recusou a alteração do time. O erro foi registrado para diagnóstico.';
     case 'NETWORK_ERROR':
