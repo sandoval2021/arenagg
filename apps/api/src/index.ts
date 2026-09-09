@@ -4,6 +4,7 @@ import type { Env } from './types/env';
 import { dbMiddleware } from './middleware/db';
 import { requireAuth } from './middleware/auth.middleware';
 import { auth } from './routes/auth.routes';
+import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { matches } from './routes/matches.routes';
 import { evidence } from './routes/evidence.routes';
@@ -27,7 +28,7 @@ app.use(
     },
     credentials: true,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
+    allowHeaders: ['Content-Type', 'X-Dev-Reset-Token'],
     maxAge: 86_400,
   }),
 );
@@ -44,6 +45,7 @@ app.get('/api/health/db', async (c) => {
 });
 
 app.route('/api/auth', auth);
+app.route('/api/auth', devAuth);
 app.route('/api/competitions', competitions);
 app.route('/api/matches', matches);
 app.route('/api/evidence', evidence);
