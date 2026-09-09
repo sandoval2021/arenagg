@@ -57,6 +57,8 @@ async function attachSession(
   setCookie(c, 'chavea_session', session.token, cookieOptions);
 }
 
+type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'create_session';
+
 auth.post('/register', async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
@@ -75,6 +77,7 @@ auth.post('/register', async (c) => {
   const email = input.email ? normalizeEmail(input.email) : null;
   const phone = input.phone ? normalizePhone(input.phone) : null;
   const prisma = c.get('prisma');
+  let stage: RegistrationStage = 'lookup';
 
   try {
     const existing = await prisma.user.findFirst({
@@ -85,19 +88,25 @@ auth.post('/register', async (c) => {
 
     if (existing) return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
 
+    stage = 'hash_password';
+    const passwordHash = await hashPassword(input.password);
+
+    stage = 'create_user';
     const user = await prisma.user.create({
       data: {
         name: input.name,
         email,
         phone,
-        passwordHash: await hashPassword(input.password),
+        passwordHash,
       },
     });
 
+    stage = 'create_session';
     await attachSession(c, prisma, user.id);
     return c.json({ user: toPublicUser(user) }, 201);
   } catch (error) {
     console.log('[auth.register] failed', {
+      stage,
       nameLength: input.name.length,
       hasEmail: Boolean(email),
       hasPhone: Boolean(phone),
@@ -109,7 +118,7 @@ auth.post('/register', async (c) => {
       return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
     }
 
-    return c.json({ error: 'REGISTRATION_FAILED' }, 500);
+    return c.json({ error: 'REGISTRATION_FAILED', stage }, 500);
   }
 });
 
