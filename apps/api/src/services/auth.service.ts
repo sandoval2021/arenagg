@@ -1,7 +1,18 @@
 import type { PrismaClient, User } from '@prisma/client';
+import { pbkdf2 as nodePbkdf2, scrypt as nodeScrypt } from 'node:crypto';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const PBKDF2_ITERATIONS = 310_000;
+
+// Cloudflare Workers caps WebCrypto PBKDF2 at 100k iterations. Passwords are
+// therefore derived with the Worker-supported native scrypt implementation.
+// These parameters use ~32 MiB per derivation, staying well below the 128 MiB
+// Worker memory ceiling while remaining memory-hard.
+const SCRYPT_N = 32_768;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEY_LENGTH = 32;
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
+
 const encoder = new TextEncoder();
 
 export type PublicUser = Pick<
@@ -52,31 +63,44 @@ function randomToken(): string {
     .replaceAll('=', '');
 }
 
-async function derivePassword(
+function deriveScrypt(
+  password: string,
+  salt: Uint8Array,
+  n: number,
+  r: number,
+  p: number,
+): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    nodeScrypt(
+      password,
+      salt,
+      SCRYPT_KEY_LENGTH,
+      { N: n, r, p, maxmem: SCRYPT_MAXMEM },
+      (error, derivedKey) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(new Uint8Array(derivedKey));
+      },
+    );
+  });
+}
+
+function deriveLegacyPbkdf2(
   password: string,
   salt: Uint8Array,
   iterations: number,
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    toArrayBuffer(encoder.encode(password)),
-    'PBKDF2',
-    false,
-    ['deriveBits'],
-  );
-
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt: toArrayBuffer(salt),
-      iterations,
-    },
-    key,
-    256,
-  );
-
-  return new Uint8Array(bits);
+  return new Promise((resolve, reject) => {
+    nodePbkdf2(password, salt, iterations, 32, 'sha256', (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(new Uint8Array(derivedKey));
+    });
+  });
 }
 
 export function toPublicUser(user: User): PublicUser {
@@ -101,23 +125,61 @@ export function normalizePhone(value: string): string {
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const derived = await derivePassword(password, salt, PBKDF2_ITERATIONS);
-  return `pbkdf2-sha256$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(derived)}`;
+  const derived = await deriveScrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P);
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${bytesToHex(salt)}$${bytesToHex(derived)}`;
 }
 
 export async function verifyPassword(stored: string, password: string): Promise<boolean> {
   try {
-    const [algorithm, rawIterations, saltHex, hashHex] = stored.split('$');
-    if (algorithm !== 'pbkdf2-sha256') return false;
+    const parts = stored.split('$');
+    const algorithm = parts[0];
 
-    const iterations = Number(rawIterations);
-    if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) {
-      return false;
+    if (algorithm === 'scrypt') {
+      if (parts.length !== 6) return false;
+      const [, rawN, rawR, rawP, saltHex, hashHex] = parts;
+      const n = Number(rawN);
+      const r = Number(rawR);
+      const p = Number(rawP);
+
+      if (
+        !Number.isInteger(n) ||
+        n < 16_384 ||
+        n > 65_536 ||
+        (n & (n - 1)) !== 0 ||
+        !Number.isInteger(r) ||
+        r < 1 ||
+        r > 16 ||
+        !Number.isInteger(p) ||
+        p < 1 ||
+        p > 8
+      ) {
+        return false;
+      }
+
+      const expected = hexToBytes(hashHex);
+      if (expected.length !== SCRYPT_KEY_LENGTH) return false;
+      const actual = await deriveScrypt(password, hexToBytes(saltHex), n, r, p);
+      return timingSafeEqual(expected, actual);
     }
 
-    const expected = hexToBytes(hashHex);
-    const actual = await derivePassword(password, hexToBytes(saltHex), iterations);
-    return timingSafeEqual(expected, actual);
+    // Backward-compatible verification for any PBKDF2 hashes created before
+    // the Worker-specific scrypt migration. Node crypto avoids the WebCrypto
+    // runtime's 100k-iteration PBKDF2 ceiling.
+    if (algorithm === 'pbkdf2-sha256') {
+      if (parts.length !== 4) return false;
+      const [, rawIterations, saltHex, hashHex] = parts;
+      const iterations = Number(rawIterations);
+      if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) {
+        return false;
+      }
+
+      const expected = hexToBytes(hashHex);
+      if (expected.length !== 32) return false;
+      const actual = await deriveLegacyPbkdf2(password, hexToBytes(saltHex), iterations);
+      return timingSafeEqual(expected, actual);
+    }
+
+    return false;
   } catch {
     return false;
   }
