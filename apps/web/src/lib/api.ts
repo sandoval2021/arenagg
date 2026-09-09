@@ -1,11 +1,48 @@
+export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT';
+export type CompetitionStatus =
+  | 'DRAFT'
+  | 'REGISTRATION'
+  | 'READY'
+  | 'IN_PROGRESS'
+  | 'FINISHED'
+  | 'CANCELLED';
+
 export type CompetitionSummary = {
   id: string;
   name: string;
-  format: 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT';
+  format: CompetitionFormat;
   participantCount: number;
   currentRound?: number;
-  status: 'REGISTRATION' | 'READY' | 'IN_PROGRESS' | 'FINISHED';
+  status: CompetitionStatus;
   logoUrl?: string;
+  isHost?: boolean;
+};
+
+export type CompetitionDetail = {
+  id: string;
+  name: string;
+  slug: string;
+  type: CompetitionFormat;
+  status: CompetitionStatus;
+  requireValidation: boolean;
+  hostId: string;
+  host: { id: string; name: string; displayName: string | null };
+  isHost: boolean;
+  hasJoined: boolean;
+  participations: Array<{
+    id: string;
+    userId: string;
+    user: { id: string; name: string; displayName: string | null; avatarUrl: string | null };
+    team: { id: string; name: string; logoUrl: string | null } | null;
+  }>;
+  matches: Array<{
+    id: string;
+    status: string;
+    homeTeam: { id: string; name: string } | null;
+    awayTeam: { id: string; name: string } | null;
+    homeScore: number | null;
+    awayScore: number | null;
+  }>;
 };
 
 export type Standing = {
@@ -20,6 +57,14 @@ export type Standing = {
   goalsFor: number;
   goalsAgainst: number;
   goalDifference: number;
+};
+
+export type CreateCompetitionInput = {
+  name: string;
+  type: CompetitionFormat;
+  legFormat?: 'SINGLE' | 'HOME_AWAY';
+  matchPace?: 'QUICK' | 'SCHEDULED';
+  requireValidation?: boolean;
 };
 
 function resolveApiUrl(): string {
@@ -78,6 +123,37 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
 export async function getMyCompetitions(): Promise<CompetitionSummary[]> {
   return apiRequest('/api/competitions');
+}
+
+export async function createCompetition(input: CreateCompetitionInput) {
+  return apiRequest<{ id: string; name: string }>('/api/competitions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getCompetition(competitionId: string): Promise<CompetitionDetail> {
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}`);
+}
+
+export async function joinCompetition(competitionId: string): Promise<{ joined: true }> {
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/join`, {
+    method: 'POST',
+  });
+}
+
+export async function startCompetition(competitionId: string): Promise<{ status: 'IN_PROGRESS'; matchCount: number }> {
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/start`, {
+    method: 'POST',
+  });
+}
+
+export async function resetPasswordDev(email: string, newPassword: string, devToken: string) {
+  return apiRequest<{ ok: true }>('/api/auth/reset-password-dev', {
+    method: 'POST',
+    headers: { 'X-Dev-Reset-Token': devToken },
+    body: JSON.stringify({ email, newPassword }),
+  });
 }
 
 export async function getStandings(competitionId: string): Promise<Standing[]> {
