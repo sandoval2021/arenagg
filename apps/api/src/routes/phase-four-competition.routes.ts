@@ -5,9 +5,8 @@ import { sendPushToUsers } from '../services/push.service';
 export const phaseFourCompetitions = new Hono<Env>();
 
 /**
- * Cross-cutting hook around the existing canonical start route. Notification
- * delivery happens only after a successful transaction/response and remains
- * best-effort, so a push provider outage can never roll back matchmaking.
+ * Cross-cutting hook around the canonical start routes. Notification delivery
+ * happens only after a successful transaction/response and remains best-effort.
  */
 phaseFourCompetitions.use('/:id/start', async (c, next) => {
   if (c.req.method !== 'POST') return next();
@@ -22,6 +21,8 @@ phaseFourCompetitions.use('/:id/start', async (c, next) => {
       select: {
         name: true,
         hostId: true,
+        format: true,
+        type: true,
         participations: {
           where: { status: 'ACTIVE' },
           select: { userId: true },
@@ -33,10 +34,13 @@ phaseFourCompetitions.use('/:id/start', async (c, next) => {
     const recipients = competition.participations
       .map((participation) => participation.userId)
       .filter((userId) => userId !== competition.hostId);
+    const isGroupStage = competition.format === 'GROUP_STAGE' || competition.type === 'GROUPS_KNOCKOUT';
 
     await sendPushToUsers(db, c.env, recipients, {
-      title: '🏆 A chave foi gerada!',
-      body: `${competition.name}: suas partidas já estão disponíveis.`,
+      title: isGroupStage ? '🎲 Os grupos foram sorteados!' : '🏆 A chave foi gerada!',
+      body: isGroupStage
+        ? `${competition.name}: confira seu grupo e as primeiras partidas.`
+        : `${competition.name}: suas partidas já estão disponíveis.`,
       url: `/competitions/${competitionId}`,
       tag: `competition-start-${competitionId}`,
     });
