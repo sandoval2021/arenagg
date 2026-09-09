@@ -12,6 +12,7 @@ export type Env = {
     GOOGLE_CLIENT_SECRET?: string;
     GOOGLE_REDIRECT_URI?: string;
     WEB_APP_URL: string;
+    DEV_PASSWORD_RESET_TOKEN?: string;
   };
   Variables: {
     prisma: PrismaClient;
