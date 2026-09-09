@@ -39,9 +39,15 @@ export function ProfilePage() {
   const friends = useQuery({ queryKey: ['friends'], queryFn: getFriends });
   const requests = useQuery({ queryKey: ['friend-requests'], queryFn: getFriendRequests });
 
-  const respond = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'accept' | 'reject' }) =>
-      action === 'accept' ? acceptFriendRequest(id) : rejectFriendRequest(id),
+  const respond = useMutation<
+    { id: string; status: 'ACCEPTED' | 'REJECTED' },
+    Error,
+    { id: string; action: 'accept' | 'reject' }
+  >({
+    mutationFn: async ({ id, action }) => {
+      if (action === 'accept') return acceptFriendRequest(id);
+      return rejectFriendRequest(id);
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['friends'] }),
