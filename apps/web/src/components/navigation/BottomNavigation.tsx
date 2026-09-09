@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Home, Trophy, UserRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -11,10 +12,12 @@ const items = [
   { to: '/profile', label: 'Meu Perfil', icon: UserRound },
 ] as const;
 
+type PrimaryRoute = (typeof items)[number]['to'];
+
 export function BottomNavigation() {
   const queryClient = useQueryClient();
 
-  function prefetch(to: (typeof items)[number]['to']) {
+  function prefetch(to: PrimaryRoute) {
     if (to === '/dashboard' || to === '/competitions') {
       void queryClient.prefetchQuery({
         queryKey: ['competitions', 'mine'],
@@ -42,6 +45,17 @@ export function BottomNavigation() {
       }),
     ]);
   }
+
+  useEffect(() => {
+    // Warm the other primary tabs shortly after the current screen renders.
+    // React Query deduplicates fresh requests, so repeated BottomNavigation
+    // mounts do not spam the API while the cache is still fresh.
+    const timer = window.setTimeout(() => {
+      prefetch('/dashboard');
+      prefetch('/profile');
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [queryClient]);
 
   return (
     <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-50 border-t border-black/5 bg-white/90 px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
