@@ -2,6 +2,7 @@ import { createContext, useContext, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_URL, apiRequest } from '../lib/api';
 import { Logo } from '../components/brand/Logo';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 
 export type AuthUser = {
   id: string;
@@ -95,19 +96,7 @@ function useAuthState() {
 }
 
 function SessionBootScreen() {
-  return (
-    <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
-      <div className="flex flex-col items-center text-center">
-        <div className="animate-pulse">
-          <Logo size="md" />
-        </div>
-        <div className="mt-7 flex items-center gap-2 text-sm font-black text-slate-500">
-          <span className="h-2.5 w-2.5 animate-ping rounded-full bg-[#073B8C]" />
-          Validando sua sessão…
-        </div>
-      </div>
-    </main>
-  );
+  return <GlobalLoader mode="screen" label="Validando sua sessão…" />;
 }
 
 function SessionRecoveryScreen({ onRetry }: { onRetry: () => void }) {
