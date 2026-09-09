@@ -17,8 +17,12 @@ interface R2ObjectBody {
   key: string;
 }
 
-interface R2BucketPort {
-  put(key: string, value: ReadableStream | ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }): Promise<R2ObjectBody | null>;
+export interface R2BucketPort {
+  put(
+    key: string,
+    value: ReadableStream | ArrayBuffer,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<R2ObjectBody | null>;
   delete(key: string): Promise<void>;
 }
 
