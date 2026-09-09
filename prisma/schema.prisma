@@ -15,6 +15,11 @@ enum CompetitionType {
   ENDLESS
 }
 
+enum CompetitionFormat {
+  KNOCKOUT
+  GROUP_STAGE
+}
+
 enum CompetitionStatus {
   DRAFT
   REGISTRATION
@@ -84,6 +89,12 @@ enum FriendshipStatus {
   REJECTED
 }
 
+enum ReputationTag {
+  RAGE_QUITTER
+  TOXIC
+  FAIR_PLAY
+}
+
 model User {
   id                    String                   @id @default(uuid()) @db.Uuid
   name                  String
@@ -115,6 +126,8 @@ model User {
   sentFriendships       Friendship[]             @relation("FriendshipRequester")
   receivedFriendships   Friendship[]             @relation("FriendshipAddressee")
   chatMessages          CompetitionChatMessage[]
+  reviewsWritten        UserReview[]             @relation("ReviewAuthor")
+  reviewsReceived       UserReview[]             @relation("ReviewTarget")
 }
 
 model UserProfile {
@@ -126,6 +139,8 @@ model UserProfile {
   totalGoalsScored     Int      @default(0)
   totalGoalsConceded   Int      @default(0)
   championshipsWon     Int      @default(0)
+  reputationAverage   Float    @default(0)
+  reputationCount     Int      @default(0)
   consoles             String[] @default([])
   favoriteFormation    String?
   playstyle            String?
@@ -134,6 +149,7 @@ model UserProfile {
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([mmr, totalWins])
+  @@index([reputationAverage, reputationCount])
 }
 
 model UserBadge {
@@ -177,6 +193,24 @@ model Friendship {
   @@index([addresseeId, status])
 }
 
+model UserReview {
+  id         String          @id @default(uuid()) @db.Uuid
+  reviewerId String          @db.Uuid
+  reviewedId String          @db.Uuid
+  matchId    String          @db.Uuid
+  stars      Int
+  tags       ReputationTag[] @default([])
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  reviewer   User            @relation("ReviewAuthor", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewed   User            @relation("ReviewTarget", fields: [reviewedId], references: [id], onDelete: Cascade)
+  match      Match           @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, reviewerId])
+  @@index([reviewedId, createdAt(sort: Desc)])
+  @@index([reviewedId, stars])
+}
+
 model AuthAccount {
   id                String   @id @default(uuid()) @db.Uuid
   userId            String   @db.Uuid
@@ -210,6 +244,7 @@ model Competition {
   game                         String?
   platform                     String?
   type                         CompetitionType
+  format                       CompetitionFormat        @default(KNOCKOUT)
   status                       CompetitionStatus        @default(DRAFT)
   legFormat                    LegFormat                @default(SINGLE)
   matchPace                    MatchPace                @default(QUICK)
@@ -244,6 +279,7 @@ model Competition {
 
   @@index([hostId, status])
   @@index([game, platform])
+  @@index([format, status])
   @@index([championshipProfileAppliedAt])
 }
 
@@ -275,22 +311,23 @@ model TeamTemplate {
 }
 
 model Team {
-  id              String        @id @default(uuid()) @db.Uuid
-  competitionId   String        @db.Uuid
-  participationId String        @unique @db.Uuid
-  createdById     String        @db.Uuid
-  templateId      String?       @db.Uuid
+  id              String          @id @default(uuid()) @db.Uuid
+  competitionId   String          @db.Uuid
+  participationId String          @unique @db.Uuid
+  createdById     String          @db.Uuid
+  templateId      String?         @db.Uuid
   name            String
   shortName       String?
   logoUrl         String?
-  source          TeamSource    @default(CUSTOM)
-  competition     Competition   @relation(fields: [competitionId], references: [id], onDelete: Cascade)
-  participation   Participation @relation(fields: [participationId], references: [id], onDelete: Cascade)
-  createdBy       User          @relation("TeamCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  template        TeamTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  source          TeamSource      @default(CUSTOM)
+  competition     Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  participation   Participation   @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  createdBy       User            @relation("TeamCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  template        TeamTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
   groupEntries    GroupTeam[]
-  homeMatches     Match[]       @relation("HomeTeam")
-  awayMatches     Match[]       @relation("AwayTeam")
+  groupStandings  GroupStanding[]
+  homeMatches     Match[]         @relation("HomeTeam")
+  awayMatches     Match[]         @relation("AwayTeam")
   matchScorers    MatchScorer[]
 
   @@unique([competitionId, name])
@@ -312,13 +349,14 @@ model Stage {
 }
 
 model Group {
-  id      String      @id @default(uuid()) @db.Uuid
-  stageId String      @db.Uuid
-  name    String
-  order   Int
-  stage   Stage       @relation(fields: [stageId], references: [id], onDelete: Cascade)
-  teams   GroupTeam[]
-  matches Match[]
+  id        String          @id @default(uuid()) @db.Uuid
+  stageId   String          @db.Uuid
+  name      String
+  order     Int
+  stage     Stage           @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  teams     GroupTeam[]
+  standings GroupStanding[]
+  matches   Match[]
 
   @@unique([stageId, order])
 }
@@ -328,10 +366,31 @@ model GroupTeam {
   groupId String @db.Uuid
   teamId  String @db.Uuid
   seed    Int?
-  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  team    Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, teamId])
+}
+
+model GroupStanding {
+  id             String   @id @default(uuid()) @db.Uuid
+  groupId        String   @db.Uuid
+  teamId         String   @db.Uuid
+  played         Int      @default(0)
+  wins           Int      @default(0)
+  draws          Int      @default(0)
+  losses         Int      @default(0)
+  goalsFor       Int      @default(0)
+  goalsAgainst   Int      @default(0)
+  goalDifference Int      @default(0)
+  points         Int      @default(0)
+  updatedAt      DateTime @updatedAt
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, teamId])
+  @@index([groupId, points, goalDifference, goalsFor])
+  @@index([teamId])
 }
 
 model Round {
@@ -400,6 +459,7 @@ model Match {
   stats                MatchStats?
   scorers              MatchScorer[]
   media                 MatchMedia[]
+  reviews               UserReview[]
 
   @@index([competitionId, status])
   @@index([stageId, roundId])
