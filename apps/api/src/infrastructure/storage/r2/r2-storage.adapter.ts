@@ -13,8 +13,14 @@ export interface EvidenceStorage {
   delete(key: string): Promise<void>;
 }
 
-interface R2ObjectBody {
+interface R2StoredObject {
   key: string;
+}
+
+export interface R2ReadableObject {
+  key: string;
+  body: ReadableStream;
+  httpMetadata?: { contentType?: string };
 }
 
 export interface R2BucketPort {
@@ -22,7 +28,8 @@ export interface R2BucketPort {
     key: string,
     value: ReadableStream | ArrayBuffer,
     options?: { httpMetadata?: { contentType?: string } },
-  ): Promise<R2ObjectBody | null>;
+  ): Promise<R2StoredObject | null>;
+  get(key: string): Promise<R2ReadableObject | null>;
   delete(key: string): Promise<void>;
 }
 
