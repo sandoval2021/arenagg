@@ -7,12 +7,14 @@ import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { useAuth } from '../../hooks/useAuth';
 import { getMyCompetitions } from '../../lib/api';
+import { PRIMARY_NAV_STALE_TIME } from '../../lib/query-cache';
 
 export function DashboardPage() {
   const auth = useAuth();
   const { data = [], isLoading, isError } = useQuery({
     queryKey: ['competitions', 'mine'],
     queryFn: getMyCompetitions,
+    staleTime: PRIMARY_NAV_STALE_TIME,
   });
   const firstName = (auth.user?.displayName ?? auth.user?.name ?? 'jogador').trim().split(/\s+/)[0];
 
