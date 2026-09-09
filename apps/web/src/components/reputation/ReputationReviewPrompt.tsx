@@ -58,7 +58,11 @@ export function ReputationReviewPrompt() {
   if (!visible || !review) return null;
 
   function toggleTag(tag: ReputationTag) {
-    setTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]);
+    setTags((current) => {
+      if (current.includes(tag)) return current.filter((item) => item !== tag);
+      if (tag === 'FAIR_PLAY') return ['FAIR_PLAY'];
+      return [...current.filter((item) => item !== 'FAIR_PLAY'), tag];
+    });
   }
 
   return (
