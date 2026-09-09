@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Env } from '../types/env';
 import { resolveWinner } from '../domain/bracket/knockout';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
+import { sendPushToUsers } from '../services/push.service';
 import {
   InvalidMatchTransitionError,
   transitionMatch,
@@ -27,7 +28,7 @@ type AdvanceableMatch = {
 };
 
 const matchAccessInclude = {
-  competition: { select: { hostId: true, type: true } },
+  competition: { select: { hostId: true, type: true, name: true } },
   homeTeam: { select: { id: true, participation: { select: { userId: true } } } },
   awayTeam: { select: { id: true, participation: { select: { userId: true } } } },
 } satisfies Prisma.MatchInclude;
@@ -94,6 +95,8 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
           homeReadyAt: match.homeReadyAt,
           awayReadyAt: match.awayReadyAt,
         },
+        notifyUserId: null,
+        competitionName: match.competition.name,
       };
     }
 
@@ -110,12 +113,28 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
       where: { id: matchId },
       select: { homeReady: true, awayReady: true, homeReadyAt: true, awayReadyAt: true },
     });
-    return { ready };
+    const notifyUserId = side === 'HOME'
+      ? match.awayTeam.participation.userId
+      : match.homeTeam.participation.userId;
+    return { ready, notifyUserId, competitionName: match.competition.name };
   });
 
   if ('error' in result) {
     const status = result.error === 'MATCH_NOT_FOUND' ? 404 : result.error === 'PLAYER_ONLY' ? 403 : 409;
     return c.json({ error: result.error }, status);
+  }
+
+  if (result.notifyUserId) {
+    try {
+      await sendPushToUsers(db, c.env, [result.notifyUserId], {
+        title: '🎮 Seu adversário fez Check-in',
+        body: `${result.competitionName}: ele já confirmou que está pronto para jogar.`,
+        url: `/competitions/${matchId ? '' : ''}`.replace(/\/$/, ''),
+        tag: `match-ready-${matchId}`,
+      });
+    } catch (error) {
+      console.warn('[push] ready notification failed', error);
+    }
   }
   return c.json(result.ready);
 });
@@ -149,6 +168,9 @@ phaseThreeMatches.post('/:id/walkover', async (c) => {
       }
 
       const winnerTeamId = winnerSide === 'HOME' ? match.homeTeam.id : match.awayTeam.id;
+      const winnerUserId = winnerSide === 'HOME'
+        ? match.homeTeam.participation.userId
+        : match.awayTeam.participation.userId;
       const now = new Date();
       const changed = await tx.match.updateMany({
         where: {
@@ -196,12 +218,26 @@ phaseThreeMatches.post('/:id/walkover', async (c) => {
           walkoverWinnerTeamId: fresh.walkoverWinnerTeamId,
           walkoverAppliedAt: fresh.walkoverAppliedAt,
         },
+        winnerUserId,
+        competitionId: match.competitionId,
+        competitionName: match.competition.name,
       };
     });
 
     if ('error' in result) {
       const status = result.error === 'MATCH_NOT_FOUND' ? 404 : result.error === 'HOST_ONLY' ? 403 : 409;
       return c.json({ error: result.error }, status);
+    }
+
+    try {
+      await sendPushToUsers(db, c.env, [result.winnerUserId], {
+        title: '⚡ Você recebeu um W.O.',
+        body: `${result.competitionName}: vitória automática por 3×0 confirmada pelo Host.`,
+        url: `/competitions/${result.competitionId}`,
+        tag: `walkover-${matchId}`,
+      });
+    } catch (error) {
+      console.warn('[push] walkover notification failed', error);
     }
     return c.json(result.match);
   } catch (error) {
