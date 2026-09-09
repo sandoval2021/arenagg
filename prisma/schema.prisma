@@ -238,6 +238,7 @@ model Participation {
   team          Team?
 
   @@unique([competitionId, userId])
+  @@index([userId, status, joinedAt])
 }
 
 model TeamTemplate {
