@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Plus, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../../components/brand/Logo';
+import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { getMyCompetitions } from '../../lib/api';
@@ -25,7 +26,7 @@ export function CompetitionsPage() {
         </header>
 
         <section className="mt-5 space-y-3">
-          {isLoading && [1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-2xl bg-slate-100" />)}
+          {isLoading && <GlobalLoader mode="section" label="Carregando suas Copas…" />}
           {isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-[#E31B23]">Não foi possível carregar seus campeonatos.</div>}
           {!isLoading && !isError && data.length === 0 && (
             <div className="rounded-3xl border border-dashed border-slate-300 p-8 text-center">
