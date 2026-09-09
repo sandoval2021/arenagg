@@ -18,6 +18,7 @@ import { matchStats } from './routes/match-stats.routes';
 import { evidence } from './routes/evidence.routes';
 import { profile } from './routes/profile.routes';
 import { friends } from './routes/friends.routes';
+import { competitionFeed, headToHead } from './routes/phase-one-social.routes';
 
 const app = new Hono<Env>();
 
@@ -82,6 +83,7 @@ app.route('/api/competitions', lobbyModeration);
 app.route('/api/competitions', competitionJoin);
 app.route('/api/competitions', teamSettings);
 app.route('/api/competitions', scorers);
+app.route('/api/competitions', competitionFeed);
 app.route('/api/competitions', competitions);
 app.route('/api/default-shields', defaultShields);
 app.route('/api/owner/default-shields', ownerShields);
@@ -89,6 +91,7 @@ app.route('/api/matches', matchScore);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
+app.route('/api/profile', headToHead);
 app.route('/api/profile', profile);
 app.route('/api/friends', friends);
 
