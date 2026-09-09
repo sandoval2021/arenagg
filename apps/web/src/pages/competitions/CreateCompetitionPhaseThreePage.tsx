@@ -7,6 +7,7 @@ import {
   Coins,
   Dices,
   Gamepad2,
+  Grid2X2,
   Repeat2,
   ShieldCheck,
   Trophy,
@@ -23,6 +24,7 @@ type FormValues = {
   game: string;
   platform: string;
   format: CreatableFormat;
+  groupCount: 4 | 8;
   requireValidation: boolean;
   isHomeAndAway: boolean;
   teamSelection: TeamSelection;
@@ -37,7 +39,7 @@ const games = ['EA FC 25', 'eFootball', 'Call of Duty', 'Outros'];
 const platforms = ['PS5', 'PS4', 'Xbox', 'PC', 'Mobile'];
 const formats = [
   { value: 'KNOCKOUT' as const, title: 'Mata-mata', description: 'Perdeu, está fora.', icon: Trophy },
-  { value: 'GROUPS_KNOCKOUT' as const, title: 'Grupos', description: 'Grupos + fase decisiva.', icon: UsersRound },
+  { value: 'GROUPS_KNOCKOUT' as const, title: 'Fase de Grupos', description: 'Champions: grupos, Top 2 e mata-mata.', icon: UsersRound },
   { value: 'LEAGUE' as const, title: 'Liga', description: 'Todos contra todos.', icon: ShieldCheck },
 ];
 
@@ -51,7 +53,7 @@ function parseCurrencyToCents(value: string): number | null {
 }
 
 function createError(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira os dados. A divisão da premiação precisa somar exatamente 100%.';
+  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira os dados da Copa e as regras do formato escolhido.';
   return 'Não foi possível criar a Copa agora.';
 }
 
@@ -63,6 +65,7 @@ export function CreateCompetitionPhaseThreePage() {
       game: 'EA FC 25',
       platform: 'PS5',
       format: 'KNOCKOUT',
+      groupCount: 4,
       requireValidation: true,
       isHomeAndAway: false,
       teamSelection: 'FREE',
@@ -78,6 +81,7 @@ export function CreateCompetitionPhaseThreePage() {
     mutationFn: (values: FormValues) => {
       const entryFee = parseCurrencyToCents(values.entryFee);
       const totalPercent = values.firstPercent + values.secondPercent + values.thirdPercent;
+      const isGroupStage = values.format === 'GROUPS_KNOCKOUT';
       if (entryFee == null) {
         setError('entryFee', { message: 'Informe um valor válido.' });
         throw new ApiError(400, 'INVALID_INPUT');
@@ -86,11 +90,17 @@ export function CreateCompetitionPhaseThreePage() {
         setError('firstPercent', { message: 'A divisão precisa somar 100%.' });
         throw new ApiError(400, 'INVALID_INPUT');
       }
+      if (isGroupStage && values.maxParticipants < values.groupCount * 2) {
+        setError('maxParticipants', { message: `${values.groupCount} grupos precisam permitir pelo menos ${values.groupCount * 2} jogadores.` });
+        throw new ApiError(400, 'INVALID_INPUT');
+      }
       return createCompetitionPhaseThree({
         name: values.name,
         game: values.game,
         platform: values.platform,
         type: values.format,
+        format: isGroupStage ? 'GROUP_STAGE' : 'KNOCKOUT',
+        groupCount: isGroupStage ? values.groupCount : undefined,
         requireValidation: values.requireValidation,
         isHomeAndAway: values.isHomeAndAway,
         teamSelection: values.teamSelection,
@@ -109,10 +119,12 @@ export function CreateCompetitionPhaseThreePage() {
   const selectedFormat = watch('format');
   const selectedTeamSelection = watch('teamSelection');
   const maxParticipants = watch('maxParticipants');
+  const groupCount = watch('groupCount');
   const first = watch('firstPercent');
   const second = watch('secondPercent');
   const third = watch('thirdPercent');
   const percentTotal = first + second + third;
+  const groupCapacityValid = selectedFormat !== 'GROUPS_KNOCKOUT' || maxParticipants >= groupCount * 2;
 
   return (
     <div className="min-h-dvh bg-white text-slate-950">
@@ -126,14 +138,22 @@ export function CreateCompetitionPhaseThreePage() {
 
           <section><p className="text-sm font-black">Formato</p><Controller name="format" control={control} render={({ field }) => <div className="mt-2 grid gap-2">{formats.map(({ value, title, description, icon: Icon }) => { const selected = selectedFormat === value; return <button key={value} type="button" onClick={() => field.onChange(value)} className={`flex min-h-20 items-center gap-3 rounded-2xl border p-4 text-left transition ${selected ? 'border-[#073B8C] bg-blue-50 ring-1 ring-[#073B8C]' : 'border-slate-200 bg-white'}`}><span className={`grid h-11 w-11 place-items-center rounded-xl ${selected ? 'bg-[#073B8C] text-white' : 'bg-slate-100 text-slate-500'}`}><Icon className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block text-sm font-black">{title}</strong><span className="text-xs font-semibold text-slate-500">{description}</span></span>{selected && <Check className="h-5 w-5 text-[#073B8C]" />}</button>; })}</div>} /></section>
 
-          <section className="rounded-3xl border border-slate-200 p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><UsersRound className="h-5 w-5" /></span><div><p className="text-sm font-black">Máximo de jogadores</p><p className="text-xs font-semibold text-slate-500">2 a 20 participantes.</p></div></div><span className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-black text-white">{maxParticipants}</span></div><Controller name="maxParticipants" control={control} render={({ field }) => <input type="range" min={2} max={20} step={1} value={field.value} onChange={(event) => field.onChange(Number(event.target.value))} className="mt-4 w-full accent-[#073B8C]" />} /></section>
+          {selectedFormat === 'GROUPS_KNOCKOUT' && (
+            <section className="rounded-[1.75rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-4 shadow-sm">
+              <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#073B8C] text-white"><Grid2X2 className="h-5 w-5" /></span><div><p className="text-sm font-black">Quantos grupos?</p><p className="mt-0.5 text-xs font-semibold text-slate-500">Top 2 de cada grupo avançam para o mata-mata.</p></div></div>
+              <Controller name="groupCount" control={control} render={({ field }) => <div className="mt-4 grid grid-cols-2 gap-2">{([4, 8] as const).map((count) => <button key={count} type="button" onClick={() => field.onChange(count)} className={`min-h-14 rounded-2xl border text-sm font-black transition ${groupCount === count ? 'border-[#073B8C] bg-[#073B8C] text-white shadow-md' : 'border-blue-100 bg-white text-slate-700'}`}>{count} grupos</button>)}</div>} />
+              <div className={`mt-3 rounded-2xl px-3 py-2.5 text-xs font-bold ${groupCapacityValid ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{groupCapacityValid ? `${groupCount} grupos · ${groupCount * 2} classificados para a chave final.` : `Aumente o máximo para pelo menos ${groupCount * 2} jogadores.`}</div>
+            </section>
+          )}
+
+          <section className="rounded-3xl border border-slate-200 p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><UsersRound className="h-5 w-5" /></span><div><p className="text-sm font-black">Máximo de jogadores</p><p className="text-xs font-semibold text-slate-500">2 a 20 participantes.</p></div></div><span className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-black text-white">{maxParticipants}</span></div><Controller name="maxParticipants" control={control} render={({ field }) => <input type="range" min={2} max={20} step={1} value={field.value} onChange={(event) => field.onChange(Number(event.target.value))} className="mt-4 w-full accent-[#073B8C]" />} />{errors.maxParticipants && <p className="mt-2 text-xs font-bold text-rose-600">{errors.maxParticipants.message}</p>}</section>
 
           <section className="rounded-[2rem] border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-yellow-50 p-5 shadow-md shadow-amber-100/50"><div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-500 text-white"><Coins className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase tracking-wider text-amber-700">A caixinha</p><h2 className="text-lg font-black">Inscrição e premiação</h2></div></div><label className="mt-4 block text-xs font-black uppercase tracking-wider text-slate-500">Valor por jogador<div className="mt-2 flex min-h-13 items-center rounded-2xl border border-amber-200 bg-white px-3"><span className="font-black text-slate-400">R$</span><input {...register('entryFee')} inputMode="decimal" className="min-w-0 flex-1 px-2 text-lg font-black outline-none" /></div></label>{errors.entryFee && <p className="mt-1 text-xs font-bold text-rose-600">{errors.entryFee.message}</p>}<div className="mt-4 grid grid-cols-3 gap-2"><PercentController name="firstPercent" label="1º" control={control} /><PercentController name="secondPercent" label="2º" control={control} /><PercentController name="thirdPercent" label="3º" control={control} /></div><p className={`mt-2 text-xs font-black ${percentTotal === 100 ? 'text-emerald-600' : 'text-rose-600'}`}>Distribuição: {percentTotal}% de 100%</p>{errors.firstPercent && <p className="mt-1 text-xs font-bold text-rose-600">{errors.firstPercent.message}</p>}</section>
 
-          <section><p className="mb-2 text-sm font-black">Regras</p><div className="space-y-3"><ToggleController name="isHomeAndAway" control={control} icon={Repeat2} title="Jogos de ida e volta" description="Cada confronto terá duas partidas." /><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-700"><Dices className="h-5 w-5" /></span><div><p className="text-sm font-black">Seleção de times</p><p className="text-xs font-semibold text-slate-500">Livre ou sorteio cego.</p></div></div><Controller name="teamSelection" control={control} render={({ field }) => <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => field.onChange('FREE')} className={`min-h-12 rounded-xl text-xs font-black ${selectedTeamSelection === 'FREE' ? 'bg-[#073B8C] text-white' : 'bg-slate-100 text-slate-600'}`}>Livre</button><button type="button" onClick={() => field.onChange('RANDOM')} className={`min-h-12 rounded-xl text-xs font-black ${selectedTeamSelection === 'RANDOM' ? 'bg-[#073B8C] text-white' : 'bg-slate-100 text-slate-600'}`}>Sorteio Cego</button></div>} /></div><ToggleController name="requireValidation" control={control} icon={Camera} title="Exigir foto do placar" description="Proteção contra resultado digitado errado." /></div></section>
+          <section><p className="mb-2 text-sm font-black">Regras</p><div className="space-y-3"><ToggleController name="isHomeAndAway" control={control} icon={Repeat2} title="Jogos de ida e volta" description={selectedFormat === 'GROUPS_KNOCKOUT' ? 'Na fase de grupos, cada confronto terá ida e volta.' : 'Cada confronto terá duas partidas.'} /><div className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 text-amber-700"><Dices className="h-5 w-5" /></span><div><p className="text-sm font-black">Seleção de times</p><p className="text-xs font-semibold text-slate-500">Livre ou sorteio cego.</p></div></div><Controller name="teamSelection" control={control} render={({ field }) => <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => field.onChange('FREE')} className={`min-h-12 rounded-xl text-xs font-black ${selectedTeamSelection === 'FREE' ? 'bg-[#073B8C] text-white' : 'bg-slate-100 text-slate-600'}`}>Livre</button><button type="button" onClick={() => field.onChange('RANDOM')} className={`min-h-12 rounded-xl text-xs font-black ${selectedTeamSelection === 'RANDOM' ? 'bg-[#073B8C] text-white' : 'bg-slate-100 text-slate-600'}`}>Sorteio Cego</button></div>} /></div><ToggleController name="requireValidation" control={control} icon={Camera} title="Exigir foto do placar" description="Proteção contra resultado digitado errado." /></div></section>
 
           {mutation.isError && <p className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{createError(mutation.error)}</p>}
-          <button type="submit" disabled={mutation.isPending || percentTotal !== 100} className="min-h-14 w-full rounded-2xl bg-[#073B8C] px-5 font-black text-white shadow-md disabled:opacity-40">{mutation.isPending ? 'Criando…' : 'Criar e convidar amigos'}</button>
+          <button type="submit" disabled={mutation.isPending || percentTotal !== 100 || !groupCapacityValid} className="min-h-14 w-full rounded-2xl bg-[#073B8C] px-5 font-black text-white shadow-md disabled:opacity-40">{mutation.isPending ? 'Criando…' : 'Criar e convidar amigos'}</button>
         </form>
       </main>
     </div>
