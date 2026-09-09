@@ -8,6 +8,10 @@ const reputationTag = z.enum(['RAGE_QUITTER', 'TOXIC', 'FAIR_PLAY']);
 const reviewSchema = z.object({
   stars: z.coerce.number().int().min(1).max(5),
   tags: z.array(reputationTag).max(3).default([]).transform((values) => [...new Set(values)]),
+}).superRefine((input, context) => {
+  if (input.tags.includes('FAIR_PLAY') && (input.tags.includes('RAGE_QUITTER') || input.tags.includes('TOXIC'))) {
+    context.addIssue({ code: 'custom', path: ['tags'], message: 'Fair Play não pode ser combinado com tags negativas.' });
+  }
 });
 
 reputation.get('/users/:userId', async (c) => {
@@ -29,18 +33,26 @@ reputation.get('/users/:userId', async (c) => {
         where: { reviewedId: userId },
         orderBy: { createdAt: 'desc' },
         take: 100,
-        select: { tags: true },
+        select: { reviewerId: true, tags: true },
       })
     : [];
-  const tagCounts = { FAIR_PLAY: 0, RAGE_QUITTER: 0, TOXIC: 0 };
+  const reviewersByTag = {
+    FAIR_PLAY: new Set<string>(),
+    RAGE_QUITTER: new Set<string>(),
+    TOXIC: new Set<string>(),
+  };
   for (const review of reviews) {
-    for (const tag of review.tags) tagCounts[tag] += 1;
+    for (const tag of review.tags) reviewersByTag[tag].add(review.reviewerId);
   }
 
   return c.json({
     average: user.profile?.reputationAverage ?? 0,
     count: user.profile?.reputationCount ?? 0,
-    tags: tagCounts,
+    tags: {
+      FAIR_PLAY: reviewersByTag.FAIR_PLAY.size,
+      RAGE_QUITTER: reviewersByTag.RAGE_QUITTER.size,
+      TOXIC: reviewersByTag.TOXIC.size,
+    },
   });
 });
 
@@ -105,9 +117,7 @@ reputation.get('/pending/:competitionId', async (c) => {
   });
 
   if (!match?.homeTeam || !match.awayTeam) return c.json(null);
-  const opponent = match.homeTeam.participation.userId === user.id
-    ? match.awayTeam
-    : match.homeTeam;
+  const opponent = match.homeTeam.participation.userId === user.id ? match.awayTeam : match.homeTeam;
 
   return c.json({
     matchId: match.id,
@@ -186,8 +196,5 @@ reputation.post('/:matchId', async (c) => {
     return { review, created: true as const };
   });
 
-  return c.json({
-    ...result.review,
-    createdAt: result.review.createdAt.toISOString(),
-  }, result.created ? 201 : 200);
+  return c.json({ ...result.review, createdAt: result.review.createdAt.toISOString() }, result.created ? 201 : 200);
 });
