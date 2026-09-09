@@ -46,10 +46,6 @@ function normalizeTeamLogoUrl(value: string | null | undefined): string | null |
   return BUILT_IN_TEAM_ICON_PATH.test(value) ? `${CHAVEA_WEB_ORIGIN}${value}` : value;
 }
 
-async function lockCompetition(tx: Prisma.TransactionClient, competitionId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
-}
-
 function safePrismaMeta(error: unknown) {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return undefined;
   return {
@@ -137,10 +133,11 @@ async function loadEditableParticipation(
 }
 
 /**
- * Keep Participation and Team as one logical aggregate without Prisma upsert.
- * Every participant created by the current join flow already has one Team row,
- * so the normal path is an UPDATE. updateMany avoids P2025 on historical rows;
- * CREATE is used only to repair an old participation that genuinely has no Team.
+ * Keep Participation and Team as one logical aggregate without raw SQL or
+ * Prisma upsert. The normal path updates the Team that was created when the
+ * participant joined. CREATE only repairs historical participations that have
+ * no Team row. The database unique constraint remains the final concurrency
+ * guard and is translated from P2002 into TEAM_NAME_TAKEN by the route.
  */
 async function saveTeamRow(
   tx: Prisma.TransactionClient,
@@ -162,7 +159,6 @@ async function saveTeamRow(
   }
 
   if (updated.count > 1) {
-    // participationId is UNIQUE, so this is a hard invariant violation.
     throw new Error('TEAM_PARTICIPATION_INVARIANT_VIOLATION');
   }
 
@@ -200,7 +196,6 @@ teamSettings.patch('/:id/my-team', async (c) => {
 
   try {
     const result = await db.$transaction(async (tx) => {
-      await lockCompetition(tx, competitionId);
       const access = await loadEditableParticipation(tx, competitionId, user.id);
       if (!access.ok) return access;
 
@@ -314,10 +309,11 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     declaredType: file.type || 'unknown',
   });
 
-  const initial = await db.$transaction(async (tx) => {
-    await lockCompetition(tx, competitionId);
-    return loadEditableParticipation(tx, competitionId, user.id);
-  });
+  // Read-only access check before spending time on Storage. No advisory locks or
+  // raw SQL are used; the same business rules are checked again when persisting.
+  const initial = await db.$transaction((tx) =>
+    loadEditableParticipation(tx, competitionId, user.id),
+  );
 
   if (!initial.ok) {
     const mapped = mapBusinessError(initial.error);
@@ -330,7 +326,6 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     uploaded = await uploadShield(c.env, file, 'teams', `${competitionId}/${user.id}`);
 
     const result = await db.$transaction(async (tx) => {
-      await lockCompetition(tx, competitionId);
       const access = await loadEditableParticipation(tx, competitionId, user.id);
       if (!access.ok) return access;
 
