@@ -19,19 +19,32 @@ type TeamRouteError =
   | 'TEAM_CONFIGURATION_NOT_ALLOWED'
   | 'TEAM_NAME_TAKEN';
 
+const CHAVEA_WEB_ORIGIN = 'https://chavea.pages.dev';
+const BUILT_IN_TEAM_ICON_PATH = /^\/icons\/teams\/[a-z0-9-]+\.svg(?:#[a-z0-9-]+)?$/;
+
 const httpsUrl = z
   .string()
   .trim()
-  .max(2048)
+  .max(4096)
   .url()
   .refine((value) => value.startsWith('https://'), 'Use uma URL HTTPS');
 
-const builtInTeamIcon = z.string().regex(/^\/icons\/teams\/[a-z0-9-]+\.svg$/);
+const builtInTeamIcon = z
+  .string()
+  .trim()
+  .max(512)
+  .regex(BUILT_IN_TEAM_ICON_PATH, 'Ícone padrão inválido');
 
 const updateTeamSchema = z.object({
   teamName: z.string().trim().min(2).max(60),
   teamLogoUrl: z.union([httpsUrl, builtInTeamIcon, z.literal(''), z.null()]).optional(),
 });
+
+function normalizeTeamLogoUrl(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (!value) return null;
+  return BUILT_IN_TEAM_ICON_PATH.test(value) ? `${CHAVEA_WEB_ORIGIN}${value}` : value;
+}
 
 async function lockCompetition(tx: Prisma.TransactionClient, competitionId: string): Promise<void> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
@@ -45,6 +58,8 @@ function safePrismaMeta(error: unknown) {
       typeof error.meta?.target === 'string' || Array.isArray(error.meta?.target)
         ? error.meta.target
         : undefined,
+    columnName: typeof error.meta?.column_name === 'string' ? error.meta.column_name : undefined,
+    constraint: typeof error.meta?.constraint === 'string' ? error.meta.constraint : undefined,
   };
 }
 
@@ -120,23 +135,49 @@ async function loadEditableParticipation(
   return { ok: true as const, participation };
 }
 
+async function saveTeamRow(
+  tx: Prisma.TransactionClient,
+  input: {
+    competitionId: string;
+    participationId: string;
+    createdById: string;
+    name: string;
+    logoUrl: string | null;
+  },
+) {
+  return tx.team.upsert({
+    where: { participationId: input.participationId },
+    update: { name: input.name, logoUrl: input.logoUrl },
+    create: {
+      competitionId: input.competitionId,
+      participationId: input.participationId,
+      createdById: input.createdById,
+      name: input.name,
+      logoUrl: input.logoUrl,
+    },
+  });
+}
+
 teamSettings.patch('/:id/my-team', async (c) => {
   const competitionId = c.req.param('id');
   const user = c.get('user');
+  const requestId = crypto.randomUUID();
   const raw = await c.req.json().catch(() => null);
   const parsed = updateTeamSchema.safeParse(raw);
 
   if (!parsed.success) {
     console.warn('[team.update] invalid input', {
+      requestId,
       competitionId,
       userId: user.id,
       fields: parsed.error.flatten().fieldErrors,
     });
-    return c.json({ error: 'INVALID_TEAM_INPUT', issues: parsed.error.flatten() }, 400);
+    return c.json({ error: 'INVALID_TEAM_INPUT', requestId, issues: parsed.error.flatten() }, 400);
   }
 
   const db = c.get('prisma');
-  const { teamName, teamLogoUrl: suppliedLogo } = parsed.data;
+  const { teamName } = parsed.data;
+  const suppliedLogo = normalizeTeamLogoUrl(parsed.data.teamLogoUrl);
 
   try {
     const result = await db.$transaction(async (tx) => {
@@ -149,7 +190,7 @@ teamSettings.patch('/:id/my-team', async (c) => {
         where: {
           competitionId,
           name: teamName,
-          ...(participation.team ? { NOT: { id: participation.team.id } } : {}),
+          NOT: { participationId: participation.id },
         },
         select: { id: true },
       });
@@ -158,58 +199,59 @@ teamSettings.patch('/:id/my-team', async (c) => {
 
       const teamLogoUrl = suppliedLogo === undefined
         ? participation.teamLogoUrl
-        : suppliedLogo || null;
+        : suppliedLogo;
 
       await tx.participation.update({
         where: { id: participation.id },
         data: { teamName, teamLogoUrl },
       });
 
-      if (participation.team) {
-        await tx.team.update({
-          where: { id: participation.team.id },
-          data: { name: teamName, logoUrl: teamLogoUrl },
-        });
-      } else {
-        await tx.team.create({
-          data: {
-            competitionId,
-            participationId: participation.id,
-            createdById: user.id,
-            name: teamName,
-            logoUrl: teamLogoUrl,
-          },
-        });
-      }
+      await saveTeamRow(tx, {
+        competitionId,
+        participationId: participation.id,
+        createdById: user.id,
+        name: teamName,
+        logoUrl: teamLogoUrl,
+      });
 
       return { ok: true as const, teamName, teamLogoUrl };
     });
 
     if (!result.ok) {
       const mapped = mapBusinessError(result.error);
-      return c.json(mapped.body, mapped.status);
+      return c.json({ ...mapped.body, requestId }, mapped.status);
     }
 
-    return c.json({ teamName: result.teamName, teamLogoUrl: result.teamLogoUrl });
+    console.info('[team.update] saved', {
+      requestId,
+      competitionId,
+      userId: user.id,
+      builtInLogo: typeof parsed.data.teamLogoUrl === 'string' && BUILT_IN_TEAM_ICON_PATH.test(parsed.data.teamLogoUrl),
+      hasLogo: Boolean(result.teamLogoUrl),
+    });
+
+    return c.json({ teamName: result.teamName, teamLogoUrl: result.teamLogoUrl, requestId }, 200);
   } catch (error) {
     const prisma = safePrismaMeta(error);
     console.error('[team.update] failed', {
+      requestId,
       competitionId,
       userId: user.id,
       teamNameLength: teamName.length,
       suppliedLogo: suppliedLogo !== undefined,
+      logoLength: typeof suppliedLogo === 'string' ? suppliedLogo.length : 0,
       prisma,
       errorName: error instanceof Error ? error.name : 'UnknownError',
       errorMessage: error instanceof Error ? error.message : String(error),
     });
 
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return c.json({ error: 'TEAM_NAME_TAKEN' }, 409);
+      return c.json({ error: 'TEAM_NAME_TAKEN', requestId }, 409);
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code }, 500);
+      return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code, requestId }, 500);
     }
-    return c.json({ error: 'TEAM_UPDATE_FAILED' }, 500);
+    return c.json({ error: 'TEAM_UPDATE_FAILED', requestId }, 500);
   }
 });
 
@@ -248,7 +290,7 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
 
   if (!initial.ok) {
     const mapped = mapBusinessError(initial.error);
-    return c.json(mapped.body, mapped.status);
+    return c.json({ ...mapped.body, requestId: uploadRequestId }, mapped.status);
   }
 
   let uploaded: { publicUrl: string; storagePath: string; requestId: string } | undefined;
@@ -267,22 +309,13 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
         data: { teamLogoUrl: uploaded!.publicUrl },
       });
 
-      if (participation.team) {
-        await tx.team.update({
-          where: { id: participation.team.id },
-          data: { logoUrl: uploaded!.publicUrl },
-        });
-      } else {
-        await tx.team.create({
-          data: {
-            competitionId,
-            participationId: participation.id,
-            createdById: user.id,
-            name: participation.teamName,
-            logoUrl: uploaded!.publicUrl,
-          },
-        });
-      }
+      await saveTeamRow(tx, {
+        competitionId,
+        participationId: participation.id,
+        createdById: user.id,
+        name: participation.teamName,
+        logoUrl: uploaded!.publicUrl,
+      });
 
       return { ok: true as const, teamLogoUrl: uploaded!.publicUrl };
     });
@@ -290,7 +323,7 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     if (!result.ok) {
       await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
       const mapped = mapBusinessError(result.error);
-      return c.json(mapped.body, mapped.status);
+      return c.json({ ...mapped.body, requestId: uploadRequestId }, mapped.status);
     }
 
     return c.json({ teamLogoUrl: result.teamLogoUrl, requestId: uploaded.requestId }, 201);
