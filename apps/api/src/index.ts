@@ -8,10 +8,13 @@ import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { competitionJoin } from './routes/competition-join.routes';
+import { competitionChat } from './routes/competition-chat.routes';
 import { lobbyModeration } from './routes/lobby-moderation.routes';
 import { teamSettings } from './routes/team-settings.routes';
 import { scorers } from './routes/scorers.routes';
 import { matchScore } from './routes/match-score.routes';
+import { matchApproval } from './routes/match-approval.routes';
+import { matchIntegrity } from './routes/match-integrity.routes';
 import { defaultShields, ownerShields } from './routes/default-shields.routes';
 import { matches } from './routes/matches.routes';
 import { matchStats } from './routes/match-stats.routes';
@@ -20,6 +23,7 @@ import { profile } from './routes/profile.routes';
 import { friends } from './routes/friends.routes';
 import { competitionFeed, headToHead } from './routes/phase-one-social.routes';
 import { ranking } from './routes/ranking.routes';
+import { gamification } from './routes/gamification.routes';
 import { phaseThreeCompetitions } from './routes/phase-three-competition.routes';
 import { phaseThreeMatches } from './routes/phase-three-match.routes';
 import { phaseFourCompetitions } from './routes/phase-four-competition.routes';
@@ -48,7 +52,6 @@ app.use(
     origin: (origin, c) => {
       const requestOrigin = normalizeOrigin(origin);
       const configuredOrigin = c.env.WEB_APP_URL ? normalizeOrigin(c.env.WEB_APP_URL) : undefined;
-
       return isAllowedWebOrigin(requestOrigin, configuredOrigin) ? requestOrigin : '';
     },
     credentials: true,
@@ -76,6 +79,8 @@ app.use('/api/profile/*', requireAuth);
 app.use('/api/friends/*', requireAuth);
 app.use('/api/ranking', requireAuth);
 app.use('/api/ranking/*', requireAuth);
+app.use('/api/gamification', requireAuth);
+app.use('/api/gamification/*', requireAuth);
 app.use('/api/push', requireAuth);
 app.use('/api/push/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
@@ -90,9 +95,11 @@ app.get('/api/health/db', async (c) => {
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 app.route('/api/push', push);
-// Cross-cutting hooks and exact hardened routes run before the legacy competition router.
+app.route('/api/gamification', gamification);
+// Cross-cutting hooks and exact hardened routes run before legacy routers.
 app.route('/api/competitions', phaseFourCompetitions);
 app.route('/api/competitions', phaseThreeCompetitions);
+app.route('/api/competitions', competitionChat);
 app.route('/api/competitions', lobbyModeration);
 app.route('/api/competitions', competitionJoin);
 app.route('/api/competitions', teamSettings);
@@ -103,6 +110,8 @@ app.route('/api/default-shields', defaultShields);
 app.route('/api/owner/default-shields', ownerShields);
 app.route('/api/matches', phaseThreeMatches);
 app.route('/api/matches', matchMedia);
+app.route('/api/matches', matchIntegrity);
+app.route('/api/matches', matchApproval);
 app.route('/api/matches', matchScore);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
