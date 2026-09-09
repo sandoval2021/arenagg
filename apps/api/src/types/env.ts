@@ -17,6 +17,8 @@ export type Env = {
     SUPABASE_SERVICE_ROLE_KEY?: string;
     SUPABASE_SHIELDS_BUCKET: string;
     OWNER_EMAIL: string;
+    VAPID_SERVER_PUBLIC_KEY?: string;
+    VAPID_SERVER_PRIVATE_KEY?: string;
   };
   Variables: {
     prisma: PrismaClient;
