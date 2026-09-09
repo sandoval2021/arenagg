@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { API_URL, apiRequest } from '../lib/api';
 
 export type AuthUser = {
   id: string;
@@ -10,26 +11,15 @@ export type AuthUser = {
   phone: string | null;
 };
 
-type Credentials = { email?: string; phone?: string; password: string };
-type Registration = Credentials & { name: string };
+type Credentials = {
+  email?: string;
+  phone?: string;
+  password: string;
+};
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8787';
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({ error: 'REQUEST_FAILED' }))) as { error?: string };
-    throw new Error(body.error ?? 'REQUEST_FAILED');
-  }
-
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
-}
+type Registration = Credentials & {
+  name: string;
+};
 
 export function AuthProvider({ children }: PropsWithChildren) {
   return children;
@@ -37,22 +27,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
 export function useAuth() {
   const queryClient = useQueryClient();
+
   const me = useQuery({
     queryKey: ['auth', 'me'],
-    queryFn: () => request<{ user: AuthUser | null }>('/api/auth/me'),
+    queryFn: () => apiRequest<{ user: AuthUser | null }>('/api/auth/me'),
     staleTime: 60_000,
     retry: false,
   });
+
   const login = useMutation({
-    mutationFn: (data: Credentials) => request<{ user: AuthUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: Credentials) =>
+      apiRequest<{ user: AuthUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     onSuccess: (data) => queryClient.setQueryData(['auth', 'me'], data),
   });
+
   const register = useMutation({
-    mutationFn: (data: Registration) => request<{ user: AuthUser }>('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: Registration) =>
+      apiRequest<{ user: AuthUser }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     onSuccess: (data) => queryClient.setQueryData(['auth', 'me'], data),
   });
+
   const logout = useMutation({
-    mutationFn: () => request<void>('/api/auth/logout', { method: 'POST' }),
+    mutationFn: () => apiRequest<void>('/api/auth/logout', { method: 'POST' }),
     onSuccess: () => queryClient.setQueryData(['auth', 'me'], { user: null }),
   });
 
