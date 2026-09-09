@@ -6,6 +6,7 @@ import {
   ShieldUploadError,
   uploadShield,
 } from '../services/shield-storage.service';
+import { reconcileRareAchievements } from '../services/achievement-reconciliation.service';
 
 export const profile = new Hono<Env>();
 
@@ -48,15 +49,13 @@ function statsSelect() {
 }
 
 function badgeSelect() {
-  return {
-    badgeCode: true,
-    awardedAt: true,
-  } as const;
+  return { badgeCode: true, awardedAt: true } as const;
 }
 
 profile.get('/me', async (c) => {
   const db = c.get('prisma');
   const sessionUser = c.get('user');
+  await reconcileRareAchievements(db, sessionUser.id);
 
   const [user, stats] = await Promise.all([
     db.user.findUniqueOrThrow({
@@ -206,6 +205,7 @@ profile.get('/:userId', async (c) => {
   const userId = c.req.param('userId');
   if (!z.string().uuid().safeParse(userId).success) return c.json({ error: 'USER_NOT_FOUND' }, 404);
 
+  await reconcileRareAchievements(db, userId);
   const target = await db.user.findFirst({
     where: { id: userId, isActive: true },
     select: {
