@@ -3,9 +3,12 @@ import { cors } from 'hono/cors';
 import type { Env } from './types/env';
 import { dbMiddleware } from './middleware/db';
 import { requireAuth } from './middleware/auth.middleware';
+import { requireOwner } from './middleware/owner.middleware';
 import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
+import { teamSettings } from './routes/team-settings.routes';
+import { defaultShields, ownerShields } from './routes/default-shields.routes';
 import { matches } from './routes/matches.routes';
 import { matchStats } from './routes/match-stats.routes';
 import { evidence } from './routes/evidence.routes';
@@ -39,6 +42,9 @@ app.use('/api/competitions/*', requireAuth);
 app.use('/api/matches/*', requireAuth);
 app.use('/api/match-stats/*', requireAuth);
 app.use('/api/evidence/*', requireAuth);
+app.use('/api/default-shields/*', requireAuth);
+app.use('/api/owner/*', requireAuth);
+app.use('/api/owner/*', requireOwner);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 app.get('/api/health/db', async (c) => {
@@ -48,7 +54,12 @@ app.get('/api/health/db', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
+// Register the hardened team settings router first so PATCH /:id/my-team is
+// handled here instead of the legacy implementation kept for compatibility.
+app.route('/api/competitions', teamSettings);
 app.route('/api/competitions', competitions);
+app.route('/api/default-shields', defaultShields);
+app.route('/api/owner/default-shields', ownerShields);
 app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
