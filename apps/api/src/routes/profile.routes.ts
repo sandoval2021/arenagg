@@ -34,6 +34,7 @@ const updateProfileSchema = z.object({
 
 function statsSelect() {
   return {
+    mmr: true,
     totalWins: true,
     totalDraws: true,
     totalLosses: true,
@@ -46,6 +47,13 @@ function statsSelect() {
   } as const;
 }
 
+function badgeSelect() {
+  return {
+    badgeCode: true,
+    awardedAt: true,
+  } as const;
+}
+
 profile.get('/me', async (c) => {
   const db = c.get('prisma');
   const sessionUser = c.get('user');
@@ -53,7 +61,15 @@ profile.get('/me', async (c) => {
   const [user, stats] = await Promise.all([
     db.user.findUniqueOrThrow({
       where: { id: sessionUser.id },
-      select: { id: true, name: true, displayName: true, avatarUrl: true, email: true, phone: true },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        avatarUrl: true,
+        email: true,
+        phone: true,
+        badges: { select: badgeSelect(), orderBy: { awardedAt: 'asc' } },
+      },
     }),
     db.userProfile.upsert({
       where: { userId: sessionUser.id },
@@ -81,7 +97,15 @@ profile.patch('/me', async (c) => {
         ...(parsed.data.displayName !== undefined ? { displayName: parsed.data.displayName } : {}),
         ...(parsed.data.avatarUrl !== undefined ? { avatarUrl: parsed.data.avatarUrl } : {}),
       },
-      select: { id: true, name: true, displayName: true, avatarUrl: true, email: true, phone: true },
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        avatarUrl: true,
+        email: true,
+        phone: true,
+        badges: { select: badgeSelect(), orderBy: { awardedAt: 'asc' } },
+      },
     });
 
     const profileCreate = {
@@ -190,6 +214,7 @@ profile.get('/:userId', async (c) => {
       displayName: true,
       avatarUrl: true,
       profile: { select: statsSelect() },
+      badges: { select: badgeSelect(), orderBy: { awardedAt: 'asc' } },
     },
   });
   if (!target) return c.json({ error: 'USER_NOT_FOUND' }, 404);
@@ -211,7 +236,9 @@ profile.get('/:userId', async (c) => {
     name: target.name,
     displayName: target.displayName,
     avatarUrl: target.avatarUrl,
+    badges: target.badges,
     ...(target.profile ?? {
+      mmr: 1500,
       totalWins: 0,
       totalDraws: 0,
       totalLosses: 0,
