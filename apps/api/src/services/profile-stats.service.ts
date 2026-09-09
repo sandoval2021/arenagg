@@ -124,8 +124,11 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
   }
 
   if (competition.type === 'KNOCKOUT' || competition.type === 'GROUPS_KNOCKOUT') {
-    // GROUP_STAGE only becomes eligible for championship finalization after its
-    // dedicated KNOCKOUT Stage exists. Direct knockout uses the same final path.
+    // Direct two-leg knockout still requires its existing aggregate progression
+    // implementation and must never crown a champion after only leg 1.
+    if (competition.type === 'KNOCKOUT' && competition.legFormat !== 'SINGLE') return;
+
+    // GROUP_STAGE only becomes eligible after its dedicated KNOCKOUT Stage exists.
     const final = await tx.match.findFirst({
       where: { competitionId, leg: 1, stage: { type: 'KNOCKOUT' } },
       orderBy: [{ stage: { order: 'desc' } }, { round: { number: 'desc' } }, { bracketPosition: 'desc' }],
