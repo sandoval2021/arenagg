@@ -126,6 +126,7 @@ model Competition {
   legFormat          LegFormat         @default(SINGLE)
   matchPace          MatchPace         @default(QUICK)
   teamSelection      TeamSelection     @default(FREE)
+  maxParticipants    Int               @default(20)
   firstPrize         String?
   secondPrize        String?
   thirdPrize         String?
@@ -157,6 +158,8 @@ model Participation {
   competitionId String            @db.Uuid
   userId        String            @db.Uuid
   status        ParticipantStatus @default(PENDING)
+  teamName      String            @default("Meu Time")
+  teamLogoUrl   String?
   joinedAt      DateTime          @default(now())
   competition   Competition       @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
