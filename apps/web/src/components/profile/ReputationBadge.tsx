@@ -11,13 +11,12 @@ export function ReputationBadge({ userId, compact = false }: { userId: string; c
   });
 
   if (!userId || reputation.isError) return null;
-  if (reputation.isLoading) {
-    return <span className="inline-flex h-7 w-24 animate-pulse rounded-full bg-slate-100" aria-label="Carregando reputação" />;
-  }
+  if (reputation.isLoading) return <span className="inline-flex h-7 w-24 animate-pulse rounded-full bg-slate-100" aria-label="Carregando reputação" />;
 
   const data = reputation.data;
   if (!data) return null;
-  const hasRiskSignal = data.tags.RAGE_QUITTER >= 2 || data.tags.TOXIC >= 2;
+  const rageQuitter = data.tags.RAGE_QUITTER >= 2;
+  const toxic = data.tags.TOXIC >= 2;
   const strongFairPlay = data.tags.FAIR_PLAY >= 2;
 
   return (
@@ -26,16 +25,9 @@ export function ReputationBadge({ userId, compact = false }: { userId: string; c
         <Star className={`h-3.5 w-3.5 ${data.count > 0 ? 'fill-amber-400 text-amber-500' : 'text-slate-300'}`} />
         {data.count > 0 ? `${data.average.toFixed(1)} · ${data.count} avaliações` : 'Novo no Fair Play'}
       </span>
-      {strongFairPlay && (
-        <span className={`inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 font-black text-emerald-700 ${compact ? 'text-[8px]' : 'text-[9px]'}`}>
-          <ShieldCheck className="h-3 w-3" /> Fair Play
-        </span>
-      )}
-      {hasRiskSignal && (
-        <span className={`inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 font-black text-rose-700 ${compact ? 'text-[8px]' : 'text-[9px]'}`}>
-          <AlertTriangle className="h-3 w-3" /> Atenção ao Fair Play
-        </span>
-      )}
+      {strongFairPlay && <span className={`inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 font-black text-emerald-700 ${compact ? 'text-[8px]' : 'text-[9px]'}`}><ShieldCheck className="h-3 w-3" /> Fair Play</span>}
+      {rageQuitter && <span className={`inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-1 font-black text-orange-700 ${compact ? 'text-[8px]' : 'text-[9px]'}`}><AlertTriangle className="h-3 w-3" /> Rage Quitter</span>}
+      {toxic && <span className={`inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-1 font-black text-rose-700 ${compact ? 'text-[8px]' : 'text-[9px]'}`}><AlertTriangle className="h-3 w-3" /> Tóxico</span>}
     </div>
   );
 }
