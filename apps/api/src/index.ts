@@ -24,9 +24,11 @@ import { friends } from './routes/friends.routes';
 import { competitionFeed, headToHead } from './routes/phase-one-social.routes';
 import { ranking } from './routes/ranking.routes';
 import { gamification } from './routes/gamification.routes';
+import { reputation } from './routes/reputation.routes';
 import { phaseThreeCompetitions } from './routes/phase-three-competition.routes';
 import { phaseThreeMatches } from './routes/phase-three-match.routes';
 import { phaseFourCompetitions } from './routes/phase-four-competition.routes';
+import { phaseSixCompetitions } from './routes/phase-six-competition.routes';
 import { matchMedia } from './routes/match-media.routes';
 import { push } from './routes/push.routes';
 
@@ -81,6 +83,8 @@ app.use('/api/ranking', requireAuth);
 app.use('/api/ranking/*', requireAuth);
 app.use('/api/gamification', requireAuth);
 app.use('/api/gamification/*', requireAuth);
+app.use('/api/reputation', requireAuth);
+app.use('/api/reputation/*', requireAuth);
 app.use('/api/push', requireAuth);
 app.use('/api/push/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
@@ -96,8 +100,11 @@ app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 app.route('/api/push', push);
 app.route('/api/gamification', gamification);
-// Cross-cutting hooks and exact hardened routes run before legacy routers.
+app.route('/api/reputation', reputation);
+// phaseFour wraps /start with push; phaseSix intercepts only GROUP_STAGE;
+// other formats keep flowing into the existing canonical routers.
 app.route('/api/competitions', phaseFourCompetitions);
+app.route('/api/competitions', phaseSixCompetitions);
 app.route('/api/competitions', phaseThreeCompetitions);
 app.route('/api/competitions', competitionChat);
 app.route('/api/competitions', lobbyModeration);
