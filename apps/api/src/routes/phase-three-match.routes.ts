@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Env } from '../types/env';
 import { resolveWinner } from '../domain/bracket/knockout';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
+import { awardCheckinBadge } from '../services/achievement-engine.service';
 import { sendPushToUsers } from '../services/push.service';
 import {
   InvalidMatchTransitionError,
@@ -44,13 +45,7 @@ async function lockMatch(tx: Tx, matchId: string): Promise<void> {
 
 async function advance(tx: Tx, match: AdvanceableMatch): Promise<void> {
   if (match.competition.type === 'LEAGUE' || !match.nextMatchId || !match.nextMatchSlot) return;
-  if (
-    !match.homeTeamId ||
-    !match.awayTeamId ||
-    match.homeScore == null ||
-    match.awayScore == null
-  ) return;
-
+  if (!match.homeTeamId || !match.awayTeamId || match.homeScore == null || match.awayScore == null) return;
   const winnerId = resolveWinner({
     homeTeamId: match.homeTeamId,
     awayTeamId: match.awayTeamId,
@@ -59,7 +54,6 @@ async function advance(tx: Tx, match: AdvanceableMatch): Promise<void> {
     homePenaltyScore: match.homePenaltyScore,
     awayPenaltyScore: match.awayPenaltyScore,
   });
-
   await tx.match.update({
     where: { id: match.nextMatchId },
     data: match.nextMatchSlot === 'HOME' ? { homeTeamId: winnerId } : { awayTeamId: winnerId },
@@ -75,9 +69,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
     await lockMatch(tx, matchId);
     const match = await tx.match.findUnique({ where: { id: matchId }, include: matchAccessInclude });
     if (!match) return { error: 'MATCH_NOT_FOUND' as const };
-    if (match.status === 'FINISHED' || match.status === 'CANCELED') {
-      return { error: 'MATCH_NOT_OPEN' as const };
-    }
+    if (match.status === 'FINISHED' || match.status === 'CANCELED') return { error: 'MATCH_NOT_OPEN' as const };
     if (!match.homeTeam || !match.awayTeam) return { error: 'MATCH_NOT_READY' as const };
 
     const side = match.homeTeam.participation.userId === user.id
@@ -89,12 +81,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
 
     if ((side === 'HOME' && match.homeReady) || (side === 'AWAY' && match.awayReady)) {
       return {
-        ready: {
-          homeReady: match.homeReady,
-          awayReady: match.awayReady,
-          homeReadyAt: match.homeReadyAt,
-          awayReadyAt: match.awayReadyAt,
-        },
+        ready: { homeReady: match.homeReady, awayReady: match.awayReady, homeReadyAt: match.homeReadyAt, awayReadyAt: match.awayReadyAt },
         notifyUserId: null,
         competitionId: match.competitionId,
         competitionName: match.competition.name,
@@ -104,9 +91,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
     const now = new Date();
     const changed = await tx.match.updateMany({
       where: { id: matchId, status: { notIn: ['FINISHED', 'CANCELED'] } },
-      data: side === 'HOME'
-        ? { homeReady: true, homeReadyAt: now }
-        : { awayReady: true, awayReadyAt: now },
+      data: side === 'HOME' ? { homeReady: true, homeReadyAt: now } : { awayReady: true, awayReadyAt: now },
     });
     if (changed.count !== 1) return { error: 'MATCH_NOT_OPEN' as const };
 
@@ -114,15 +99,8 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
       where: { id: matchId },
       select: { homeReady: true, awayReady: true, homeReadyAt: true, awayReadyAt: true },
     });
-    const notifyUserId = side === 'HOME'
-      ? match.awayTeam.participation.userId
-      : match.homeTeam.participation.userId;
-    return {
-      ready,
-      notifyUserId,
-      competitionId: match.competitionId,
-      competitionName: match.competition.name,
-    };
+    const notifyUserId = side === 'HOME' ? match.awayTeam.participation.userId : match.homeTeam.participation.userId;
+    return { ready, notifyUserId, competitionId: match.competitionId, competitionName: match.competition.name };
   });
 
   if ('error' in result) {
@@ -130,6 +108,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
     return c.json({ error: result.error }, status);
   }
 
+  await awardCheckinBadge(db, user.id);
   if (result.notifyUserId) {
     try {
       await sendPushToUsers(db, c.env, [result.notifyUserId], {
@@ -162,28 +141,17 @@ phaseThreeMatches.post('/:id/walkover', async (c) => {
       if (!match.homeTeam || !match.awayTeam) return { error: 'MATCH_NOT_READY' as const };
 
       const nextState = transitionMatch(match.status as MatchState, 'HOST_WALKOVER');
-      let winnerSide: 'HOME' | 'AWAY' | null = parsed.data.winner === 'AUTO'
-        ? null
-        : parsed.data.winner;
-
+      let winnerSide: 'HOME' | 'AWAY' | null = parsed.data.winner === 'AUTO' ? null : parsed.data.winner;
       if (!winnerSide) {
-        if (match.homeReady === match.awayReady) {
-          return { error: 'WALKOVER_WINNER_REQUIRED' as const };
-        }
+        if (match.homeReady === match.awayReady) return { error: 'WALKOVER_WINNER_REQUIRED' as const };
         winnerSide = match.homeReady ? 'HOME' : 'AWAY';
       }
 
       const winnerTeamId = winnerSide === 'HOME' ? match.homeTeam.id : match.awayTeam.id;
-      const winnerUserId = winnerSide === 'HOME'
-        ? match.homeTeam.participation.userId
-        : match.awayTeam.participation.userId;
+      const winnerUserId = winnerSide === 'HOME' ? match.homeTeam.participation.userId : match.awayTeam.participation.userId;
       const now = new Date();
       const changed = await tx.match.updateMany({
-        where: {
-          id: matchId,
-          version: parsed.data.version,
-          status: match.status,
-        },
+        where: { id: matchId, version: parsed.data.version, status: match.status },
         data: {
           status: nextState,
           homeScore: winnerSide === 'HOME' ? 3 : 0,
@@ -199,16 +167,12 @@ phaseThreeMatches.post('/:id/walkover', async (c) => {
       });
       if (changed.count !== 1) throw new Error('VERSION_CONFLICT');
 
-      // Dados esportivos de uma tentativa anterior não podem sobreviver ao W.O.
       await Promise.all([
         tx.matchScorer.deleteMany({ where: { matchId } }),
         tx.matchStats.deleteMany({ where: { matchId } }),
       ]);
 
-      const fresh = await tx.match.findUniqueOrThrow({
-        where: { id: matchId },
-        include: { competition: { select: { type: true } } },
-      });
+      const fresh = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { competition: { select: { type: true } } } });
       await advance(tx, fresh);
       await applyFinishedMatchToProfiles(tx, matchId);
 
