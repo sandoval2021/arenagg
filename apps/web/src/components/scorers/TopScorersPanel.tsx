@@ -22,7 +22,7 @@ export function TopScorersPanel({ scorers, loading, error }: { scorers: TopScore
 
   return (
     <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-md shadow-slate-200/50">
-      <header className="relative overflow-hidden border-b border-amber-100 bg-gradient-to-r from-amber-50 via-white to-yellow-50 px-5 py-5">
+      <header className="relative overflow-hidden border-b border-amber-100 bg-gradient-to-r from-amber-50 via-white to-yellow-50 px-4 py-5 sm:px-5">
         <div className="absolute -right-10 -top-14 h-36 w-36 rounded-full bg-amber-200/30 blur-3xl" />
         <div className="relative flex items-center gap-3">
           <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-yellow-300 to-amber-500 text-white shadow-lg shadow-amber-200"><Trophy className="h-6 w-6" /></span>
@@ -33,7 +33,7 @@ export function TopScorersPanel({ scorers, loading, error }: { scorers: TopScore
         </div>
       </header>
 
-      <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-[9px] font-black uppercase tracking-[.14em] text-slate-400 sm:px-5">
+      <div className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-[9px] font-black uppercase tracking-[.12em] text-slate-400 sm:grid-cols-[44px_minmax(0,1fr)_auto] sm:gap-3 sm:px-5 sm:tracking-[.14em]">
         <span>Pos.</span>
         <span>Goleador / Time</span>
         <span className="text-right">Gols</span>
@@ -53,30 +53,30 @@ function ScorerRow({ scorer }: { scorer: TopScorer }) {
   const podium = scorer.position <= 3;
 
   return (
-    <article className={`relative flex items-center gap-3 px-4 py-4 sm:px-5 ${first ? 'bg-gradient-to-r from-amber-50/90 via-white to-yellow-50/70' : 'bg-white'}`}>
+    <article className={`relative flex items-center gap-2.5 px-4 py-3.5 sm:gap-3 sm:px-5 sm:py-4 ${first ? 'bg-gradient-to-r from-amber-50/90 via-white to-yellow-50/70' : 'bg-white'}`}>
       {first && <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-yellow-300 to-amber-500" />}
 
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-black ${first ? 'bg-gradient-to-br from-yellow-300 to-amber-500 text-white shadow-md shadow-amber-200' : podium ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`} aria-label={`${scorer.position}º lugar`}>
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-black sm:h-10 sm:w-10 ${first ? 'bg-gradient-to-br from-yellow-300 to-amber-500 text-white shadow-md shadow-amber-200' : podium ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`} aria-label={`${scorer.position}º lugar`}>
         {first ? <Medal className="h-5 w-5" /> : scorer.position}
       </span>
 
       {scorer.teamLogoUrl ? (
-        <img src={scorer.teamLogoUrl} alt="" className="h-11 w-11 shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm" loading="lazy" referrerPolicy="no-referrer" />
+        <img src={scorer.teamLogoUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm sm:h-11 sm:w-11" loading="lazy" referrerPolicy="no-referrer" />
       ) : (
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400"><Shield className="h-5 w-5" /></span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400 sm:h-11 sm:w-11"><Shield className="h-5 w-5" /></span>
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <h3 className={`truncate text-sm text-slate-950 ${first ? 'font-black' : 'font-extrabold'}`}>{scorer.playerName}</h3>
-          {first && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800">Líder</span>}
+          {first && <span className="hidden shrink-0 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 min-[380px]:inline-flex">Líder</span>}
         </div>
-        <p className="mt-0.5 truncate text-xs font-semibold text-slate-400">{scorer.teamName}</p>
+        <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-400 sm:text-xs">{scorer.teamName}</p>
       </div>
 
       <div className="shrink-0 text-right">
-        <p className={`text-2xl font-black leading-none ${first ? 'text-amber-600' : 'text-[#073B8C]'}`}>{scorer.goals}</p>
-        <p className="mt-1 text-[9px] font-black uppercase tracking-[.14em] text-slate-400">gols</p>
+        <p className={`text-xl font-black leading-none sm:text-2xl ${first ? 'text-amber-600' : 'text-[#073B8C]'}`}>{scorer.goals}</p>
+        <p className="mt-1 text-[8px] font-black uppercase tracking-[.12em] text-slate-400 sm:text-[9px] sm:tracking-[.14em]">gols</p>
       </div>
     </article>
   );
