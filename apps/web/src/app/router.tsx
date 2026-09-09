@@ -6,6 +6,7 @@ import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { EditProfilePage } from '../pages/EditProfilePage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
+import { RankingPage } from '../pages/RankingPage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { path: '/competitions/:competitionId', element: <CompetitionDetailExperience /> },
       { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
+      { path: '/ranking', element: <RankingPage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/profile/edit', element: <EditProfilePage /> },
       { path: '/profile/:userId', element: <PublicProfilePage /> },
