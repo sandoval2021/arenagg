@@ -22,6 +22,12 @@ import {
   type MatchStats,
 } from '../../lib/api';
 import { MatchStatsPanelLight } from '../matches/MatchStatsPanelLight';
+import {
+  MatchScorersEditor,
+  compactScorerDrafts,
+  validateScorerDrafts,
+  type ScorerDraft,
+} from '../matches/MatchScorersEditor';
 
 type BaseMatch = CompetitionDetail['matches'][number];
 type BracketMatch = BaseMatch & {
@@ -328,18 +334,26 @@ function MatchDetailSheet({
   const queryClient = useQueryClient();
   const [homeScore, setHomeScore] = useState(match.homeScore ?? 0);
   const [awayScore, setAwayScore] = useState(match.awayScore ?? 0);
+  const [scorers, setScorers] = useState<ScorerDraft[]>([]);
   const [evidence, setEvidence] = useState<File | undefined>();
   const [localError, setLocalError] = useState<string | null>(null);
   const editable = canEdit && match.status === 'PENDING' && Boolean(match.homeTeam && match.awayTeam);
 
   const score = useMutation({
-    mutationFn: () => submitMatchScore(match.id, { homeScore, awayScore, version: match.version, evidence }),
+    mutationFn: () => submitMatchScore(match.id, {
+      homeScore,
+      awayScore,
+      version: match.version,
+      evidence,
+      scorers: compactScorerDrafts(scorers),
+    }),
     onSuccess: async () => {
       setLocalError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['match-stats', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
       ]);
       onClose();
     },
@@ -348,6 +362,11 @@ function MatchDetailSheet({
   function saveScore() {
     if (requireValidation && !evidence) {
       setLocalError('Anexe a foto do placar para enviar o resultado.');
+      return;
+    }
+    const scorerError = validateScorerDrafts(scorers, homeScore, awayScore);
+    if (scorerError) {
+      setLocalError(scorerError);
       return;
     }
     setLocalError(null);
@@ -371,6 +390,17 @@ function MatchDetailSheet({
           </div>
           <CompactTeam team={match.awayTeam} align="left" />
         </div>
+
+        {editable && (
+          <MatchScorersEditor
+            value={scorers}
+            onChange={setScorers}
+            homeTeamName={match.homeTeam?.name ?? 'Mandante'}
+            awayTeamName={match.awayTeam?.name ?? 'Visitante'}
+            homeScore={homeScore}
+            awayScore={awayScore}
+          />
+        )}
 
         {editable && requireValidation && (
           <label className="mt-3 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 text-xs font-black text-slate-600">
@@ -523,6 +553,7 @@ function statusLabel(status?: string): string {
 function scoreError(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Não foi possível registrar o placar.';
   if (error.code === 'EVIDENCE_REQUIRED') return 'A foto do placar é obrigatória nesta Copa.';
+  if (error.code === 'SCORER_TOTAL_EXCEEDS_SCORE') return 'A soma dos gols dos goleadores não pode ultrapassar o placar.';
   if (error.code === 'INVALID_MATCH_TRANSITION') return 'Este jogo não aceita um novo placar neste momento.';
   if (error.code === 'FORBIDDEN') return 'Você não pode registrar o placar deste jogo.';
   return 'Falha ao registrar o placar.';
