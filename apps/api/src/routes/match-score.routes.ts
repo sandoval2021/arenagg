@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import type { Env } from '../types/env';
 import { scoreFields } from '../schemas/match.schema';
 import { resolveWinner } from '../domain/bracket/knockout';
+import { BADGE_CODES } from '../domain/achievements/badges';
 import {
   transitionMatch,
   InvalidMatchTransitionError,
@@ -10,6 +11,7 @@ import {
 } from '@chavea/domain/match/states';
 import { storeEvidence } from '../services/evidence.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
+import { awardBadgeCodes } from '../services/achievement-engine.service';
 import { replaceMatchScorers } from '../services/match-scorers.service';
 import { detectClipPlatform } from './match-media.routes';
 
@@ -35,20 +37,30 @@ type AdvanceableMatch = {
 
 function hasMatchAccess(match: MatchAccess, userId: string): boolean {
   return (
-    match.competition.hostId === userId ||
-    match.homeTeam?.participation.userId === userId ||
-    match.awayTeam?.participation.userId === userId
+    match.competition.hostId === userId
+    || match.homeTeam?.participation.userId === userId
+    || match.awayTeam?.participation.userId === userId
   );
+}
+
+function prizeBacked(competition: {
+  entryFee: number;
+  firstPrize: string | null;
+  secondPrize: string | null;
+  thirdPrize: string | null;
+}): boolean {
+  return competition.entryFee > 0
+    || Boolean(competition.firstPrize || competition.secondPrize || competition.thirdPrize);
 }
 
 async function advance(tx: Prisma.TransactionClient, match: AdvanceableMatch) {
   if (match.competition.type === 'LEAGUE' || !match.nextMatchId) return;
   if (
-    !match.homeTeamId ||
-    !match.awayTeamId ||
-    match.homeScore == null ||
-    match.awayScore == null ||
-    !match.nextMatchSlot
+    !match.homeTeamId
+    || !match.awayTeamId
+    || match.homeScore == null
+    || match.awayScore == null
+    || !match.nextMatchSlot
   ) return;
 
   const winnerId = resolveWinner({
@@ -72,8 +84,8 @@ const accessInclude = {
   awayTeam: { select: { participation: { select: { userId: true } } } },
 } satisfies Prisma.MatchInclude;
 
-// This router is mounted before the legacy matches router. It owns the exact
-// POST /:id/score route so score + scorers + optional highlight are one atomic DB change.
+// Exact score owner: placar + goleadores + clipe + evidência são consolidados
+// juntos. Copas com premiação sempre passam por aprovação do adversário/Host.
 matchScore.post('/:id/score', async (c) => {
   const id = c.req.param('id');
   const db = c.get('prisma');
@@ -85,7 +97,6 @@ matchScore.post('/:id/score', async (c) => {
   const contentType = c.req.header('content-type') ?? '';
   let raw: unknown;
   let evidence: File | undefined;
-
   if (contentType.includes('multipart/form-data')) {
     const body = await c.req.parseBody();
     raw = body;
@@ -98,24 +109,20 @@ matchScore.post('/:id/score', async (c) => {
   if (!parsed.success) {
     const scorerIssue = parsed.error.issues.find((issue) => issue.path[0] === 'scorers');
     const clipIssue = parsed.error.issues.find((issue) => issue.path[0] === 'clipUrl');
-    return c.json(
-      {
-        error: scorerIssue ? 'SCORER_TOTAL_EXCEEDS_SCORE' : clipIssue ? 'INVALID_CLIP_URL' : 'INVALID_INPUT',
-        message: scorerIssue?.message ?? clipIssue?.message,
-        issues: parsed.error.flatten(),
-      },
-      400,
-    );
+    return c.json({
+      error: scorerIssue ? 'SCORER_TOTAL_EXCEEDS_SCORE' : clipIssue ? 'INVALID_CLIP_URL' : 'INVALID_INPUT',
+      message: scorerIssue?.message ?? clipIssue?.message,
+      issues: parsed.error.flatten(),
+    }, 400);
   }
 
-  if (match.competition.requireValidation && !evidence) {
-    return c.json({ error: 'EVIDENCE_REQUIRED' }, 400);
-  }
+  const protectedResult = match.competition.requireValidation || prizeBacked(match.competition);
+  if (protectedResult && !evidence) return c.json({ error: 'EVIDENCE_REQUIRED' }, 400);
 
   try {
     const next = transitionMatch(
       match.status as MatchState,
-      match.competition.requireValidation ? 'SUBMIT_WITH_VALIDATION' : 'SUBMIT_WITHOUT_VALIDATION',
+      protectedResult ? 'SUBMIT_WITH_VALIDATION' : 'SUBMIT_WITHOUT_VALIDATION',
     );
 
     let evidenceKey: string | undefined;
@@ -139,11 +146,7 @@ matchScore.post('/:id/score', async (c) => {
       });
       if (changed.count !== 1) throw new Error('VERSION_CONFLICT');
 
-      const row = await tx.match.findUniqueOrThrow({
-        where: { id },
-        include: { competition: true },
-      });
-
+      const row = await tx.match.findUniqueOrThrow({ where: { id }, include: { competition: true } });
       await replaceMatchScorers(tx, row, parsed.data.scorers);
 
       if (parsed.data.clipUrl) {
@@ -157,6 +160,7 @@ matchScore.post('/:id/score', async (c) => {
           },
           update: {},
         });
+        await awardBadgeCodes(tx, user.id, [BADGE_CODES.FIRST_CLIP]);
       }
 
       if (next === 'FINISHED') {
