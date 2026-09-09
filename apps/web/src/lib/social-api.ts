@@ -1,7 +1,18 @@
 import { apiRequest } from './api';
 
 export const CONSOLE_OPTIONS = ['PS5', 'PS4', 'PC', 'Xbox', 'Nintendo', 'PS3', 'Outros'] as const;
+export const FORMATION_OPTIONS = ['4-3-3', '4-2-4', '4-4-2', '4-4-1-1', '3-5-2', '3-4-3', '5-3-2', '5-4-1'] as const;
+export const PLAYSTYLE_OPTIONS = [
+  'Troca de Passes (Tiki-Taka)',
+  'Contra-ataque',
+  'Jogo Equilibrado',
+  'Retranca',
+  'Lançamento Longo',
+  'Pressão Alta',
+] as const;
 export type ConsoleTag = (typeof CONSOLE_OPTIONS)[number];
+export type FormationOption = (typeof FORMATION_OPTIONS)[number];
+export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
 
 export type GamerProfile = {
   id: string;
@@ -11,6 +22,8 @@ export type GamerProfile = {
   email?: string | null;
   phone?: string | null;
   consoles: ConsoleTag[];
+  favoriteFormation: FormationOption | null;
+  playstyle: PlaystyleOption | null;
   totalWins: number;
   totalDraws: number;
   totalLosses: number;
@@ -50,6 +63,8 @@ export function getMyGamerProfile(): Promise<GamerProfile> {
 export function updateMyGamerProfile(input: {
   displayName?: string;
   consoles?: ConsoleTag[];
+  favoriteFormation?: FormationOption | null;
+  playstyle?: PlaystyleOption | null;
   avatarUrl?: string | null;
 }): Promise<GamerProfile> {
   return apiRequest('/api/profile/me', {
