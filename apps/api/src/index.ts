@@ -7,6 +7,7 @@ import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { matches } from './routes/matches.routes';
+import { matchStats } from './routes/match-stats.routes';
 import { evidence } from './routes/evidence.routes';
 
 const app = new Hono<Env>();
@@ -36,6 +37,7 @@ app.use(
 app.use('/api/*', dbMiddleware);
 app.use('/api/competitions/*', requireAuth);
 app.use('/api/matches/*', requireAuth);
+app.use('/api/match-stats/*', requireAuth);
 app.use('/api/evidence/*', requireAuth);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -48,6 +50,7 @@ app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 app.route('/api/competitions', competitions);
 app.route('/api/matches', matches);
+app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
 
 app.onError((err, c) => {
