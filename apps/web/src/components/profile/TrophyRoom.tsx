@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Award,
+  CheckCircle2,
   ChevronRight,
   Crown,
   Flame,
@@ -50,10 +51,10 @@ const rarityPill: Record<AchievementRarity, string> = {
 };
 
 const unlockedTile: Record<AchievementRarity, string> = {
-  COMMON: 'border-sky-200 bg-gradient-to-br from-sky-100 via-white to-cyan-100 text-sky-700 shadow-sky-100',
-  RARE: 'border-blue-300 bg-gradient-to-br from-blue-100 via-white to-indigo-100 text-blue-700 shadow-blue-100',
-  EPIC: 'border-violet-300 bg-gradient-to-br from-violet-100 via-white to-fuchsia-100 text-violet-700 shadow-violet-100',
-  LEGENDARY: 'border-amber-300 bg-gradient-to-br from-amber-200 via-yellow-50 to-orange-200 text-amber-800 shadow-amber-200',
+  COMMON: 'border-yellow-300 bg-gradient-to-br from-yellow-200 via-amber-300 to-orange-400 text-amber-950 shadow-amber-300/70 ring-1 ring-yellow-200',
+  RARE: 'border-amber-300 bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-500 text-amber-950 shadow-amber-400/70 ring-1 ring-yellow-300',
+  EPIC: 'border-orange-300 bg-gradient-to-br from-yellow-300 via-amber-400 to-orange-600 text-white shadow-orange-400/70 ring-1 ring-amber-300',
+  LEGENDARY: 'border-yellow-300 bg-gradient-to-br from-yellow-200 via-amber-400 to-orange-600 text-white shadow-amber-500/80 ring-2 ring-yellow-300',
 };
 
 function AchievementIcon({ achievement, className = 'h-6 w-6' }: { achievement: Achievement; className?: string }) {
@@ -224,7 +225,7 @@ export function TrophyRoom({ badges }: { badges: GamerProfile['badges'] }) {
               ))}
             </div>
             <p className="mx-auto mt-5 max-w-lg text-center text-[10px] font-semibold leading-4 text-slate-400">
-              Colorido = conquistado. Cinza = ainda bloqueado. Toque em qualquer ícone para saber como liberar.
+              Dourado = conquistado. Cinza = ainda bloqueado. Toque em qualquer ícone para saber como liberar.
             </p>
           </div>
         </div>
@@ -257,19 +258,22 @@ function AchievementTile({
       type="button"
       onClick={onClick}
       aria-label={`${achievement.title} — ${unlocked ? 'conquistado' : 'bloqueado'}`}
-      className={`relative grid aspect-square w-full place-items-center overflow-hidden rounded-2xl border transition active:scale-90 ${
+      className={`relative grid aspect-square w-full place-items-center overflow-visible rounded-2xl border transition active:scale-90 ${
         unlocked
-          ? `${unlockedTile[achievement.rarity]} shadow-md`
+          ? `${unlockedTile[achievement.rarity]} shadow-lg`
           : 'border-slate-200 bg-slate-100 text-slate-400 opacity-65 shadow-inner'
       } ${compact ? 'min-h-0' : 'h-[3.75rem] w-[3.75rem] sm:h-16 sm:w-16'}`}
     >
       {unlocked && (
         <>
-          <span className="absolute -right-3 -top-3 h-8 w-8 rounded-full bg-white/80 blur-lg" />
-          {achievement.rarity === 'LEGENDARY' && <Sparkles className="absolute right-1 top-1 h-3 w-3 text-amber-500" />}
+          <span className="pointer-events-none absolute inset-1 rounded-xl bg-gradient-to-br from-white/45 via-transparent to-orange-500/15" />
+          <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 grid h-5 w-5 place-items-center rounded-full border-2 border-white bg-emerald-500 text-white shadow-md shadow-emerald-300/70 sm:h-5.5 sm:w-5.5">
+            <CheckCircle2 className="h-3.5 w-3.5 fill-emerald-500 text-white" strokeWidth={3} />
+          </span>
+          {achievement.rarity === 'LEGENDARY' && <Sparkles className="pointer-events-none absolute bottom-1 right-1 h-3 w-3 text-yellow-50 drop-shadow" />}
         </>
       )}
-      <AchievementIcon achievement={achievement} className={compact ? 'h-5 w-5 sm:h-6 sm:w-6' : 'h-6 w-6'} />
+      <AchievementIcon achievement={achievement} className={compact ? 'relative z-10 h-5 w-5 sm:h-6 sm:w-6' : 'relative z-10 h-6 w-6'} />
       {!unlocked && (
         <span className="absolute bottom-1 right-1 grid h-4 w-4 place-items-center rounded-full border border-white bg-slate-500 text-white shadow-sm">
           <LockKeyhole className="h-2.5 w-2.5" />
@@ -295,10 +299,11 @@ function AchievementSheet({
       <div className="w-full rounded-t-[2rem] border border-white/60 bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 shadow-2xl sm:max-w-md sm:rounded-[2rem] sm:p-6">
         <div className="mx-auto h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
         <div className="mt-4 flex items-start gap-4 sm:mt-0">
-          <div className={`relative grid h-20 w-20 shrink-0 place-items-center rounded-[1.5rem] border ${unlocked ? `${unlockedTile[achievement.rarity]} shadow-lg` : 'border-slate-200 bg-slate-100 text-slate-400'}`}>
+          <div className={`relative grid h-20 w-20 shrink-0 place-items-center rounded-[1.5rem] border ${unlocked ? `${unlockedTile[achievement.rarity]} shadow-xl` : 'border-slate-200 bg-slate-100 text-slate-400'}`}>
+            {unlocked && <span className="pointer-events-none absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-emerald-500 text-white shadow-md"><CheckCircle2 className="h-5 w-5 fill-emerald-500 text-white" strokeWidth={3} /></span>}
             <AchievementIcon achievement={achievement} className="h-9 w-9" />
             {!unlocked && <span className="absolute bottom-2 right-2 grid h-5 w-5 place-items-center rounded-full bg-slate-500 text-white"><LockKeyhole className="h-3 w-3" /></span>}
-            {unlocked && achievement.rarity === 'LEGENDARY' && <Sparkles className="absolute right-2 top-2 h-4 w-4 text-amber-500" />}
+            {unlocked && achievement.rarity === 'LEGENDARY' && <Sparkles className="absolute bottom-2 right-2 h-4 w-4 text-yellow-50 drop-shadow" />}
           </div>
 
           <div className="min-w-0 flex-1 pt-1">
@@ -322,7 +327,7 @@ function AchievementSheet({
 
         <div className={`mt-3 flex items-center gap-3 rounded-2xl border p-4 ${unlocked ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
           <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${unlocked ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
-            {unlocked ? <Trophy className="h-5 w-5" /> : <LockKeyhole className="h-5 w-5" />}
+            {unlocked ? <CheckCircle2 className="h-5 w-5" /> : <LockKeyhole className="h-5 w-5" />}
           </span>
           <div className="min-w-0 flex-1">
             <p className={`text-[10px] font-black uppercase tracking-[.15em] ${unlocked ? 'text-emerald-700' : 'text-slate-400'}`}>Status</p>
