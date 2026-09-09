@@ -19,12 +19,12 @@ export function GlobalActivityLoader() {
 
   return (
     <div
-      className="pointer-events-none fixed left-1/2 top-[max(.65rem,env(safe-area-inset-top))] z-[120] -translate-x-1/2 rounded-2xl border border-amber-200/80 bg-white/95 px-3 py-2 shadow-xl shadow-slate-900/10 backdrop-blur"
+      className="pointer-events-none fixed left-1/2 top-1/2 z-[120] -translate-x-1/2 -translate-y-1/2 rounded-[1.75rem] border border-amber-200/80 bg-white/95 px-5 py-4 shadow-2xl shadow-slate-900/15 backdrop-blur"
       role="status"
       aria-label="Chavea carregando"
     >
       <span className="block animate-pulse opacity-90 [animation-duration:1.15s]">
-        <Logo size="sm" />
+        <Logo size="md" />
       </span>
     </div>
   );
