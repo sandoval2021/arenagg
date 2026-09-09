@@ -3,7 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "preview": "vite preview" },
+  "scripts": {
+    "generate:pwa-icons": "node ./scripts/generate-pwa-icons.mjs",
+    "predev": "npm run generate:pwa-icons",
+    "dev": "vite",
+    "prebuild": "npm run generate:pwa-icons",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",
     "lucide-react": "^0.468.0",
