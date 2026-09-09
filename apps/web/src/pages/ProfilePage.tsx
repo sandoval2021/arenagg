@@ -20,6 +20,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { BottomNavigation } from '../components/navigation/BottomNavigation';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
+import { ReputationBadge } from '../components/profile/ReputationBadge';
 import { useAuth } from '../hooks/useAuth';
 import { PLATFORM_OWNER_EMAIL } from '../lib/api';
 import {
@@ -93,6 +94,7 @@ export function ProfilePage() {
               <div className="flex items-center gap-2"><span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-[.16em] text-amber-700">CHAVEA PLAYER</span><Sparkles className="h-4 w-4 text-amber-500" /></div>
               <h2 className="mt-2 truncate text-2xl font-black tracking-tight">{data?.displayName ?? data?.name ?? auth.user?.displayName ?? auth.user?.name}</h2>
               <div className="mt-2"><ConsoleBadges consoles={data?.consoles ?? []} /></div>
+              <ReputationBadge userId={data?.id ?? auth.user?.id ?? ''} />
               <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4" />Perfil competitivo ativo</p>
             </div>
           </div>
