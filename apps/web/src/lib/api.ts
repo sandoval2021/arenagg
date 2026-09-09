@@ -7,6 +7,7 @@ export type CompetitionStatus =
   | 'FINISHED'
   | 'CANCELLED';
 export type TeamSelection = 'FREE' | 'RANDOM';
+export type MatchStatsStatus = 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DISPUTED';
 
 export type CompetitionSummary = {
   id: string;
@@ -69,6 +70,35 @@ export type Standing = {
   goalsFor: number;
   goalsAgainst: number;
   goalDifference: number;
+};
+
+export type MatchStatsInput = {
+  homePossession: number;
+  awayPossession: number;
+  homeShots: number;
+  awayShots: number;
+  homeShotsOnGoal: number;
+  awayShotsOnGoal: number;
+  homePasses: number;
+  awayPasses: number;
+  homeTackles: number;
+  awayTackles: number;
+  homeFouls: number;
+  awayFouls: number;
+};
+
+export type MatchStats = MatchStatsInput & {
+  matchId: string;
+  statsStatus: MatchStatsStatus;
+  submittedById: string;
+  reviewedById: string | null;
+  submittedAt: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedByMe: boolean;
+  canApprove: boolean;
+  canDispute: boolean;
 };
 
 export type CreateCompetitionInput = {
@@ -185,6 +215,29 @@ export async function submitMatchScore(
   return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
     method: 'POST',
     body,
+  });
+}
+
+export async function getCompetitionMatchStats(competitionId: string): Promise<MatchStats[]> {
+  return apiRequest(`/api/match-stats/competition/${encodeURIComponent(competitionId)}`);
+}
+
+export async function submitMatchStats(matchId: string, input: MatchStatsInput): Promise<MatchStats> {
+  return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/stats`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function approveMatchStats(matchId: string): Promise<MatchStats> {
+  return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/stats/approve`, {
+    method: 'POST',
+  });
+}
+
+export async function disputeMatchStats(matchId: string): Promise<MatchStats> {
+  return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/stats/dispute`, {
+    method: 'POST',
   });
 }
 
