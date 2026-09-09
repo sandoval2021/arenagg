@@ -338,6 +338,8 @@ competitions.get('/', async (c) => {
       currentRound: competition.stages.flatMap((stage) => stage.rounds)[0]?.number,
       status: competition.status,
       logoUrl: competition.logoUrl ?? undefined,
+      game: competition.game,
+      platform: competition.platform,
       isHost: competition.hostId === user.id,
     })),
   );
@@ -360,6 +362,8 @@ competitions.post('/', async (c) => {
         name: input.name,
         slug: slugify(input.name),
         type: input.type,
+        game: input.game,
+        platform: input.platform,
         legFormat: input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
         matchPace: input.matchPace,
         teamSelection: input.teamSelection,
