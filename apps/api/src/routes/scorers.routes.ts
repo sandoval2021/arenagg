@@ -30,13 +30,14 @@ scorers.get('/:id/top-scorers', async (c) => {
 
   if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
 
-  // The Worker delegates the ranking to PostgreSQL. First, discard any
-  // historical scorer set that would exceed the final score for that side of
-  // a FINISHED match. Then aggregate globally by normalized playerKey across
-  // the whole competition, exactly matching the public "artilharia" concept.
-  // If the same player name appears for more than one team, the UI shows the
-  // team for which that scorer contributed the most goals while the total
-  // still includes all valid goals in the competition.
+  // Ranking invariants:
+  // 1) only FINISHED matches count;
+  // 2) scorer totals can never contribute more goals than the stored score for
+  //    that team in that match (historical-corruption guard);
+  // 3) playerKey is the normalized identity used to group spelling/case variants;
+  // 4) when the same scorer appears for multiple teams, all valid goals are
+  //    summed, while the UI displays the team where that scorer contributed
+  //    the most goals (most recent contribution breaks ties).
   const rows = await db.$queryRaw<TopScorerDbRow[]>`
     WITH valid_team_match AS (
       SELECT
