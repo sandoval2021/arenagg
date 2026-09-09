@@ -1,12 +1,54 @@
 import { z } from 'zod';
 
-export const scoreFields = z.object({
-  homeScore: z.coerce.number().int().min(0).max(99),
-  awayScore: z.coerce.number().int().min(0).max(99),
-  homePenaltyScore: z.coerce.number().int().min(0).max(99).optional(),
-  awayPenaltyScore: z.coerce.number().int().min(0).max(99).optional(),
-  version: z.coerce.number().int().positive(),
+const scorerSideSchema = z.enum(['HOME', 'AWAY']);
+
+export const scorerInputSchema = z.object({
+  side: scorerSideSchema,
+  playerName: z.string().trim().min(2).max(60),
+  goals: z.coerce.number().int().min(1).max(99),
 });
+
+const scorersSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}, z.array(scorerInputSchema).max(40)).optional().default([]);
+
+export const scoreFields = z
+  .object({
+    homeScore: z.coerce.number().int().min(0).max(99),
+    awayScore: z.coerce.number().int().min(0).max(99),
+    homePenaltyScore: z.coerce.number().int().min(0).max(99).optional(),
+    awayPenaltyScore: z.coerce.number().int().min(0).max(99).optional(),
+    version: z.coerce.number().int().positive(),
+    scorers: scorersSchema,
+  })
+  .superRefine((value, ctx) => {
+    const homeScorerGoals = value.scorers
+      .filter((scorer) => scorer.side === 'HOME')
+      .reduce((sum, scorer) => sum + scorer.goals, 0);
+    const awayScorerGoals = value.scorers
+      .filter((scorer) => scorer.side === 'AWAY')
+      .reduce((sum, scorer) => sum + scorer.goals, 0);
+
+    if (homeScorerGoals > value.homeScore) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scorers'],
+        message: `Os goleadores do mandante somam ${homeScorerGoals}, acima do placar ${value.homeScore}.`,
+      });
+    }
+    if (awayScorerGoals > value.awayScore) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scorers'],
+        message: `Os goleadores do visitante somam ${awayScorerGoals}, acima do placar ${value.awayScore}.`,
+      });
+    }
+  });
 
 // Base para Liga Infinita: o clube escolhido é um snapshot da partida e não
 // substitui a relação homeTeam/awayTeam, que continua identificando os jogadores.
