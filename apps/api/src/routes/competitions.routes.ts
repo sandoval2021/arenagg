@@ -331,7 +331,7 @@ competitions.get('/:id', async (c) => {
       },
       matches: {
         take: 100,
-        orderBy: [{ bracketPosition: 'asc' }, { leg: 'asc' }, { createdAt: 'asc' }],
+        orderBy: [{ bracketPosition: 'asc' }, { leg: 'asc' }],
         include: {
           homeTeam: { select: { id: true, name: true } },
           awayTeam: { select: { id: true, name: true } },
