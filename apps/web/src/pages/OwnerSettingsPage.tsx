@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   ImagePlus,
-  LoaderCircle,
   Settings2,
   ShieldCheck,
   ToggleLeft,
@@ -11,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { useAuth } from '../hooks/useAuth';
 import {
   ApiError,
@@ -119,8 +119,7 @@ export function OwnerSettingsPage() {
           {upload.isError && <p className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{ownerUploadError(upload.error)}</p>}
 
           <button type="button" disabled={!file || name.trim().length < 2 || upload.isPending} onClick={() => upload.mutate()} className="mt-4 flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md disabled:opacity-40">
-            {upload.isPending ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
-            {upload.isPending ? 'Enviando…' : 'Adicionar escudo padrão'}
+            {upload.isPending ? <GlobalLoader mode="inline" label="Enviando…" className="[&_*]:text-white" /> : <><ImagePlus className="h-5 w-5" />Adicionar escudo padrão</>}
           </button>
         </section>
 
@@ -130,7 +129,7 @@ export function OwnerSettingsPage() {
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">{shields.data?.length ?? 0}</span>
           </div>
 
-          {shields.isLoading && <div className="mt-5 h-28 animate-pulse rounded-2xl bg-slate-100" />}
+          {shields.isLoading && <div className="mt-5"><GlobalLoader mode="section" label="Carregando escudos…" /></div>}
           {shields.isError && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">Não foi possível carregar os escudos.</p>}
           {!shields.isLoading && !shields.isError && (shields.data?.length ?? 0) === 0 && <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm font-medium text-slate-500">Nenhum escudo padrão cadastrado ainda.</p>}
 
@@ -142,11 +141,11 @@ export function OwnerSettingsPage() {
                   <p className="truncate text-sm font-black">{shield.name}</p>
                   <p className={`mt-1 text-[11px] font-bold ${shield.isActive ? 'text-emerald-700' : 'text-slate-400'}`}>{shield.isActive ? 'Disponível para jogadores' : 'Oculto'}</p>
                 </div>
-                <button type="button" disabled={toggle.isPending} onClick={() => toggle.mutate({ id: shield.id, isActive: !shield.isActive })} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600" aria-label={shield.isActive ? 'Ocultar escudo' : 'Ativar escudo'}>
-                  {shield.isActive ? <ToggleRight className="h-5 w-5 text-emerald-600" /> : <ToggleLeft className="h-5 w-5" />}
+                <button type="button" disabled={toggle.isPending} onClick={() => toggle.mutate({ id: shield.id, isActive: !shield.isActive })} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 disabled:opacity-40" aria-label={shield.isActive ? 'Ocultar escudo' : 'Ativar escudo'}>
+                  {toggle.isPending ? <GlobalLoader mode="inline" label="" /> : shield.isActive ? <ToggleRight className="h-5 w-5 text-emerald-600" /> : <ToggleLeft className="h-5 w-5" />}
                 </button>
-                <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(shield.id)} className="grid h-10 w-10 place-items-center rounded-xl border border-red-100 bg-red-50 text-red-600" aria-label="Excluir escudo">
-                  <Trash2 className="h-4 w-4" />
+                <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(shield.id)} className="grid h-10 w-10 place-items-center rounded-xl border border-red-100 bg-red-50 text-red-600 disabled:opacity-40" aria-label="Excluir escudo">
+                  {remove.isPending ? <GlobalLoader mode="inline" label="" /> : <Trash2 className="h-4 w-4" />}
                 </button>
               </article>
             ))}
