@@ -45,10 +45,6 @@ function shuffled<T>(values: readonly T[]): T[] {
   return result;
 }
 
-async function lockCompetition(tx: DbTransaction, competitionId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
-}
-
 async function createParticipantTeam(
   tx: DbTransaction,
   competitionId: string,
@@ -433,64 +429,6 @@ competitions.get('/:id', async (c) => {
   });
 });
 
-competitions.post('/:id/join', async (c) => {
-  const db = c.get('prisma');
-  const id = c.req.param('id');
-  const user = c.get('user');
-
-  const result = await db.$transaction(async (tx) => {
-    await lockCompetition(tx, id);
-
-    const competition = await tx.competition.findUnique({
-      where: { id },
-      select: { id: true, status: true, maxParticipants: true },
-    });
-    if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
-    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
-      return { error: 'REGISTRATION_CLOSED' as const };
-    }
-
-    let participation = await tx.participation.findUnique({
-      where: { competitionId_userId: { competitionId: id, userId: user.id } },
-      include: { team: true },
-    });
-
-    if (participation?.status === 'ACTIVE') return { joined: true as const };
-
-    const activeCount = await tx.participation.count({
-      where: { competitionId: id, status: 'ACTIVE' },
-    });
-    if (activeCount >= competition.maxParticipants) {
-      return { error: 'COMPETITION_FULL' as const };
-    }
-
-    if (!participation) {
-      participation = await tx.participation.create({
-        data: { competitionId: id, userId: user.id, status: 'ACTIVE' },
-        include: { team: true },
-      });
-    } else {
-      participation = await tx.participation.update({
-        where: { id: participation.id },
-        data: { status: 'ACTIVE', joinedAt: new Date() },
-        include: { team: true },
-      });
-    }
-
-    if (!participation.team) {
-      await createParticipantTeam(tx, id, user, participation.id);
-    }
-
-    return { joined: true as const };
-  });
-
-  if ('error' in result) {
-    const mapped = routeError(result.error);
-    return c.json(mapped.body, mapped.status);
-  }
-  return c.json(result);
-});
-
 competitions.patch('/:id/my-team', async (c) => {
   const parsed = updateMyTeamSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'INVALID_INPUT', issues: parsed.error.flatten() }, 400);
@@ -502,8 +440,6 @@ competitions.patch('/:id/my-team', async (c) => {
   const teamLogoUrl = parsed.data.teamLogoUrl || null;
 
   const result = await db.$transaction(async (tx) => {
-    await lockCompetition(tx, id);
-
     const competition = await tx.competition.findUnique({
       where: { id },
       select: { status: true, teamSelection: true },
@@ -574,8 +510,6 @@ competitions.post('/:id/start', async (c) => {
   // ÚNICO gatilho de matchmaking: esta rota só é chamada explicitamente pelo botão do Host.
   // Entrar no lobby nunca gera partidas nem altera o status para IN_PROGRESS.
   const result = await db.$transaction(async (tx) => {
-    await lockCompetition(tx, id);
-
     const competition = await tx.competition.findUnique({
       where: { id },
       include: {
