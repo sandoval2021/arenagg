@@ -8,10 +8,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // Updates are downloaded in the background, but activation is user-driven.
-      // The UI uses useRegisterSW() and calls updateServiceWorker(true) only when
-      // the user taps "Atualizar Agora".
+      // Custom SW is required for native Web Push. Activation remains user-driven:
+      // updateServiceWorker(true) posts SKIP_WAITING only after the user confirms.
+      strategies: 'injectManifest',
       registerType: 'prompt',
+      srcDir: 'src',
+      filename: 'sw.js',
       manifest: false,
       includeAssets: [
         'manifest.webmanifest',
@@ -20,18 +22,9 @@ export default defineConfig({
         'apple-touch-icon.png',
         'icons/*.png',
       ],
-      workbox: {
-        cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [
-          {
-            // API state is authoritative in the Worker/Supabase. Never cache API
-            // JSON inside the PWA, including when an old app shell is active.
-            urlPattern: /\/api\//,
-            handler: 'NetworkOnly',
-          },
-        ],
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+        injectionPoint: 'self.__WB_MANIFEST',
       },
     }),
   ],
