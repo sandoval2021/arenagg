@@ -11,21 +11,25 @@ export type MatchEvent =
   | 'APPROVE'
   | 'REJECT'
   | 'HOST_RESOLVE'
+  | 'HOST_WALKOVER'
   | 'HOST_CANCEL';
 
 const transitions: Readonly<Record<MatchState, Partial<Record<MatchEvent, MatchState>>>> = {
   PENDING: {
     SUBMIT_WITH_VALIDATION: 'AWAITING_APPROVAL',
     SUBMIT_WITHOUT_VALIDATION: 'FINISHED',
+    HOST_WALKOVER: 'FINISHED',
     HOST_CANCEL: 'CANCELED',
   },
   AWAITING_APPROVAL: {
     APPROVE: 'FINISHED',
     REJECT: 'DISPUTED',
+    HOST_WALKOVER: 'FINISHED',
     HOST_CANCEL: 'CANCELED',
   },
   DISPUTED: {
     HOST_RESOLVE: 'FINISHED',
+    HOST_WALKOVER: 'FINISHED',
     HOST_CANCEL: 'CANCELED',
   },
   FINISHED: {},
