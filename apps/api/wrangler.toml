@@ -5,6 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 WEB_APP_URL = "https://chavea.pages.dev"
+SUPABASE_URL = "https://uruwrztfbjbykgxwtgvg.supabase.co"
+SUPABASE_SHIELDS_BUCKET = "escudos"
+OWNER_EMAIL = "sandovaloliveira284@gmail.com"
 
 # Create with: `npx wrangler r2 bucket create arenagg-evidence`
 [[r2_buckets]]
