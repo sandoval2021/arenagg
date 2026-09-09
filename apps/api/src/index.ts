@@ -15,6 +15,7 @@ import { matches } from './routes/matches.routes';
 import { matchStats } from './routes/match-stats.routes';
 import { evidence } from './routes/evidence.routes';
 import { profile } from './routes/profile.routes';
+import { friends } from './routes/friends.routes';
 
 const app = new Hono<Env>();
 
@@ -62,6 +63,7 @@ app.use('/api/match-stats/*', requireAuth);
 app.use('/api/evidence/*', requireAuth);
 app.use('/api/default-shields/*', requireAuth);
 app.use('/api/profile/*', requireAuth);
+app.use('/api/friends/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
 
@@ -73,7 +75,6 @@ app.get('/api/health/db', async (c) => {
 
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
-// Exact hardened/specialized routes are mounted before their legacy routers.
 app.route('/api/competitions', teamSettings);
 app.route('/api/competitions', scorers);
 app.route('/api/competitions', competitions);
@@ -84,6 +85,7 @@ app.route('/api/matches', matches);
 app.route('/api/match-stats', matchStats);
 app.route('/api/evidence', evidence);
 app.route('/api/profile', profile);
+app.route('/api/friends', friends);
 
 app.onError((err, c) => {
   console.error('[api] unhandled error', err);
