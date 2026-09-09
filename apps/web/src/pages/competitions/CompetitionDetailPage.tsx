@@ -1,6 +1,19 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, Copy, Link2, LoaderCircle, Play, Trophy, UsersRound } from 'lucide-react';
+import {
+  ArrowLeft,
+  Camera,
+  Check,
+  Copy,
+  Dices,
+  Gamepad2,
+  Link2,
+  LoaderCircle,
+  Play,
+  Repeat2,
+  Trophy,
+  UsersRound,
+} from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { ApiError, getCompetition, startCompetition } from '../../lib/api';
 
@@ -56,6 +69,12 @@ export function CompetitionDetailPage() {
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-[#073B8C]"><Trophy className="h-5 w-5" /></span>
         </header>
 
+        <section className="mt-3 flex flex-wrap gap-2" aria-label="Regras da competição">
+          <RuleBadge icon={Repeat2} label={data.legFormat === 'HOME_AWAY' ? 'Ida e volta' : 'Jogo único'} tone="violet" />
+          <RuleBadge icon={data.teamSelection === 'RANDOM' ? Dices : Gamepad2} label={data.teamSelection === 'RANDOM' ? 'Sorteio cego' : 'Times livres'} tone="amber" />
+          {data.requireValidation && <RuleBadge icon={Camera} label="Placar com foto" tone="blue" />}
+        </section>
+
         {data.isHost && (
           <section className="mt-5 rounded-3xl bg-[#073B8C] p-5 text-white shadow-lg shadow-blue-900/10">
             <p className="text-xs font-black uppercase tracking-wider text-blue-100">Você é o Host 👑</p>
@@ -100,10 +119,13 @@ export function CompetitionDetailPage() {
             <div className="mt-3 space-y-2">
               {data.matches.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-500">As partidas estão sendo preparadas.</p>}
               {data.matches.map((match) => (
-                <div key={match.id} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-2xl border border-slate-200 p-4 text-sm shadow-sm">
-                  <p className="truncate text-right font-black">{match.homeTeam?.name ?? 'A definir'}</p>
-                  <span className="rounded-xl bg-slate-100 px-3 py-2 font-black">{match.homeScore ?? '—'} × {match.awayScore ?? '—'}</span>
-                  <p className="truncate font-black">{match.awayTeam?.name ?? 'A definir'}</p>
+                <div key={match.id} className="rounded-2xl border border-slate-200 p-4 text-sm shadow-sm">
+                  {data.legFormat === 'HOME_AWAY' && <p className="mb-2 text-center text-[10px] font-black uppercase tracking-wider text-violet-700">{match.leg === 2 ? 'Jogo de volta' : 'Jogo de ida'}</p>}
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                    <p className="truncate text-right font-black">{match.homeTeam?.name ?? 'A definir'}</p>
+                    <span className="rounded-xl bg-slate-100 px-3 py-2 font-black">{match.homeScore ?? '—'} × {match.awayScore ?? '—'}</span>
+                    <p className="truncate font-black">{match.awayTeam?.name ?? 'A definir'}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -114,6 +136,18 @@ export function CompetitionDetailPage() {
       </main>
     </div>
   );
+}
+
+type RuleTone = 'blue' | 'violet' | 'amber';
+
+function RuleBadge({ icon: Icon, label, tone }: { icon: typeof Repeat2; label: string; tone: RuleTone }) {
+  const tones: Record<RuleTone, string> = {
+    blue: 'border-blue-100 bg-blue-50 text-[#073B8C]',
+    violet: 'border-violet-100 bg-violet-50 text-violet-700',
+    amber: 'border-amber-100 bg-amber-50 text-amber-800',
+  };
+
+  return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-black ${tones[tone]}`}><Icon className="h-3.5 w-3.5" />{label}</span>;
 }
 
 function Loading() {
