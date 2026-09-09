@@ -21,6 +21,7 @@ type FormValues = {
   requireValidation: boolean;
   isHomeAndAway: boolean;
   teamSelection: TeamSelection;
+  maxParticipants: number;
 };
 
 const formats = [
@@ -33,19 +34,19 @@ const teamSelectionOptions = [
   {
     value: 'FREE' as const,
     title: 'Livre',
-    description: 'Cada jogador escolhe o time na hora.',
+    description: 'Cada jogador escolhe e personaliza o próprio time.',
     icon: Gamepad2,
   },
   {
     value: 'RANDOM' as const,
     title: 'Sorteio Cego',
-    description: 'A regra fica marcada para o sistema sortear os times.',
+    description: 'O sistema define os times quando o sorteio for iniciado.',
     icon: Dices,
   },
 ];
 
 function createError(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira o nome, formato e regras do campeonato.';
+  if (error instanceof ApiError && error.code === 'INVALID_INPUT') return 'Confira o nome, limite de jogadores, formato e regras do campeonato.';
   return 'Não foi possível criar a copa agora. Tente novamente.';
 }
 
@@ -58,6 +59,7 @@ export function CreateCompetitionPage() {
       requireValidation: true,
       isHomeAndAway: false,
       teamSelection: 'FREE',
+      maxParticipants: 20,
     },
   });
   const mutation = useMutation({
@@ -67,6 +69,7 @@ export function CreateCompetitionPage() {
       requireValidation: values.requireValidation,
       isHomeAndAway: values.isHomeAndAway,
       teamSelection: values.teamSelection,
+      maxParticipants: values.maxParticipants,
       matchPace: 'QUICK',
     }),
     onSuccess: async (competition) => {
@@ -76,6 +79,7 @@ export function CreateCompetitionPage() {
   });
   const selectedFormat = watch('format');
   const selectedTeamSelection = watch('teamSelection');
+  const maxParticipants = watch('maxParticipants');
 
   return (
     <div className="min-h-dvh bg-white text-black">
@@ -106,6 +110,42 @@ export function CreateCompetitionPage() {
                     </button>
                   );
                 })}
+              </div>
+            )} />
+          </section>
+
+          <section className="rounded-3xl border border-zinc-200 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><UsersRound className="h-5 w-5" /></span>
+                <div><p className="text-sm font-black">Máximo de Jogadores</p><p className="text-xs font-medium text-zinc-500">De 2 a 20 participantes.</p></div>
+              </div>
+              <span className="grid min-w-12 place-items-center rounded-xl bg-slate-950 px-3 py-2 text-sm font-black text-white">{maxParticipants}</span>
+            </div>
+            <Controller name="maxParticipants" control={control} rules={{ min: 2, max: 20 }} render={({ field }) => (
+              <div className="mt-4 grid grid-cols-[1fr_72px] items-center gap-3">
+                <input
+                  aria-label="Máximo de jogadores"
+                  type="range"
+                  min={2}
+                  max={20}
+                  step={1}
+                  value={field.value}
+                  onChange={(event) => field.onChange(Number(event.target.value))}
+                  className="w-full accent-[#073B8C]"
+                />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={2}
+                  max={20}
+                  value={field.value}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    field.onChange(Number.isFinite(value) ? Math.min(20, Math.max(2, value)) : 2);
+                  }}
+                  className="h-11 rounded-xl border border-zinc-200 text-center text-sm font-black outline-none focus:border-[#073B8C]"
+                />
               </div>
             )} />
           </section>
@@ -153,7 +193,7 @@ export function CreateCompetitionPage() {
             </div>
           </section>
 
-          <div className="flex gap-3 rounded-2xl bg-blue-50 p-4 text-sm font-semibold leading-6 text-[#073B8C]"><Link2 className="mt-0.5 h-5 w-5 shrink-0" /><p>Depois de criar, você recebe o botão <strong>Convidar Amigos</strong> para mandar a copa no grupo.</p></div>
+          <div className="flex gap-3 rounded-2xl bg-blue-50 p-4 text-sm font-semibold leading-6 text-[#073B8C]"><Link2 className="mt-0.5 h-5 w-5 shrink-0" /><p>Depois de criar, você recebe o botão <strong>Convidar Amigos</strong>. As partidas só serão geradas quando você tocar em <strong>Gerar Partidas e Começar!</strong>.</p></div>
 
           {mutation.isError && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{createError(mutation.error)}</p>}
 
