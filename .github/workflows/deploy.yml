@@ -96,6 +96,26 @@ jobs:
             echo 'DEV_PASSWORD_RESET_TOKEN not configured; temporary recovery remains fail-closed.'
           fi
 
+      - name: Ensure persistent Web Push VAPID secrets
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(npx wrangler secret list --format json)"
+          if printf '%s' "$EXISTING" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const rows=JSON.parse(s);const names=new Set(rows.map(x=>x.name));process.exit(names.has('VAPID_SERVER_PUBLIC_KEY')&&names.has('VAPID_SERVER_PRIVATE_KEY')?0:1)})"; then
+            echo 'Persistent VAPID key pair already configured in Cloudflare Worker secrets.'
+          else
+            KEYS="$(node ../../scripts/generate-vapid-keys.mjs)"
+            PUBLIC_KEY="$(printf '%s' "$KEYS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).publicKey))")"
+            PRIVATE_KEY="$(printf '%s' "$KEYS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).privateKey))")"
+            printf '%s' "$PUBLIC_KEY" | npx wrangler secret put VAPID_SERVER_PUBLIC_KEY
+            printf '%s' "$PRIVATE_KEY" | npx wrangler secret put VAPID_SERVER_PRIVATE_KEY
+            unset KEYS PUBLIC_KEY PRIVATE_KEY
+            echo 'New VAPID key pair generated once and stored only as encrypted Worker secrets.'
+          fi
+
       - name: Deploy ArenaGG Hono Worker
         id: deploy
         working-directory: apps/api
