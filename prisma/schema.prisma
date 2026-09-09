@@ -65,30 +65,39 @@ enum MatchStatus {
   CANCELED
 }
 
+enum MatchStatsStatus {
+  NONE
+  PENDING_APPROVAL
+  APPROVED
+  DISPUTED
+}
+
 enum TeamSource {
   CUSTOM
   GALLERY
 }
 
 model User {
-  id                 String          @id @default(uuid()) @db.Uuid
-  name               String
-  displayName        String?
-  avatarUrl          String?
-  email              String?         @unique
-  emailVerified      DateTime?
-  phone              String?         @unique
-  phoneVerified      DateTime?
-  passwordHash       String?
-  isActive           Boolean         @default(true)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  accounts           AuthAccount[]
-  sessions           Session[]
-  hostedCompetitions Competition[]   @relation("CompetitionHost")
-  participations     Participation[]
-  createdTeams       Team[]          @relation("TeamCreator")
-  submittedMatches   Match[]         @relation("MatchSubmittedBy")
+  id                  String          @id @default(uuid()) @db.Uuid
+  name                String
+  displayName         String?
+  avatarUrl           String?
+  email               String?         @unique
+  emailVerified       DateTime?
+  phone               String?         @unique
+  phoneVerified       DateTime?
+  passwordHash        String?
+  isActive            Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  accounts            AuthAccount[]
+  sessions            Session[]
+  hostedCompetitions  Competition[]   @relation("CompetitionHost")
+  participations      Participation[]
+  createdTeams        Team[]          @relation("TeamCreator")
+  submittedMatches    Match[]         @relation("MatchSubmittedBy")
+  submittedMatchStats MatchStats[]    @relation("MatchStatsSubmittedBy")
+  reviewedMatchStats  MatchStats[]    @relation("MatchStatsReviewedBy")
 }
 
 model AuthAccount {
@@ -282,10 +291,40 @@ model Match {
   submittedBy          User?        @relation("MatchSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
   nextMatch            Match?       @relation("BracketProgression", fields: [nextMatchId], references: [id], onDelete: SetNull)
   previousMatches      Match[]      @relation("BracketProgression")
+  stats                MatchStats?
 
   @@index([competitionId, status])
   @@index([stageId, roundId])
   @@index([groupId])
+}
+
+model MatchStats {
+  matchId           String           @id @db.Uuid
+  statsStatus       MatchStatsStatus @default(NONE)
+  homePossession    Int
+  awayPossession    Int
+  homeShots         Int
+  awayShots         Int
+  homeShotsOnGoal   Int
+  awayShotsOnGoal   Int
+  homePasses        Int
+  awayPasses        Int
+  homeTackles       Int
+  awayTackles       Int
+  homeFouls         Int
+  awayFouls         Int
+  submittedById     String           @db.Uuid
+  reviewedById      String?          @db.Uuid
+  submittedAt       DateTime         @default(now())
+  reviewedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  match             Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  submittedBy       User             @relation("MatchStatsSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  reviewedBy        User?            @relation("MatchStatsReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([statsStatus])
+  @@index([submittedById])
 }
 
 model CompetitionInvite {
