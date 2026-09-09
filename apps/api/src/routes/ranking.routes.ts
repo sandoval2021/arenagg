@@ -8,7 +8,14 @@ ranking.get('/', async (c) => {
   const viewer = c.get('user');
 
   const profiles = await db.userProfile.findMany({
-    where: { user: { isActive: true } },
+    where: {
+      user: { isActive: true },
+      OR: [
+        { totalWins: { gt: 0 } },
+        { totalDraws: { gt: 0 } },
+        { totalLosses: { gt: 0 } },
+      ],
+    },
     orderBy: [
       { mmr: 'desc' },
       { totalWins: 'desc' },
