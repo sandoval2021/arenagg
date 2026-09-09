@@ -49,6 +49,15 @@ app.use(
   }),
 );
 
+// API responses are dynamic Supabase state. Explicitly prevent browser,
+// intermediary and legacy PWA caches from reusing JSON across deployments.
+app.use('/api/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  c.header('Pragma', 'no-cache');
+  c.header('Expires', '0');
+});
+
 app.use('/api/*', dbMiddleware);
 app.use('/api/competitions/*', requireAuth);
 app.use('/api/matches/*', requireAuth);

@@ -22,6 +22,9 @@ export type CompetitionSummary = {
   status: CompetitionStatus;
   logoUrl?: string;
   isHost?: boolean;
+  // New social metadata is nullable for competitions created before the feature.
+  game?: string | null;
+  platform?: string | null;
 };
 
 export type CompetitionDetail = {
@@ -36,6 +39,8 @@ export type CompetitionDetail = {
   requireValidation: boolean;
   hostId: string;
   currentUserId: string;
+  game?: string | null;
+  platform?: string | null;
   host: { id: string; name: string; displayName: string | null };
   isHost: boolean;
   hasJoined: boolean;
@@ -55,6 +60,8 @@ export type CompetitionDetail = {
     round: { id: string; number: number; name: string | null } | null;
     homeTeam: { id: string; name: string; logoUrl: string | null } | null;
     awayTeam: { id: string; name: string; logoUrl: string | null } | null;
+    homeTeamName?: string | null;
+    awayTeamName?: string | null;
     homeScore: number | null;
     awayScore: number | null;
   }>;
@@ -164,6 +171,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       ...init,
       headers,
       credentials: 'include',
+      // API state is authoritative in Supabase/Worker. Safari and installed PWAs
+      // must not reuse an HTTP-cache snapshot after a deployment/schema change.
+      cache: 'no-store',
     });
   } catch (error) {
     console.error('[api] network request failed', {
@@ -188,7 +198,12 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 }
 
 export async function getMyCompetitions(): Promise<CompetitionSummary[]> {
-  return apiRequest('/api/competitions');
+  const rows = await apiRequest<CompetitionSummary[]>('/api/competitions');
+  return rows.map((row) => ({
+    ...row,
+    game: row.game ?? null,
+    platform: row.platform ?? null,
+  }));
 }
 
 export async function createCompetition(input: CreateCompetitionInput) {
@@ -199,7 +214,20 @@ export async function createCompetition(input: CreateCompetitionInput) {
 }
 
 export async function getCompetition(competitionId: string): Promise<CompetitionDetail> {
-  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}`);
+  const competition = await apiRequest<CompetitionDetail>(
+    `/api/competitions/${encodeURIComponent(competitionId)}`,
+  );
+
+  return {
+    ...competition,
+    game: competition.game ?? null,
+    platform: competition.platform ?? null,
+    matches: competition.matches.map((match) => ({
+      ...match,
+      homeTeamName: match.homeTeamName ?? null,
+      awayTeamName: match.awayTeamName ?? null,
+    })),
+  };
 }
 
 export async function joinCompetition(competitionId: string): Promise<{ joined: true }> {
@@ -287,7 +315,17 @@ export async function submitMatchScore(
 }
 
 export async function getCompetitionMatchStats(competitionId: string): Promise<MatchStats[]> {
-  return apiRequest(`/api/match-stats/competition/${encodeURIComponent(competitionId)}`);
+  const rows = await apiRequest<MatchStats[]>(
+    `/api/match-stats/competition/${encodeURIComponent(competitionId)}`,
+  );
+
+  // Keep clients tolerant if an older API snapshot omitted derived permission flags.
+  return rows.map((row) => ({
+    ...row,
+    submittedByMe: Boolean(row.submittedByMe),
+    canApprove: Boolean(row.canApprove),
+    canDispute: Boolean(row.canDispute),
+  }));
 }
 
 export async function submitMatchStats(matchId: string, input: MatchStatsInput): Promise<MatchStats> {
