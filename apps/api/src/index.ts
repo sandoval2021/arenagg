@@ -15,20 +15,32 @@ import { evidence } from './routes/evidence.routes';
 
 const app = new Hono<Env>();
 
-const allowedOrigins = new Set([
-  'http://localhost:5173',
-  'https://chavea.pages.dev',
-]);
+const LOCAL_WEB_ORIGIN = 'http://localhost:5173';
+const CHAVEA_WEB_ORIGIN = 'https://chavea.pages.dev';
+const CHAVEA_PAGES_DEPLOYMENT_ORIGIN = /^https:\/\/[a-f0-9]{8}\.chavea\.pages\.dev$/i;
+
+function normalizeOrigin(origin: string): string {
+  return origin.replace(/\/$/, '');
+}
+
+function isAllowedWebOrigin(origin: string, configuredOrigin?: string): boolean {
+  if (origin === LOCAL_WEB_ORIGIN || origin === CHAVEA_WEB_ORIGIN) return true;
+  if (configuredOrigin && origin === configuredOrigin) return true;
+  return CHAVEA_PAGES_DEPLOYMENT_ORIGIN.test(origin);
+}
 
 app.use(
   '*',
   cors({
     origin: (origin, c) => {
-      const configuredOrigin = c.env.WEB_APP_URL?.replace(/\/$/, '');
-      if (allowedOrigins.has(origin) || (configuredOrigin && origin === configuredOrigin)) {
-        return origin;
-      }
-      return configuredOrigin ?? 'https://chavea.pages.dev';
+      const requestOrigin = normalizeOrigin(origin);
+      const configuredOrigin = c.env.WEB_APP_URL ? normalizeOrigin(c.env.WEB_APP_URL) : undefined;
+
+      // Cloudflare Pages emits immutable deployment aliases such as
+      // https://0a4acdfc.chavea.pages.dev. Those aliases are controlled by the
+      // same Pages project and must be able to call the API during smoke tests
+      // and direct-preview access. Any unrelated origin is denied fail-closed.
+      return isAllowedWebOrigin(requestOrigin, configuredOrigin) ? requestOrigin : '';
     },
     credentials: true,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
