@@ -85,31 +85,33 @@ enum FriendshipStatus {
 }
 
 model User {
-  id                    String          @id @default(uuid()) @db.Uuid
+  id                    String             @id @default(uuid()) @db.Uuid
   name                  String
   displayName           String?
   avatarUrl             String?
-  email                 String?         @unique
+  email                 String?            @unique
   emailVerified         DateTime?
-  phone                 String?         @unique
+  phone                 String?            @unique
   phoneVerified         DateTime?
   passwordHash          String?
-  isActive              Boolean         @default(true)
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
+  isActive              Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
   profile               UserProfile?
   badges                UserBadge[]
+  pushSubscriptions     PushSubscription[]
+  matchMedia            MatchMedia[]        @relation("MatchMediaCreator")
   accounts              AuthAccount[]
   sessions              Session[]
-  hostedCompetitions    Competition[]   @relation("CompetitionHost")
+  hostedCompetitions    Competition[]      @relation("CompetitionHost")
   participations        Participation[]
-  createdTeams          Team[]          @relation("TeamCreator")
-  submittedMatches      Match[]         @relation("MatchSubmittedBy")
-  submittedMatchStats   MatchStats[]    @relation("MatchStatsSubmittedBy")
-  reviewedMatchStats    MatchStats[]    @relation("MatchStatsReviewedBy")
-  defaultShields        DefaultShield[] @relation("DefaultShieldCreator")
-  sentFriendships       Friendship[]    @relation("FriendshipRequester")
-  receivedFriendships   Friendship[]    @relation("FriendshipAddressee")
+  createdTeams          Team[]             @relation("TeamCreator")
+  submittedMatches      Match[]            @relation("MatchSubmittedBy")
+  submittedMatchStats   MatchStats[]       @relation("MatchStatsSubmittedBy")
+  reviewedMatchStats    MatchStats[]       @relation("MatchStatsReviewedBy")
+  defaultShields        DefaultShield[]    @relation("DefaultShieldCreator")
+  sentFriendships       Friendship[]       @relation("FriendshipRequester")
+  receivedFriendships   Friendship[]       @relation("FriendshipAddressee")
 }
 
 model UserProfile {
@@ -141,6 +143,20 @@ model UserBadge {
   @@unique([userId, badgeCode])
   @@index([userId, awardedAt])
   @@index([badgeCode])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model Friendship {
@@ -370,12 +386,28 @@ model Match {
   previousMatches      Match[]      @relation("BracketProgression")
   stats                MatchStats?
   scorers              MatchScorer[]
+  media                 MatchMedia[]
 
   @@index([competitionId, status])
   @@index([stageId, roundId])
   @@index([groupId])
   @@index([profileAppliedAt])
   @@index([walkoverAppliedAt])
+}
+
+model MatchMedia {
+  id          String   @id @default(uuid()) @db.Uuid
+  matchId     String   @db.Uuid
+  createdById String   @db.Uuid
+  url         String
+  platform    String   @default("LINK")
+  createdAt   DateTime @default(now())
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("MatchMediaCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, url])
+  @@index([matchId, createdAt])
+  @@index([createdById, createdAt])
 }
 
 model MatchScorer {
