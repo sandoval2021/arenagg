@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  ChevronRight,
   Copy,
   Crown,
   Dices,
@@ -119,6 +120,11 @@ export function CompetitionDetailPageLight() {
   const myParticipation = data.participations.find((participant) => participant.userId === data.currentUserId);
   const myTeamId = myParticipation?.team?.id;
   const rounds = groupMatchesByRound(data.matches);
+  const userIdByTeam = Object.fromEntries(
+    data.participations.flatMap((participant) =>
+      participant.team?.id ? [[participant.team.id, participant.userId] as const] : [],
+    ),
+  );
 
   return (
     <div className="relative min-h-dvh overflow-hidden bg-white text-slate-900">
@@ -178,7 +184,7 @@ export function CompetitionDetailPageLight() {
               </div>
             </div>
             <div className="mt-5">
-              {activeTab === 'standings' && <>{standings.isLoading && <GlobalLoader mode="section" label="Carregando classificação…" />}{standings.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar a classificação.</div>}{!standings.isLoading && !standings.isError && <StandingsTable standings={standings.data ?? []} />}</>}
+              {activeTab === 'standings' && <>{standings.isLoading && <GlobalLoader mode="section" label="Carregando classificação…" />}{standings.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar a classificação.</div>}{!standings.isLoading && !standings.isError && <StandingsTable standings={standings.data ?? []} userIdByTeam={userIdByTeam} />}</>}
               {activeTab === 'rounds' && <RoundsView rounds={rounds} competitionId={data.id} myTeamId={myTeamId} isHost={data.isHost} requireValidation={data.requireValidation} statsByMatch={statsByMatch} statsLoading={matchStats.isLoading} />}
               {activeTab === 'scorers' && <TopScorersPanel scorers={topScorers.data ?? []} loading={topScorers.isLoading} error={topScorers.isError} />}
             </div>
@@ -192,7 +198,32 @@ export function CompetitionDetailPageLight() {
 }
 
 function Lobby({ participants, hostId, maxParticipants }: { participants: Participation[]; hostId: string; maxParticipants: number }) {
-  return <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/50"><div className="flex items-end justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.18em] text-[#073B8C]">Lobby</p><h2 className="mt-1 text-xl font-black">Jogadores <span className="text-slate-400">{participants.length}/{maxParticipants}</span></h2></div><UsersRound className="h-6 w-6 text-slate-300" /></div><div className="mt-4 space-y-2">{participants.map((participant, index) => <div key={participant.id} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3"><TeamAvatar name={participant.teamName} logoUrl={participant.teamLogoUrl ?? participant.team?.logoUrl ?? undefined} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-900">{participant.teamName || participant.team?.name || 'Time pendente'}</p><p className="mt-0.5 truncate text-xs font-semibold text-slate-400">#{index + 1} · {participant.user.displayName ?? participant.user.name}</p></div>{participant.userId === hostId && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">HOST</span>}</div>)}</div></section>;
+  return (
+    <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/50">
+      <div className="flex items-end justify-between gap-3">
+        <div><p className="text-xs font-black uppercase tracking-[.18em] text-[#073B8C]">Lobby</p><h2 className="mt-1 text-xl font-black">Jogadores <span className="text-slate-400">{participants.length}/{maxParticipants}</span></h2></div>
+        <UsersRound className="h-6 w-6 text-slate-300" />
+      </div>
+      <div className="mt-4 space-y-2">
+        {participants.map((participant, index) => (
+          <Link
+            key={participant.id}
+            to={`/profile/${encodeURIComponent(participant.userId)}`}
+            className="group flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-blue-200 hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[.99]"
+            aria-label={`Abrir perfil de ${participant.user.displayName ?? participant.user.name}`}
+          >
+            <TeamAvatar name={participant.teamName} logoUrl={participant.teamLogoUrl ?? participant.team?.logoUrl ?? undefined} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-black text-slate-900">{participant.teamName || participant.team?.name || 'Time pendente'}</p>
+              <p className="mt-0.5 truncate text-xs font-semibold text-slate-400">#{index + 1} · {participant.user.displayName ?? participant.user.name}</p>
+            </div>
+            {participant.userId === hostId && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">HOST</span>}
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-[#073B8C]" />
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function RoundsView({ rounds, competitionId, myTeamId, isHost, requireValidation, statsByMatch, statsLoading }: { rounds: Array<{ number: number; name: string; matches: CompetitionMatch[] }>; competitionId: string; myTeamId?: string; isHost: boolean; requireValidation: boolean; statsByMatch: Map<string, MatchStats>; statsLoading: boolean }) {
