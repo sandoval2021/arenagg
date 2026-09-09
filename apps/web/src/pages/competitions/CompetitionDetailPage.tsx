@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -28,13 +28,16 @@ import { Link, useParams } from 'react-router-dom';
 import {
   ApiError,
   getCompetition,
+  getCompetitionMatchStats,
   getStandings,
   startCompetition,
   submitMatchScore,
   updateMyCompetitionTeam,
   type CompetitionDetail,
+  type MatchStats,
 } from '../../lib/api';
 import { StandingsTable } from '../../components/standings/StandingsTable';
+import { MatchStatsPanel } from '../../components/matches/MatchStatsPanel';
 
 type CompetitionTab = 'standings' | 'rounds';
 type Participation = CompetitionDetail['participations'][number];
@@ -314,6 +317,19 @@ function TeamConfigurator({ competitionId, participant }: { competitionId: strin
 }
 
 function RoundsView({ rounds, competitionId, myTeamId, isHost, requireValidation }: { rounds: Array<{ number: number; name: string; matches: CompetitionMatch[] }>; competitionId: string; myTeamId?: string; isHost: boolean; requireValidation: boolean }) {
+  const statsQuery = useQuery({
+    queryKey: ['match-stats', competitionId],
+    queryFn: () => getCompetitionMatchStats(competitionId),
+    enabled: Boolean(competitionId),
+    staleTime: 5_000,
+  });
+
+  const statsByMatchId = useMemo(() => {
+    const map = new Map<string, MatchStats>();
+    for (const stats of statsQuery.data ?? []) map.set(stats.matchId, stats);
+    return map;
+  }, [statsQuery.data]);
+
   if (rounds.length === 0) {
     return <div className="rounded-[2rem] border border-white/10 bg-white/[.04] p-6 text-center text-sm font-bold text-slate-400">As partidas estão sendo preparadas.</div>;
   }
@@ -330,7 +346,16 @@ function RoundsView({ rounds, competitionId, myTeamId, isHost, requireValidation
             {round.matches.map((match) => {
               const canEdit = isHost || Boolean(myTeamId && (match.homeTeam?.id === myTeamId || match.awayTeam?.id === myTeamId));
               return (
-                <MatchCard key={`${match.id}:${match.version}`} match={match} competitionId={competitionId} canEdit={canEdit} requireValidation={requireValidation} />
+                <MatchCard
+                  key={`${match.id}:${match.version}`}
+                  match={match}
+                  competitionId={competitionId}
+                  canEdit={canEdit}
+                  isHost={isHost}
+                  requireValidation={requireValidation}
+                  stats={statsByMatchId.get(match.id)}
+                  statsLoading={statsQuery.isLoading}
+                />
               );
             })}
           </div>
@@ -340,7 +365,7 @@ function RoundsView({ rounds, competitionId, myTeamId, isHost, requireValidation
   );
 }
 
-function MatchCard({ match, competitionId, canEdit, requireValidation }: { match: CompetitionMatch; competitionId: string; canEdit: boolean; requireValidation: boolean }) {
+function MatchCard({ match, competitionId, canEdit, isHost, requireValidation, stats, statsLoading }: { match: CompetitionMatch; competitionId: string; canEdit: boolean; isHost: boolean; requireValidation: boolean; stats?: MatchStats; statsLoading: boolean }) {
   const queryClient = useQueryClient();
   const [homeScore, setHomeScore] = useState(match.homeScore ?? 0);
   const [awayScore, setAwayScore] = useState(match.awayScore ?? 0);
@@ -399,6 +424,15 @@ function MatchCard({ match, competitionId, canEdit, requireValidation }: { match
       )}
 
       {(localError || score.isError) && <p className="mt-2 text-center text-[11px] font-bold text-rose-300">{localError ?? scoreError(score.error)}</p>}
+
+      <MatchStatsPanel
+        competitionId={competitionId}
+        match={match}
+        stats={stats}
+        statsLoading={statsLoading}
+        canEdit={canEdit}
+        isHost={isHost}
+      />
     </article>
   );
 }
