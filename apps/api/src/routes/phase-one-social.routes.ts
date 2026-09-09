@@ -80,7 +80,6 @@ headToHead.get('/:userId/head-to-head', async (c) => {
       awayTeam: { select: { name: true, logoUrl: true } },
     },
     orderBy: { profileAppliedAt: 'desc' },
-    take: 100,
   });
 
   let viewerWins = 0;
