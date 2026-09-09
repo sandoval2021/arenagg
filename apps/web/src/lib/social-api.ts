@@ -1,4 +1,5 @@
 import { apiRequest } from './api';
+import type { AchievementCode } from './achievement-catalog';
 
 export const CONSOLE_OPTIONS = ['PS5', 'PS4', 'PC', 'Xbox', 'Nintendo', 'PS3', 'Outros'] as const;
 export const FORMATION_OPTIONS = ['4-3-3', '4-2-4', '4-4-2', '4-4-1-1', '3-5-2', '3-4-3', '5-3-2', '5-4-1'] as const;
@@ -13,7 +14,7 @@ export const PLAYSTYLE_OPTIONS = [
 export type ConsoleTag = (typeof CONSOLE_OPTIONS)[number];
 export type FormationOption = (typeof FORMATION_OPTIONS)[number];
 export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
-export type BadgeCode = 'FIRST_MATCH' | 'RELENTLESS_SCORER' | 'WALL';
+export type BadgeCode = AchievementCode;
 
 export type GamerProfile = {
   id: string;
