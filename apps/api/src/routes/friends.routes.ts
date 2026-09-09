@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
+import { evaluateFriendAchievements } from '../services/achievement-engine.service';
 
 export const friends = new Hono<Env>();
 
@@ -17,16 +18,12 @@ friends.post('/request', async (c) => {
   if (parsed.data.friendId === user.id) return c.json({ error: 'CANNOT_FRIEND_SELF' }, 400);
 
   const db = c.get('prisma');
-  const friend = await db.user.findUnique({
-    where: { id: parsed.data.friendId },
-    select: { id: true, isActive: true },
-  });
+  const friend = await db.user.findUnique({ where: { id: parsed.data.friendId }, select: { id: true, isActive: true } });
   if (!friend?.isActive) return c.json({ error: 'USER_NOT_FOUND' }, 404);
 
   const [left, right] = orderedPair(user.id, parsed.data.friendId);
   const result = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`friend:${left}:${right}`}))`;
-
     const existing = await tx.friendship.findFirst({
       where: {
         OR: [
@@ -40,15 +37,11 @@ friends.post('/request', async (c) => {
       if (existing.status === 'ACCEPTED') return { state: 'ACCEPTED' as const, friendship: existing };
       if (existing.status === 'PENDING') {
         if (existing.requesterId === parsed.data.friendId) {
-          const friendship = await tx.friendship.update({
-            where: { id: existing.id },
-            data: { status: 'ACCEPTED' },
-          });
+          const friendship = await tx.friendship.update({ where: { id: existing.id }, data: { status: 'ACCEPTED' } });
           return { state: 'ACCEPTED' as const, friendship };
         }
         return { state: 'PENDING' as const, friendship: existing };
       }
-
       const friendship = await tx.friendship.update({
         where: { id: existing.id },
         data: { requesterId: user.id, addresseeId: parsed.data.friendId, status: 'PENDING' },
@@ -56,12 +49,16 @@ friends.post('/request', async (c) => {
       return { state: 'PENDING' as const, friendship };
     }
 
-    const friendship = await tx.friendship.create({
-      data: { requesterId: user.id, addresseeId: parsed.data.friendId },
-    });
+    const friendship = await tx.friendship.create({ data: { requesterId: user.id, addresseeId: parsed.data.friendId } });
     return { state: 'PENDING' as const, friendship };
   });
 
+  if (result.state === 'ACCEPTED') {
+    await Promise.all([
+      evaluateFriendAchievements(db, user.id),
+      evaluateFriendAchievements(db, parsed.data.friendId),
+    ]);
+  }
   return c.json({ id: result.friendship.id, status: result.state }, result.state === 'ACCEPTED' ? 200 : 201);
 });
 
@@ -69,10 +66,7 @@ friends.get('/', async (c) => {
   const user = c.get('user');
   const db = c.get('prisma');
   const rows = await db.friendship.findMany({
-    where: {
-      status: 'ACCEPTED',
-      OR: [{ requesterId: user.id }, { addresseeId: user.id }],
-    },
+    where: { status: 'ACCEPTED', OR: [{ requesterId: user.id }, { addresseeId: user.id }] },
     include: {
       requester: { select: { id: true, name: true, displayName: true, avatarUrl: true, profile: { select: { consoles: true } } } },
       addressee: { select: { id: true, name: true, displayName: true, avatarUrl: true, profile: { select: { consoles: true } } } },
@@ -112,6 +106,10 @@ friends.post('/:id/accept', async (c) => {
   });
   if (!row) return c.json({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404);
   const updated = await db.friendship.update({ where: { id: row.id }, data: { status: 'ACCEPTED' } });
+  await Promise.all([
+    evaluateFriendAchievements(db, row.requesterId),
+    evaluateFriendAchievements(db, row.addresseeId),
+  ]);
   return c.json({ id: updated.id, status: updated.status });
 });
 
