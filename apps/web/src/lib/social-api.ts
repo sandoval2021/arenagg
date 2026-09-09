@@ -13,6 +13,7 @@ export const PLAYSTYLE_OPTIONS = [
 export type ConsoleTag = (typeof CONSOLE_OPTIONS)[number];
 export type FormationOption = (typeof FORMATION_OPTIONS)[number];
 export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
+export type BadgeCode = 'FIRST_MATCH' | 'RELENTLESS_SCORER' | 'WALL';
 
 export type GamerProfile = {
   id: string;
@@ -24,12 +25,17 @@ export type GamerProfile = {
   consoles: ConsoleTag[];
   favoriteFormation: FormationOption | null;
   playstyle: PlaystyleOption | null;
+  mmr: number;
   totalWins: number;
   totalDraws: number;
   totalLosses: number;
   totalGoalsScored: number;
   totalGoalsConceded: number;
   championshipsWon: number;
+  badges: Array<{
+    badgeCode: BadgeCode;
+    awardedAt: string;
+  }>;
   friendship?: {
     id: string;
     status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
