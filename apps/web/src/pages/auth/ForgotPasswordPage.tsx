@@ -15,6 +15,8 @@ function errorMessage(error: unknown): string {
       return 'Não encontramos uma conta com esse e-mail.';
     case 'INVALID_INPUT':
       return 'Confira o e-mail e use uma senha com pelo menos 10 caracteres.';
+    case 'NETWORK_ERROR':
+      return 'Não foi possível conectar ao servidor do Chavea.';
     default:
       return 'Não foi possível redefinir a senha. Tente novamente.';
   }
@@ -61,9 +63,10 @@ export function ForgotPasswordPage() {
   return (
     <main className="min-h-dvh bg-white px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-black">
       <div className="mx-auto max-w-md">
-        <div className="flex items-start justify-between gap-4">
+        <div className="grid grid-cols-[2.75rem_1fr_2.75rem] items-start gap-4">
           <Link to="/login" className="grid h-11 w-11 place-items-center rounded-2xl border border-slate-200 shadow-sm" aria-label="Voltar para o login"><ArrowLeft className="h-5 w-5" /></Link>
-          <Link to="/" className="rounded-2xl px-1 py-1" aria-label="Chavea - início"><Logo size="sm" /></Link>
+          <Link to="/" className="mx-auto rounded-2xl px-1 py-1" aria-label="Chavea - início"><Logo size="sm" /></Link>
+          <span className="h-11 w-11" aria-hidden="true" />
         </div>
         <span className="mt-8 grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-[#073B8C]"><KeyRound /></span>
         <h1 className="mt-5 text-3xl font-black tracking-tight">Esqueceu a senha?</h1>
