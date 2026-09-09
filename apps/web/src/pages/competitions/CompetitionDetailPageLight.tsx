@@ -12,6 +12,7 @@ import {
   Link2,
   LockKeyhole,
   Medal,
+  MessageCircleMore,
   Play,
   Repeat2,
   Save,
@@ -38,6 +39,7 @@ import { removeCompetitionParticipant } from '../../lib/competition-moderation-a
 import { PRIMARY_NAV_STALE_TIME } from '../../lib/query-cache';
 import { getPublicGamerProfile } from '../../lib/social-api';
 import { GlobalLoader } from '../../components/brand/GlobalLoader';
+import { CompetitionFeedPanel } from '../../components/competition/CompetitionFeedPanel';
 import { TeamConfiguratorLight } from '../../components/competition/TeamConfiguratorLight';
 import { MatchStatsPanelLight } from '../../components/matches/MatchStatsPanelLight';
 import {
@@ -49,7 +51,7 @@ import {
 import { TopScorersPanel } from '../../components/scorers/TopScorersPanel';
 import { StandingsTable } from '../../components/standings/StandingsTable';
 
-type CompetitionTab = 'standings' | 'rounds' | 'scorers';
+type CompetitionTab = 'standings' | 'rounds' | 'scorers' | 'feed';
 type Participation = CompetitionDetail['participations'][number];
 type CompetitionMatch = CompetitionDetail['matches'][number];
 
@@ -181,16 +183,18 @@ export function CompetitionDetailPageLight() {
         {isStarted && (
           <section className="mt-7">
             <div className="rounded-[2rem] border border-slate-200 bg-white p-2 shadow-sm">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} icon={Medal} label="Classificação" />
                 <TabButton active={activeTab === 'rounds'} onClick={() => setActiveTab('rounds')} icon={Swords} label="Rodadas" />
                 <TabButton active={activeTab === 'scorers'} onClick={() => setActiveTab('scorers')} icon={Target} label="Artilharia" />
+                <TabButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={MessageCircleMore} label="Feed" />
               </div>
             </div>
             <div className="mt-5">
               {activeTab === 'standings' && <>{standings.isLoading && <GlobalLoader mode="section" label="Carregando classificação…" />}{standings.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar a classificação.</div>}{!standings.isLoading && !standings.isError && <StandingsTable standings={standings.data ?? []} userIdByTeam={userIdByTeam} />}</>}
               {activeTab === 'rounds' && <RoundsView rounds={rounds} competitionId={data.id} myTeamId={myTeamId} isHost={data.isHost} requireValidation={data.requireValidation} statsByMatch={statsByMatch} statsLoading={matchStats.isLoading} />}
               {activeTab === 'scorers' && <TopScorersPanel scorers={topScorers.data ?? []} loading={topScorers.isLoading} error={topScorers.isError} />}
+              {activeTab === 'feed' && <CompetitionFeedPanel competitionId={data.id} />}
             </div>
           </section>
         )}
@@ -310,6 +314,7 @@ function MatchCard({ match, competitionId, canEdit, isHost, requireValidation, s
         queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),
       ]);
     },
   });
