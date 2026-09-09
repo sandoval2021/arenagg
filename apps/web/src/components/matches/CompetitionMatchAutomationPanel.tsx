@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ChevronDown, Clock3, Gamepad2, Siren, ShieldCheck, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock3, Film, Gamepad2, Link2, Siren, ShieldCheck, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { ApiError } from '../../lib/api';
 import {
@@ -44,6 +44,7 @@ export function CompetitionMatchAutomationPanel() {
       queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-clips', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['match-stats', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['global-ranking'] }),
     ]);
@@ -57,7 +58,8 @@ export function CompetitionMatchAutomationPanel() {
   const walkover = useMutation({
     mutationFn: ({ match, winner }: { match: PhaseThreeMatch; winner: 'AUTO' | 'HOME' | 'AWAY' }) =>
       applyWalkover(match.id, { winner, version: match.version }),
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
+      clearClipDraft(variables.match.id);
       setChoosingWinnerId(null);
       await invalidate();
     },
@@ -81,7 +83,7 @@ export function CompetitionMatchAutomationPanel() {
       <div className="rounded-[2rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5 shadow-lg shadow-blue-100/50">
         <div className="flex items-start gap-3">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md"><Gamepad2 className="h-6 w-6" /></span>
-          <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Automação de partidas</p><h2 className="mt-1 text-xl font-black text-slate-950">Check-in e W.O.</h2><p className="mt-1 text-sm font-semibold text-slate-500">O check-in não altera o placar. O W.O. fecha o jogo em 3×0 e usa o fluxo normal de MMR e chave.</p></div>
+          <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Automação de partidas</p><h2 className="mt-1 text-xl font-black text-slate-950">Check-in, clipe e W.O.</h2><p className="mt-1 text-sm font-semibold text-slate-500">Confirme presença e, se rolou golaço, deixe o link pronto. Ao registrar o placar, o clipe segue junto na mesma consolidação.</p></div>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
@@ -102,8 +104,10 @@ export function CompetitionMatchAutomationPanel() {
                   <TeamReady name={match.awayTeam?.name ?? 'Visitante'} logoUrl={match.awayTeam?.logoUrl} ready={match.awayReady} align="right" />
                 </div>
 
+                {(viewerSide || data.isHost) && <ClipDraftInput matchId={match.id} />}
+
                 {viewerSide && (
-                  <button type="button" disabled={viewerReady || readyPending} onClick={() => ready.mutate(match.id)} className={`mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-black transition ${viewerReady ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#073B8C] text-white shadow-md'} disabled:opacity-70`}>
+                  <button type="button" disabled={viewerReady || readyPending} onClick={() => ready.mutate(match.id)} className={`mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-black transition ${viewerReady ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#073B8C] text-white shadow-md'} disabled:opacity-70`}>
                     {viewerReady ? <CheckCircle2 className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
                     {viewerReady ? 'Você está pronto ✅' : readyPending ? 'Confirmando…' : 'Estou Pronto'}
                   </button>
@@ -140,6 +144,32 @@ export function CompetitionMatchAutomationPanel() {
     </section>
   );
 }
+
+function ClipDraftInput({ matchId }: { matchId: string }) {
+  const storageKey = clipDraftKey(matchId);
+  const [value, setValue] = useState(() => {
+    try { return sessionStorage.getItem(storageKey) ?? ''; } catch { return ''; }
+  });
+
+  function change(next: string) {
+    setValue(next);
+    try {
+      if (next.trim()) sessionStorage.setItem(storageKey, next.trim());
+      else sessionStorage.removeItem(storageKey);
+    } catch { /* storage can be unavailable in private modes */ }
+  }
+
+  return (
+    <label className="mt-4 block rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
+      <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-violet-700"><Film className="h-3.5 w-3.5" /> Link do Clipe / Golaço <span className="text-violet-400">· opcional</span></span>
+      <span className="relative mt-2 block"><Link2 className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-violet-400" /><input type="url" inputMode="url" value={value} onChange={(event) => change(event.target.value)} placeholder="https://youtube.com/..." className="min-h-10 w-full rounded-xl border border-violet-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none focus:border-violet-400" /></span>
+      <span className="mt-1.5 block text-[10px] font-semibold text-violet-500">YouTube, Twitch, TikTok ou link direto. Será enviado junto quando o placar for registrado.</span>
+    </label>
+  );
+}
+
+function clipDraftKey(matchId: string): string { return `chavea:match-clip:${matchId}`; }
+function clearClipDraft(matchId: string): void { try { sessionStorage.removeItem(clipDraftKey(matchId)); } catch { /* noop */ } }
 
 function TeamReady({ name, logoUrl, ready, align = 'left' }: { name: string; logoUrl?: string | null; ready: boolean; align?: 'left' | 'right' }) {
   return <div className={`min-w-0 ${align === 'right' ? 'text-right' : 'text-left'}`}><div className={`flex items-center gap-2 ${align === 'right' ? 'flex-row-reverse' : ''}`}>{logoUrl ? <img src={logoUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 object-cover" loading="lazy" referrerPolicy="no-referrer" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-[10px] font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>}<div className="min-w-0"><p className="truncate text-xs font-black text-slate-900">{name}</p><p className={`mt-0.5 flex items-center gap-1 text-[10px] font-black ${align === 'right' ? 'justify-end' : ''} ${ready ? 'text-emerald-600' : 'text-slate-400'}`}>{ready ? <CheckCircle2 className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}{ready ? 'PRONTO' : 'AGUARDANDO'}</p></div></div></div>;
