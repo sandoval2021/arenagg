@@ -347,12 +347,23 @@ export async function submitMatchScore(
   body.set('version', String(input.version));
   body.set('scorers', JSON.stringify(input.scorers ?? []));
   if (input.evidence) body.set('evidence', input.evidence);
-  if (input.clipUrl?.trim()) body.set('clipUrl', input.clipUrl.trim());
 
-  return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
+  let storedClip = '';
+  if (typeof sessionStorage !== 'undefined') {
+    try { storedClip = sessionStorage.getItem(`chavea:match-clip:${matchId}`)?.trim() ?? ''; } catch { storedClip = ''; }
+  }
+  const clipUrl = input.clipUrl?.trim() || storedClip;
+  if (clipUrl) body.set('clipUrl', clipUrl);
+
+  const result = await apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
     method: 'POST',
     body,
   });
+
+  if (clipUrl && typeof sessionStorage !== 'undefined') {
+    try { sessionStorage.removeItem(`chavea:match-clip:${matchId}`); } catch { /* noop */ }
+  }
+  return result;
 }
 
 export async function getCompetitionMatchStats(competitionId: string): Promise<MatchStats[]> {
