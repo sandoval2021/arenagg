@@ -172,6 +172,22 @@ export async function startCompetition(competitionId: string): Promise<{ status:
   });
 }
 
+export async function submitMatchScore(
+  matchId: string,
+  input: { homeScore: number; awayScore: number; version: number; evidence?: File },
+) {
+  const body = new FormData();
+  body.set('homeScore', String(input.homeScore));
+  body.set('awayScore', String(input.awayScore));
+  body.set('version', String(input.version));
+  if (input.evidence) body.set('evidence', input.evidence);
+
+  return apiRequest(`/api/matches/${encodeURIComponent(matchId)}/score`, {
+    method: 'POST',
+    body,
+  });
+}
+
 export async function resetPasswordDev(email: string, newPassword: string, devToken: string) {
   return apiRequest<{ ok: true }>('/api/auth/reset-password-dev', {
     method: 'POST',
