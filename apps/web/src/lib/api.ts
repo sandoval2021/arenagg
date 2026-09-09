@@ -6,6 +6,7 @@ export type CompetitionStatus =
   | 'IN_PROGRESS'
   | 'FINISHED'
   | 'CANCELLED';
+export type TeamSelection = 'FREE' | 'RANDOM';
 
 export type CompetitionSummary = {
   id: string;
@@ -24,6 +25,8 @@ export type CompetitionDetail = {
   slug: string;
   type: CompetitionFormat;
   status: CompetitionStatus;
+  legFormat: 'SINGLE' | 'HOME_AWAY';
+  teamSelection: TeamSelection;
   requireValidation: boolean;
   hostId: string;
   host: { id: string; name: string; displayName: string | null };
@@ -38,6 +41,7 @@ export type CompetitionDetail = {
   matches: Array<{
     id: string;
     status: string;
+    leg: number;
     homeTeam: { id: string; name: string } | null;
     awayTeam: { id: string; name: string } | null;
     homeScore: number | null;
@@ -62,7 +66,8 @@ export type Standing = {
 export type CreateCompetitionInput = {
   name: string;
   type: CompetitionFormat;
-  legFormat?: 'SINGLE' | 'HOME_AWAY';
+  isHomeAndAway?: boolean;
+  teamSelection?: TeamSelection;
   matchPace?: 'QUICK' | 'SCHEDULED';
   requireValidation?: boolean;
 };
