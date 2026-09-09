@@ -226,6 +226,7 @@ model Team {
   groupEntries    GroupTeam[]
   homeMatches     Match[]       @relation("HomeTeam")
   awayMatches     Match[]       @relation("AwayTeam")
+  matchScorers    MatchScorer[]
 
   @@unique([competitionId, name])
 }
@@ -318,11 +319,28 @@ model Match {
   nextMatch            Match?       @relation("BracketProgression", fields: [nextMatchId], references: [id], onDelete: SetNull)
   previousMatches      Match[]      @relation("BracketProgression")
   stats                MatchStats?
+  scorers              MatchScorer[]
 
   @@index([competitionId, status])
   @@index([stageId, roundId])
   @@index([groupId])
   @@index([profileAppliedAt])
+}
+
+model MatchScorer {
+  id         String   @id @default(uuid()) @db.Uuid
+  matchId    String   @db.Uuid
+  teamId     String   @db.Uuid
+  playerName String
+  playerKey  String
+  goals      Int
+  createdAt  DateTime @default(now())
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, teamId, playerKey])
+  @@index([matchId, teamId])
+  @@index([teamId, playerKey])
 }
 
 model MatchStats {
