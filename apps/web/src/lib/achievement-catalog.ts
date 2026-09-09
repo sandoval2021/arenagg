@@ -1,0 +1,67 @@
+export type AchievementCategory = 'EASY' | 'MEDIUM' | 'HARD' | 'LOYALTY';
+export type AchievementRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+
+export const ACHIEVEMENTS = [
+  ['FIRST_MATCH', 'O Início', 'Finalize sua primeira partida.', 'EASY', 'COMMON'],
+  ['FIRST_GOAL', 'Primeiro Gol', 'Marque seu primeiro gol no Chavea.', 'EASY', 'COMMON'],
+  ['CREATE_TEAM', 'Crie seu Time', 'Tenha seu primeiro time em uma Copa.', 'EASY', 'COMMON'],
+  ['ADD_FRIEND', 'Adicione um Amigo', 'Faça sua primeira amizade no Chavea.', 'EASY', 'COMMON'],
+  ['FIRST_WIN', 'Primeira Vitória', 'Vença sua primeira partida.', 'EASY', 'COMMON'],
+  ['FIRST_DRAW', 'Ponto Suado', 'Conquiste seu primeiro empate.', 'EASY', 'COMMON'],
+  ['FIRST_CLEAN_SHEET', 'Primeiro Zero', 'Termine uma partida sem sofrer gols.', 'EASY', 'COMMON'],
+  ['FIRST_CLIP', 'Primeiro Highlight', 'Publique seu primeiro clipe de partida.', 'EASY', 'COMMON'],
+  ['FIRST_HOST', 'Minha Primeira Copa', 'Organize sua primeira competição.', 'EASY', 'COMMON'],
+  ['FIRST_CHECKIN', 'Pronto pra Batalha', 'Faça seu primeiro check-in em uma partida.', 'EASY', 'COMMON'],
+  ['HAT_TRICK', 'Hat-Trick', 'Marque 3 ou mais gols em uma partida.', 'MEDIUM', 'RARE'],
+  ['RELENTLESS_SCORER', 'Goleador Implacável', 'Marque 5 ou mais gols em uma partida.', 'MEDIUM', 'RARE'],
+  ['GOAL_STORM_7', 'Chuva de Gols', 'Marque 7 ou mais gols em uma partida.', 'HARD', 'EPIC'],
+  ['DOUBLE_DIGITS_10', 'Dois Dígitos', 'Marque 10 ou mais gols em uma partida.', 'HARD', 'LEGENDARY'],
+  ['WALL', 'Muralha', 'Vença sem sofrer nenhum gol.', 'MEDIUM', 'RARE'],
+  ['SHUTOUT_3', 'Trator Defensivo', 'Vença por 3 ou mais gols sem sofrer.', 'MEDIUM', 'RARE'],
+  ['NARROW_ESCAPE', 'No Sufoco', 'Vença uma partida por exatamente 1 gol.', 'MEDIUM', 'RARE'],
+  ['PENALTY_KING', 'Rei dos Pênaltis', 'Vença uma disputa por pênaltis.', 'MEDIUM', 'EPIC'],
+  ['EPIC_COMEBACK', 'Virada Épica', 'Vença após estar perdendo, com confirmação do Host.', 'HARD', 'LEGENDARY'],
+  ['GIANT_KILLER', 'Davi contra Golias', 'Vença alguém com pelo menos 200 MMR a mais.', 'HARD', 'EPIC'],
+  ['WINS_3', 'Pegando Ritmo', 'Some 3 vitórias.', 'EASY', 'COMMON'],
+  ['WINS_5', 'Mão Cheia', 'Some 5 vitórias.', 'MEDIUM', 'COMMON'],
+  ['WINS_10', 'Dez na Conta', 'Some 10 vitórias.', 'MEDIUM', 'RARE'],
+  ['WINS_25', 'Competidor de Elite', 'Some 25 vitórias.', 'MEDIUM', 'RARE'],
+  ['WINS_50', 'Imparável', 'Some 50 vitórias.', 'HARD', 'EPIC'],
+  ['WINS_100', 'Platina', 'Alcance 100 vitórias.', 'HARD', 'LEGENDARY'],
+  ['GOALS_10', 'Artilheiro em Formação', 'Marque 10 gols na conta.', 'EASY', 'COMMON'],
+  ['GOALS_25', 'Mira Calibrada', 'Marque 25 gols na conta.', 'MEDIUM', 'COMMON'],
+  ['GOALS_50', 'Camisa 9', 'Marque 50 gols na conta.', 'MEDIUM', 'RARE'],
+  ['GOALS_100', 'Centenário de Gols', 'Marque 100 gols na conta.', 'HARD', 'RARE'],
+  ['GOALS_250', 'Canhão Chavea', 'Marque 250 gols na conta.', 'HARD', 'EPIC'],
+  ['GOALS_500', 'Máquina de Fazer Gols', 'Marque 500 gols na conta.', 'HARD', 'LEGENDARY'],
+  ['MATCHES_5', 'Cinco Batalhas', 'Finalize 5 partidas.', 'EASY', 'COMMON'],
+  ['MATCHES_10', 'Rodagem', 'Finalize 10 partidas.', 'EASY', 'COMMON'],
+  ['MATCHES_25', 'Casca Grossa', 'Finalize 25 partidas.', 'MEDIUM', 'RARE'],
+  ['MATCHES_50', 'Veterano de Arena', 'Finalize 50 partidas.', 'HARD', 'EPIC'],
+  ['MATCHES_100', 'Lenda das 100 Partidas', 'Finalize 100 partidas.', 'HARD', 'LEGENDARY'],
+  ['WIN_STREAK_3', 'Série Invicta', 'Vença 3 partidas seguidas.', 'MEDIUM', 'RARE'],
+  ['WIN_STREAK_5', 'Em Chamas', 'Vença 5 partidas seguidas.', 'HARD', 'EPIC'],
+  ['WIN_STREAK_10', 'Intocável', 'Vença 10 partidas seguidas.', 'HARD', 'LEGENDARY'],
+  ['CHAMPION_FIRST', 'Campeão', 'Conquiste seu primeiro título.', 'MEDIUM', 'RARE'],
+  ['CHAMPION_3', 'Tricampeão', 'Conquiste 3 títulos.', 'HARD', 'EPIC'],
+  ['CHAMPION_5', 'Dinastia', 'Conquiste 5 títulos.', 'HARD', 'LEGENDARY'],
+  ['MMR_1600', 'Subindo de Patente', 'Alcance 1600 MMR.', 'MEDIUM', 'RARE'],
+  ['MMR_1800', 'Diamante Competitivo', 'Alcance 1800 MMR.', 'HARD', 'EPIC'],
+  ['MMR_2000', 'Lenda do MMR', 'Alcance 2000 MMR.', 'HARD', 'LEGENDARY'],
+  ['VETERAN_30D', 'Veterano', 'Mantenha sua conta por mais de 1 mês.', 'LOYALTY', 'RARE'],
+  ['LOYAL_90D', 'Fiel ao Chavea', 'Complete 90 dias de conta.', 'LOYALTY', 'EPIC'],
+  ['HOST_ELITE_5', 'Host de Elite', 'Organize 5 Copas.', 'LOYALTY', 'EPIC'],
+  ['SOCIAL_STAR_10', 'Craque da Resenha', 'Tenha 10 amizades aceitas.', 'LOYALTY', 'EPIC'],
+] as const satisfies ReadonlyArray<readonly [string, string, string, AchievementCategory, AchievementRarity]>;
+
+export type AchievementCode = (typeof ACHIEVEMENTS)[number][0];
+
+export const ACHIEVEMENT_CATALOG = ACHIEVEMENTS.map(([code, title, description, category, rarity]) => ({
+  code,
+  title,
+  description,
+  category,
+  rarity,
+}));
+
+if (ACHIEVEMENT_CATALOG.length !== 50) throw new Error('Chavea must expose exactly 50 achievements');
