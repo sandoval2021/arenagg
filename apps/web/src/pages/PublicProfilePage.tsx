@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, ShieldCheck, Trophy, UserPlus, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, ShieldCheck, Swords, Trophy, UserPlus, UserRound, Zap } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { useAuth } from '../hooks/useAuth';
 import { ApiError } from '../lib/api';
+import { PRIMARY_NAV_STALE_TIME } from '../lib/query-cache';
 import { getPublicGamerProfile, requestFriend } from '../lib/social-api';
 
 export function PublicProfilePage() {
@@ -15,6 +16,7 @@ export function PublicProfilePage() {
     queryKey: ['gamer-profile', userId],
     queryFn: () => getPublicGamerProfile(userId),
     enabled: Boolean(userId),
+    staleTime: PRIMARY_NAV_STALE_TIME,
   });
   const add = useMutation({
     mutationFn: () => requestFriend(userId),
@@ -54,6 +56,23 @@ export function PublicProfilePage() {
               <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ShieldCheck className="h-4 w-4 shrink-0" />Jogador Chavea</p>
             </div>
           </div>
+
+          {(data.favoriteFormation || data.playstyle) && (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {data.favoriteFormation && (
+                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-blue-200 bg-white/90 p-3 shadow-sm">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#073B8C] text-white"><Swords className="h-4 w-4" /></span>
+                  <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-blue-500">Formação favorita</p><p className="mt-0.5 truncate text-sm font-black text-slate-950">{data.favoriteFormation}</p></div>
+                </div>
+              )}
+              {data.playstyle && (
+                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-amber-200 bg-white/90 p-3 shadow-sm">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white"><Zap className="h-4 w-4" /></span>
+                  <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.16em] text-amber-600">Estilo de jogo</p><p className="mt-0.5 text-sm font-black leading-5 text-slate-950">{data.playstyle}</p></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {!isMe && (
             <div className="mt-5">
