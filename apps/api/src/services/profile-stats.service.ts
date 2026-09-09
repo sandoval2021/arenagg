@@ -4,6 +4,7 @@ import { resolveWinner } from '../domain/bracket/knockout';
 import { calculateElo, type EloOutcome } from '../domain/ranking/elo';
 import { calculateStandings } from '../domain/standings/calculate';
 import { awardBadgeCodes, evaluateMatchAchievementBatch } from './achievement-engine.service';
+import { syncGroupStandingsForMatch } from './group-stage.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -65,11 +66,6 @@ async function awardChampionship(tx: Tx, userId: string): Promise<void> {
   await awardBadgeCodes(tx, userId, codes);
 }
 
-/**
- * Fecha formatos que possuem um campeão determinístico hoje.
- * ENDLESS nunca encerra automaticamente e GROUPS_KNOCKOUT ainda aguarda a
- * progressão real da fase de grupos para a árvore eliminatória.
- */
 async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<void> {
   await lockCompetition(tx, competitionId);
 
@@ -78,6 +74,7 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     select: {
       id: true,
       type: true,
+      format: true,
       status: true,
       legFormat: true,
       championshipProfileAppliedAt: true,
@@ -88,8 +85,7 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     !competition ||
     competition.championshipProfileAppliedAt ||
     !['IN_PROGRESS', 'FINISHED'].includes(competition.status) ||
-    competition.type === 'ENDLESS' ||
-    competition.type === 'GROUPS_KNOCKOUT'
+    competition.type === 'ENDLESS'
   ) return;
 
   let championTeamId: string | null = null;
@@ -127,11 +123,12 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     )[0]?.teamId ?? null;
   }
 
-  if (competition.type === 'KNOCKOUT') {
-    if (competition.legFormat !== 'SINGLE') return;
+  if (competition.type === 'KNOCKOUT' || competition.type === 'GROUPS_KNOCKOUT') {
+    // GROUP_STAGE only becomes eligible for championship finalization after its
+    // dedicated KNOCKOUT Stage exists. Direct knockout uses the same final path.
     const final = await tx.match.findFirst({
-      where: { competitionId, leg: 1 },
-      orderBy: [{ round: { number: 'desc' } }, { bracketPosition: 'desc' }],
+      where: { competitionId, leg: 1, stage: { type: 'KNOCKOUT' } },
+      orderBy: [{ stage: { order: 'desc' } }, { round: { number: 'desc' } }, { bracketPosition: 'desc' }],
       select: {
         status: true,
         homeTeamId: true,
@@ -264,6 +261,7 @@ export async function applyFinishedMatchToProfiles(tx: Tx, matchId: string): Pro
     mmrDelta: elo.awayDelta,
   });
 
+  await syncGroupStandingsForMatch(tx, matchId);
   await maybeFinalizeCompetition(tx, match.competitionId);
   await evaluateMatchAchievementBatch(tx, {
     matchId,
