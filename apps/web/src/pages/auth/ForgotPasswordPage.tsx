@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, KeyRound, LockKeyhole, Mail, ShieldAlert } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { Logo } from '../../components/brand/Logo';
 import { ApiError, resetPasswordDev } from '../../lib/api';
 
@@ -102,7 +103,7 @@ export function ForgotPasswordPage() {
 
           {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{error}</p>}
 
-          <button disabled={pending} className="min-h-14 w-full rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-60">{pending ? 'Atualizando…' : 'Redefinir senha'}</button>
+          <button disabled={pending} className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-60">{pending ? <GlobalLoader mode="inline" label="Atualizando…" className="[&_*]:text-white" /> : 'Redefinir senha'}</button>
         </form>
       </div>
     </main>
