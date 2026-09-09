@@ -29,6 +29,8 @@ export type PhaseThreeCompetitionDetail = Omit<CompetitionDetail, 'matches'> & {
 export type CreateCompetitionPhaseThreeInput = {
   name: string;
   type: Exclude<CompetitionFormat, 'ENDLESS'>;
+  format?: 'KNOCKOUT' | 'GROUP_STAGE';
+  groupCount?: 2 | 4 | 8;
   game: string;
   platform: string;
   isHomeAndAway: boolean;
