@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './app/router';
 import { AuthProvider } from './hooks/useAuth';
+import { GlobalActivityLoader } from './components/brand/GlobalActivityLoader';
 import { PwaUpdatePrompt } from './components/pwa/PwaUpdatePrompt';
 import './styles/globals.css';
 
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <RouterProvider router={router} />
       </AuthProvider>
+      <GlobalActivityLoader />
       <PwaUpdatePrompt />
     </QueryClientProvider>
   </React.StrictMode>,
