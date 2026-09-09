@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Flame, MessageCircleMore, Shield, Sparkles, Swords, Trophy, UserPlus } from 'lucide-react';
+import { ExternalLink, Film, Flame, MessageCircleMore, Shield, Sparkles, Swords, Trophy, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { GlobalLoader } from '../brand/GlobalLoader';
 import { getCompetitionFeed, type CompetitionFeedItem } from '../../lib/phase-one-api';
+import { getCompetitionClips, type CompetitionClip } from '../../lib/phase-four-api';
 
 export function CompetitionFeedPanel({ competitionId }: { competitionId: string }) {
   const feed = useQuery({
@@ -12,6 +14,19 @@ export function CompetitionFeedPanel({ competitionId }: { competitionId: string 
     staleTime: 5_000,
     refetchOnWindowFocus: false,
   });
+  const clips = useQuery({
+    queryKey: ['competition-clips', competitionId],
+    queryFn: () => getCompetitionClips(competitionId),
+    enabled: Boolean(competitionId),
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const clipByMatchId = useMemo(() => {
+    const map = new Map<string, CompetitionClip>();
+    for (const clip of clips.data ?? []) if (!map.has(clip.match.id)) map.set(clip.match.id, clip);
+    return map;
+  }, [clips.data]);
 
   if (feed.isLoading) return <GlobalLoader mode="section" label="Carregando resenha da Copa…" />;
   if (feed.isError) return <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar o Feed agora.</div>;
@@ -42,13 +57,16 @@ export function CompetitionFeedPanel({ competitionId }: { competitionId: string 
       </header>
 
       <div className="relative divide-y divide-slate-100">
-        {items.map((item) => <FeedRow key={item.id} item={item} />)}
+        {items.map((item) => {
+          const matchId = item.type === 'MATCH_RESULT' ? item.id.replace(/^match:/, '') : '';
+          return <FeedRow key={item.id} item={item} clip={matchId ? clipByMatchId.get(matchId) : undefined} />;
+        })}
       </div>
     </section>
   );
 }
 
-function FeedRow({ item }: { item: CompetitionFeedItem }) {
+function FeedRow({ item, clip }: { item: CompetitionFeedItem; clip?: CompetitionClip }) {
   if (item.type === 'JOIN') {
     return (
       <article className="flex gap-3 p-4 sm:p-5">
@@ -91,6 +109,7 @@ function FeedRow({ item }: { item: CompetitionFeedItem }) {
           <span>×</span>
           <span className="truncate">{item.away.teamName}</span>
         </div>
+        {clip && <a href={clip.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[11px] font-black text-violet-700"><Film className="h-3.5 w-3.5" />🎬 Ver Clipe <ExternalLink className="h-3 w-3" /></a>}
         <TimeLabel value={item.occurredAt} />
       </div>
       <div className="shrink-0 rounded-2xl bg-slate-950 px-3 py-2 text-center text-white shadow-sm">
