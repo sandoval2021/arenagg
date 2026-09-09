@@ -2,6 +2,7 @@ export const DEFAULT_MMR = 1500;
 export const ELO_K_FACTOR = 32;
 const ELO_SCALE = 400;
 const MAX_EXPONENT = 8;
+const MAX_DRAW_DELTA = 8;
 
 export type EloOutcome = 'HOME_WIN' | 'DRAW' | 'AWAY_WIN';
 
@@ -22,8 +23,8 @@ function expectedScore(rating: number, opponentRating: number): number {
 
 /**
  * Zero-sum Elo update. We calculate and round one side only, then apply the
- * exact inverse to the opponent. This prevents rating inflation caused by
- * independent rounding.
+ * exact inverse to the opponent. Draws preserve Elo's underdog reward but are
+ * capped to a small +/-8 swing to prevent draw farming against high-MMR users.
  */
 export function calculateElo(
   homeRating: number,
@@ -33,7 +34,10 @@ export function calculateElo(
   const expectedHome = expectedScore(homeRating, awayRating);
   const expectedAway = 1 - expectedHome;
   const actualHome = outcome === 'HOME_WIN' ? 1 : outcome === 'DRAW' ? 0.5 : 0;
-  const homeDelta = Math.round(ELO_K_FACTOR * (actualHome - expectedHome));
+  const rawHomeDelta = Math.round(ELO_K_FACTOR * (actualHome - expectedHome));
+  const homeDelta = outcome === 'DRAW'
+    ? Math.max(-MAX_DRAW_DELTA, Math.min(MAX_DRAW_DELTA, rawHomeDelta))
+    : rawHomeDelta;
 
   return {
     homeDelta,
