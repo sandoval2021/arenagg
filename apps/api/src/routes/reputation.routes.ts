@@ -10,6 +10,40 @@ const reviewSchema = z.object({
   tags: z.array(reputationTag).max(3).default([]).transform((values) => [...new Set(values)]),
 });
 
+reputation.get('/users/:userId', async (c) => {
+  const db = c.get('prisma');
+  const userId = c.req.param('userId');
+  if (!z.string().uuid().safeParse(userId).success) return c.json({ error: 'USER_NOT_FOUND' }, 404);
+
+  const user = await db.user.findFirst({
+    where: { id: userId, isActive: true },
+    select: {
+      id: true,
+      profile: { select: { reputationAverage: true, reputationCount: true } },
+    },
+  });
+  if (!user) return c.json({ error: 'USER_NOT_FOUND' }, 404);
+
+  const reviews = user.profile?.reputationCount
+    ? await db.userReview.findMany({
+        where: { reviewedId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: { tags: true },
+      })
+    : [];
+  const tagCounts = { FAIR_PLAY: 0, RAGE_QUITTER: 0, TOXIC: 0 };
+  for (const review of reviews) {
+    for (const tag of review.tags) tagCounts[tag] += 1;
+  }
+
+  return c.json({
+    average: user.profile?.reputationAverage ?? 0,
+    count: user.profile?.reputationCount ?? 0,
+    tags: tagCounts,
+  });
+});
+
 reputation.get('/pending/:competitionId', async (c) => {
   const db = c.get('prisma');
   const user = c.get('user');
