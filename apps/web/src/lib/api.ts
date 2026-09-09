@@ -13,6 +13,7 @@ export type CompetitionSummary = {
   name: string;
   format: CompetitionFormat;
   participantCount: number;
+  maxParticipants: number;
   currentRound?: number;
   status: CompetitionStatus;
   logoUrl?: string;
@@ -27,14 +28,18 @@ export type CompetitionDetail = {
   status: CompetitionStatus;
   legFormat: 'SINGLE' | 'HOME_AWAY';
   teamSelection: TeamSelection;
+  maxParticipants: number;
   requireValidation: boolean;
   hostId: string;
+  currentUserId: string;
   host: { id: string; name: string; displayName: string | null };
   isHost: boolean;
   hasJoined: boolean;
   participations: Array<{
     id: string;
     userId: string;
+    teamName: string;
+    teamLogoUrl: string | null;
     user: { id: string; name: string; displayName: string | null; avatarUrl: string | null };
     team: { id: string; name: string; logoUrl: string | null } | null;
   }>;
@@ -42,8 +47,10 @@ export type CompetitionDetail = {
     id: string;
     status: string;
     leg: number;
-    homeTeam: { id: string; name: string } | null;
-    awayTeam: { id: string; name: string } | null;
+    version: number;
+    round: { id: string; number: number; name: string | null } | null;
+    homeTeam: { id: string; name: string; logoUrl: string | null } | null;
+    awayTeam: { id: string; name: string; logoUrl: string | null } | null;
     homeScore: number | null;
     awayScore: number | null;
   }>;
@@ -53,6 +60,7 @@ export type Standing = {
   teamId: string;
   team: string;
   logoUrl?: string;
+  playerName: string;
   points: number;
   played: number;
   wins: number;
@@ -68,6 +76,7 @@ export type CreateCompetitionInput = {
   type: CompetitionFormat;
   isHomeAndAway?: boolean;
   teamSelection?: TeamSelection;
+  maxParticipants?: number;
   matchPace?: 'QUICK' | 'SCHEDULED';
   requireValidation?: boolean;
 };
@@ -144,6 +153,16 @@ export async function getCompetition(competitionId: string): Promise<Competition
 export async function joinCompetition(competitionId: string): Promise<{ joined: true }> {
   return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/join`, {
     method: 'POST',
+  });
+}
+
+export async function updateMyCompetitionTeam(
+  competitionId: string,
+  input: { teamName: string; teamLogoUrl?: string | null },
+): Promise<{ teamName: string; teamLogoUrl: string | null }> {
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/my-team`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
   });
 }
 
