@@ -6,6 +6,13 @@ import { removeShield, ShieldUploadError, uploadShield } from '../services/shiel
 
 export const teamSettings = new Hono<Env>();
 
+type TeamRouteError =
+  | 'COMPETITION_NOT_FOUND'
+  | 'NOT_A_PARTICIPANT'
+  | 'TEAM_CONFIGURATION_LOCKED'
+  | 'TEAM_CONFIGURATION_NOT_ALLOWED'
+  | 'TEAM_NAME_TAKEN';
+
 const httpsUrl = z
   .string()
   .trim()
@@ -33,7 +40,20 @@ function safePrismaMeta(error: unknown) {
   };
 }
 
-function storageErrorResponse(error: ShieldUploadError) {
+function mapBusinessError(error: TeamRouteError) {
+  switch (error) {
+    case 'COMPETITION_NOT_FOUND':
+      return { status: 404 as const, body: { error } };
+    case 'NOT_A_PARTICIPANT':
+    case 'TEAM_CONFIGURATION_NOT_ALLOWED':
+      return { status: 403 as const, body: { error } };
+    case 'TEAM_CONFIGURATION_LOCKED':
+    case 'TEAM_NAME_TAKEN':
+      return { status: 409 as const, body: { error } };
+  }
+}
+
+function mapStorageError(error: ShieldUploadError) {
   switch (error.code) {
     case 'STORAGE_NOT_CONFIGURED':
       return { status: 503 as const, body: { error: error.code } };
@@ -54,63 +74,52 @@ async function loadEditableParticipation(
     where: { id: competitionId },
     select: { id: true, status: true, teamSelection: true },
   });
-  if (!competition) return { error: 'COMPETITION_NOT_FOUND' as const };
+
+  if (!competition) {
+    return { ok: false as const, error: 'COMPETITION_NOT_FOUND' as const };
+  }
   if (!['REGISTRATION', 'READY'].includes(competition.status)) {
-    return { error: 'TEAM_CONFIGURATION_LOCKED' as const };
+    return { ok: false as const, error: 'TEAM_CONFIGURATION_LOCKED' as const };
   }
   if (competition.teamSelection !== 'FREE') {
-    return { error: 'TEAM_CONFIGURATION_NOT_ALLOWED' as const };
+    return { ok: false as const, error: 'TEAM_CONFIGURATION_NOT_ALLOWED' as const };
   }
 
   const participation = await tx.participation.findUnique({
     where: { competitionId_userId: { competitionId, userId } },
     include: { team: true },
   });
+
   if (!participation || participation.status !== 'ACTIVE') {
-    return { error: 'NOT_A_PARTICIPANT' as const };
+    return { ok: false as const, error: 'NOT_A_PARTICIPANT' as const };
   }
 
-  return { competition, participation };
-}
-
-function businessError(error: string) {
-  switch (error) {
-    case 'COMPETITION_NOT_FOUND':
-      return { status: 404 as const, body: { error } };
-    case 'NOT_A_PARTICIPANT':
-    case 'TEAM_CONFIGURATION_NOT_ALLOWED':
-      return { status: 403 as const, body: { error } };
-    case 'TEAM_CONFIGURATION_LOCKED':
-    case 'TEAM_NAME_TAKEN':
-      return { status: 409 as const, body: { error } };
-    default:
-      return { status: 500 as const, body: { error: 'TEAM_UPDATE_FAILED' } };
-  }
+  return { ok: true as const, participation };
 }
 
 teamSettings.patch('/:id/my-team', async (c) => {
+  const competitionId = c.req.param('id');
+  const user = c.get('user');
   const raw = await c.req.json().catch(() => null);
   const parsed = updateTeamSchema.safeParse(raw);
+
   if (!parsed.success) {
     console.warn('[team.update] invalid input', {
-      competitionId: c.req.param('id'),
-      userId: c.get('user').id,
+      competitionId,
+      userId: user.id,
       fields: parsed.error.flatten().fieldErrors,
     });
     return c.json({ error: 'INVALID_TEAM_INPUT', issues: parsed.error.flatten() }, 400);
   }
 
   const db = c.get('prisma');
-  const competitionId = c.req.param('id');
-  const user = c.get('user');
-  const teamName = parsed.data.teamName;
-  const suppliedLogo = parsed.data.teamLogoUrl;
+  const { teamName, teamLogoUrl: suppliedLogo } = parsed.data;
 
   try {
     const result = await db.$transaction(async (tx) => {
       await lockCompetition(tx, competitionId);
       const access = await loadEditableParticipation(tx, competitionId, user.id);
-      if ('error' in access) return access;
+      if (!access.ok) return access;
 
       const { participation } = access;
       const collision = await tx.team.findFirst({
@@ -121,8 +130,13 @@ teamSettings.patch('/:id/my-team', async (c) => {
         },
         select: { id: true },
       });
-      if (collision) return { error: 'TEAM_NAME_TAKEN' as const };
 
+      if (collision) {
+        return { ok: false as const, error: 'TEAM_NAME_TAKEN' as const };
+      }
+
+      // Omitting teamLogoUrl means "keep the current shield". This prevents a
+      // name-only update from accidentally clearing a previously uploaded image.
       const teamLogoUrl = suppliedLogo === undefined
         ? participation.teamLogoUrl
         : suppliedLogo || null;
@@ -149,15 +163,15 @@ teamSettings.patch('/:id/my-team', async (c) => {
         });
       }
 
-      return { teamName, teamLogoUrl };
+      return { ok: true as const, teamName, teamLogoUrl };
     });
 
-    if ('error' in result) {
-      const mapped = businessError(result.error);
+    if (!result.ok) {
+      const mapped = mapBusinessError(result.error);
       return c.json(mapped.body, mapped.status);
     }
 
-    return c.json(result);
+    return c.json({ teamName: result.teamName, teamLogoUrl: result.teamLogoUrl });
   } catch (error) {
     const prisma = safePrismaMeta(error);
     console.error('[team.update] failed', {
@@ -195,19 +209,21 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     await lockCompetition(tx, competitionId);
     return loadEditableParticipation(tx, competitionId, user.id);
   });
-  if ('error' in initial) {
-    const mapped = businessError(initial.error);
+
+  if (!initial.ok) {
+    const mapped = mapBusinessError(initial.error);
     return c.json(mapped.body, mapped.status);
   }
 
   let uploaded: { publicUrl: string; storagePath: string } | undefined;
+
   try {
     uploaded = await uploadShield(c.env, file, 'teams', `${competitionId}/${user.id}`);
 
     const result = await db.$transaction(async (tx) => {
       await lockCompetition(tx, competitionId);
       const access = await loadEditableParticipation(tx, competitionId, user.id);
-      if ('error' in access) return access;
+      if (!access.ok) return access;
 
       const { participation } = access;
       await tx.participation.update({
@@ -232,18 +248,20 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
         });
       }
 
-      return { teamLogoUrl: uploaded!.publicUrl };
+      return { ok: true as const, teamLogoUrl: uploaded!.publicUrl };
     });
 
-    if ('error' in result) {
+    if (!result.ok) {
       await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
-      const mapped = businessError(result.error);
+      const mapped = mapBusinessError(result.error);
       return c.json(mapped.body, mapped.status);
     }
 
-    return c.json(result, 201);
+    return c.json({ teamLogoUrl: result.teamLogoUrl }, 201);
   } catch (error) {
-    if (uploaded) await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
+    if (uploaded) {
+      await removeShield(c.env, uploaded.storagePath).catch(() => undefined);
+    }
 
     console.error('[team.logo-upload] failed', {
       competitionId,
@@ -256,8 +274,11 @@ teamSettings.post('/:id/my-team/logo', async (c) => {
     });
 
     if (error instanceof ShieldUploadError) {
-      const mapped = storageErrorResponse(error);
+      const mapped = mapStorageError(error);
       return c.json(mapped.body, mapped.status);
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return c.json({ error: 'TEAM_DATABASE_ERROR', prismaCode: error.code }, 500);
     }
     return c.json({ error: 'TEAM_LOGO_UPLOAD_FAILED' }, 500);
   }
