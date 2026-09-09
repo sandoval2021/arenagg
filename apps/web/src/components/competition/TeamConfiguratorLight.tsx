@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ImagePlus, LoaderCircle, Save, Shield, Sparkles } from 'lucide-react';
+import { Check, ImagePlus, Save, Shield, Sparkles } from 'lucide-react';
 import {
   ApiError,
   getDefaultShields,
@@ -9,8 +9,14 @@ import {
   type CompetitionDetail,
 } from '../../lib/api';
 import { BUILT_IN_TEAM_ICONS, TEAM_ICON_CATEGORIES } from '../../lib/default-icons';
+import { GlobalLoader } from '../brand/GlobalLoader';
 
 type Participation = CompetitionDetail['participations'][number];
+const CHAVEA_ORIGIN = 'https://chavea.pages.dev';
+
+function isSameBuiltInIcon(current: string, relative: string): boolean {
+  return current === relative || current === `${CHAVEA_ORIGIN}${relative}`;
+}
 
 export function TeamConfiguratorLight({
   competitionId,
@@ -25,6 +31,11 @@ export function TeamConfiguratorLight({
   const [selectedLogoUrl, setSelectedLogoUrl] = useState(participant.teamLogoUrl ?? participant.team?.logoUrl ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string>('');
+
+  useEffect(() => {
+    setTeamName(participant.teamName || participant.team?.name || 'Meu Time');
+    setSelectedLogoUrl(participant.teamLogoUrl ?? participant.team?.logoUrl ?? '');
+  }, [participant.teamName, participant.teamLogoUrl, participant.team?.name, participant.team?.logoUrl]);
 
   useEffect(() => {
     if (!file) {
@@ -106,8 +117,8 @@ export function TeamConfiguratorLight({
 
       <p className="mt-5 text-xs font-black uppercase tracking-wider text-slate-500">Escudo do time</p>
       <div className="mt-2 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {visibleLogo ? <img src={visibleLogo} alt="Preview do escudo" className="h-full w-full object-cover" /> : <Shield className="h-8 w-8 text-slate-300" />}
+        <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          {visibleLogo ? <img src={visibleLogo} alt="Preview do escudo" className="h-full w-full rounded-xl object-contain" /> : <Shield className="h-8 w-8 text-slate-300" />}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-black text-slate-800">Preview instantâneo</p>
@@ -136,19 +147,19 @@ export function TeamConfiguratorLight({
           <Sparkles className="h-4 w-4 text-[#073B8C]" />
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Ícones padrão</p>
         </div>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-[#073B8C]">36 opções</span>
+        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-[#073B8C]">36 opções únicas</span>
       </div>
-      <p className="mt-1 text-[11px] font-medium text-slate-400">Escolha um escudo leve em vetor. A galeria é rolável no celular.</p>
+      <p className="mt-1 text-[11px] font-medium text-slate-400">Cada escudo tem símbolo e identidade próprios. Deslize para explorar as categorias.</p>
 
-      <div className="mt-3 max-h-[26rem] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-slate-50/70 p-3 pr-2 [-webkit-overflow-scrolling:touch]">
+      <div className="mt-3 max-h-[30rem] space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-slate-50/70 p-3 pr-2 [-webkit-overflow-scrolling:touch]">
         {builtInGroups.map((group) => (
           <section key={group.category}>
             <div className="sticky top-0 z-10 -mx-1 mb-2 rounded-xl bg-white/95 px-2 py-2 shadow-sm backdrop-blur">
               <p className="text-[10px] font-black uppercase tracking-[.16em] text-slate-500">{group.category}</p>
             </div>
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {group.icons.map((shield) => {
-                const selected = !file && selectedLogoUrl === shield.url;
+                const selected = !file && isSameBuiltInIcon(selectedLogoUrl, shield.url);
                 return (
                   <button
                     key={shield.url}
@@ -157,12 +168,14 @@ export function TeamConfiguratorLight({
                       setFile(null);
                       setSelectedLogoUrl(shield.url);
                     }}
-                    className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-1.5 shadow-sm transition active:scale-95 ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                    className={`relative min-w-0 overflow-hidden rounded-2xl border bg-white p-2 shadow-sm transition active:scale-95 ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
                     aria-label={`Usar escudo ${shield.name}`}
-                    title={shield.name}
                   >
-                    <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" />
-                    {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
+                    <span className="mx-auto block aspect-square w-full max-w-[5rem] overflow-hidden rounded-xl bg-slate-950/5">
+                      <img src={shield.url} alt="" className="h-full w-full object-contain" />
+                    </span>
+                    <span className="mt-1.5 block truncate text-[9px] font-black text-slate-600 sm:text-[10px]">{shield.name}</span>
+                    {selected && <span className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
                   </button>
                 );
               })}
@@ -189,7 +202,7 @@ export function TeamConfiguratorLight({
                   aria-label={`Usar escudo ${shield.name}`}
                   title={shield.name}
                 >
-                  <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" />
+                  <img src={shield.url} alt="" className="h-full w-full rounded-xl object-contain" />
                   {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
                 </button>
               );
@@ -198,7 +211,7 @@ export function TeamConfiguratorLight({
         </section>
       )}
 
-      {shields.isLoading && <div className="mt-3 h-12 animate-pulse rounded-2xl bg-slate-100" />}
+      {shields.isLoading && <div className="mt-3"><GlobalLoader mode="section" label="Carregando escudos publicados…" /></div>}
       {shields.isError && <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-700">A galeria online não carregou, mas as 36 opções padrão continuam disponíveis.</p>}
 
       {save.isError && (
@@ -211,10 +224,9 @@ export function TeamConfiguratorLight({
           type="button"
           disabled={teamName.trim().length < 2 || save.isPending}
           onClick={() => save.mutate()}
-          className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#073B8C] text-sm font-black text-white shadow-md disabled:opacity-40"
+          className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-2 text-sm font-black text-white shadow-md disabled:opacity-40"
         >
-          {save.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {save.isPending ? 'Salvando…' : 'Salvar Time'}
+          {save.isPending ? <GlobalLoader mode="inline" label="Salvando…" className="text-white [&_*]:text-white" /> : <><Save className="h-4 w-4" />Salvar Time</>}
         </button>
       </div>
     </section>
@@ -227,7 +239,7 @@ function teamSaveError(error: unknown): string {
     case 'INVALID_TEAM_INPUT':
       return 'Confira o nome do time e o escudo selecionado.';
     case 'TEAM_NAME_TAKEN':
-      return 'Esse nome de time já está sendo usado nesta Copa.';
+      return 'Esse nome de time já está sendo usado por outro participante nesta Copa.';
     case 'TEAM_CONFIGURATION_LOCKED':
       return 'A Copa já começou e a configuração do time foi bloqueada.';
     case 'TEAM_CONFIGURATION_NOT_ALLOWED':
@@ -245,8 +257,11 @@ function teamSaveError(error: unknown): string {
     case 'STORAGE_UPLOAD_FAILED':
     case 'TEAM_LOGO_UPLOAD_FAILED':
       return 'Falha ao gravar o escudo no Storage. O servidor registrou um código de diagnóstico.';
-    case 'TEAM_DATABASE_ERROR':
-      return 'O banco recusou a alteração do time. O erro foi registrado para diagnóstico.';
+    case 'TEAM_DATABASE_ERROR': {
+      const details = error.details as { prismaCode?: string; requestId?: string } | undefined;
+      const suffix = details?.prismaCode ? ` (${details.prismaCode})` : '';
+      return `O banco recusou a alteração do time${suffix}. Tente novamente; o requestId foi registrado para diagnóstico.`;
+    }
     case 'NETWORK_ERROR':
       return 'Sem comunicação com o servidor. Verifique sua conexão e tente novamente.';
     default:
