@@ -18,6 +18,7 @@ import {
   Shield,
   Swords,
   Target,
+  Trash2,
   Trophy,
   UsersRound,
 } from 'lucide-react';
@@ -33,6 +34,9 @@ import {
   type CompetitionDetail,
   type MatchStats,
 } from '../../lib/api';
+import { removeCompetitionParticipant } from '../../lib/competition-moderation-api';
+import { PRIMARY_NAV_STALE_TIME } from '../../lib/query-cache';
+import { getPublicGamerProfile } from '../../lib/social-api';
 import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { TeamConfiguratorLight } from '../../components/competition/TeamConfiguratorLight';
 import { MatchStatsPanelLight } from '../../components/matches/MatchStatsPanelLight';
@@ -155,7 +159,7 @@ export function CompetitionDetailPageLight() {
                   <div className="relative"><p className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#073B8C]"><Crown className="h-4 w-4" /> Você é o Host</p><h2 className="mt-2 text-2xl font-black">Monte o lobby e dê o start quando quiser.</h2><p className="mt-2 max-w-xl text-sm font-medium leading-6 text-slate-600">Entrar na copa nunca dispara o sorteio. As partidas só são criadas quando você tocar no botão de início.</p><button disabled={isFull} onClick={copyInvite} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md transition active:scale-[.99] disabled:bg-slate-300 disabled:text-slate-600">{isFull ? <LockKeyhole className="h-5 w-5" /> : copied ? <Check className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}{isFull ? 'Limite de jogadores atingido' : copied ? 'Link copiado! ✅' : '🔗 Convidar Amigos'}</button></div>
                 </section>
               )}
-              <Lobby participants={data.participations} hostId={data.hostId} maxParticipants={data.maxParticipants} />
+              <Lobby competitionId={data.id} participants={data.participations} hostId={data.hostId} maxParticipants={data.maxParticipants} isHost={data.isHost} />
             </div>
 
             <div className="space-y-5">
@@ -197,7 +201,46 @@ export function CompetitionDetailPageLight() {
   );
 }
 
-function Lobby({ participants, hostId, maxParticipants }: { participants: Participation[]; hostId: string; maxParticipants: number }) {
+function Lobby({ competitionId, participants, hostId, maxParticipants, isHost }: { competitionId: string; participants: Participation[]; hostId: string; maxParticipants: number; isHost: boolean }) {
+  const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (participationId: string) => removeCompetitionParticipant(competitionId, participationId),
+    onMutate: async (participationId) => {
+      await queryClient.cancelQueries({ queryKey: ['competition', competitionId] });
+      const previous = queryClient.getQueryData<CompetitionDetail>(['competition', competitionId]);
+      if (previous) {
+        queryClient.setQueryData<CompetitionDetail>(['competition', competitionId], {
+          ...previous,
+          participations: previous.participations.filter((participant) => participant.id !== participationId),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _participationId, context) => {
+      if (context?.previous) queryClient.setQueryData(['competition', competitionId], context.previous);
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['competitions', 'mine'] }),
+      ]);
+    },
+  });
+
+  function prefetchProfile(userId: string) {
+    void queryClient.prefetchQuery({
+      queryKey: ['gamer-profile', userId],
+      queryFn: () => getPublicGamerProfile(userId),
+      staleTime: PRIMARY_NAV_STALE_TIME,
+    });
+  }
+
+  function askRemove(participant: Participation) {
+    const playerName = participant.user.displayName ?? participant.user.name;
+    if (!window.confirm(`Remover ${playerName} deste lobby?`)) return;
+    remove.mutate(participant.id);
+  }
+
   return (
     <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/50">
       <div className="flex items-end justify-between gap-3">
@@ -205,23 +248,43 @@ function Lobby({ participants, hostId, maxParticipants }: { participants: Partic
         <UsersRound className="h-6 w-6 text-slate-300" />
       </div>
       <div className="mt-4 space-y-2">
-        {participants.map((participant, index) => (
-          <Link
-            key={participant.id}
-            to={`/profile/${encodeURIComponent(participant.userId)}`}
-            className="group flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-blue-200 hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[.99]"
-            aria-label={`Abrir perfil de ${participant.user.displayName ?? participant.user.name}`}
-          >
-            <TeamAvatar name={participant.teamName} logoUrl={participant.teamLogoUrl ?? participant.team?.logoUrl ?? undefined} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-black text-slate-900">{participant.teamName || participant.team?.name || 'Time pendente'}</p>
-              <p className="mt-0.5 truncate text-xs font-semibold text-slate-400">#{index + 1} · {participant.user.displayName ?? participant.user.name}</p>
+        {participants.map((participant, index) => {
+          const canRemove = isHost && participant.userId !== hostId;
+          const removingThis = remove.isPending && remove.variables === participant.id;
+          return (
+            <div key={participant.id} className="flex items-stretch gap-2">
+              <Link
+                to={`/profile/${encodeURIComponent(participant.userId)}`}
+                onPointerEnter={() => prefetchProfile(participant.userId)}
+                onFocus={() => prefetchProfile(participant.userId)}
+                onTouchStart={() => prefetchProfile(participant.userId)}
+                className="group flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-blue-200 hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[.99]"
+                aria-label={`Abrir perfil de ${participant.user.displayName ?? participant.user.name}`}
+              >
+                <TeamAvatar name={participant.teamName} logoUrl={participant.teamLogoUrl ?? participant.team?.logoUrl ?? undefined} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-black text-slate-900">{participant.teamName || participant.team?.name || 'Time pendente'}</p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-slate-400">#{index + 1} · {participant.user.displayName ?? participant.user.name}</p>
+                </div>
+                {participant.userId === hostId && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">HOST</span>}
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-[#073B8C]" />
+              </Link>
+              {canRemove && (
+                <button
+                  type="button"
+                  disabled={remove.isPending}
+                  onClick={() => askRemove(participant)}
+                  className="grid w-12 shrink-0 place-items-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-100 active:scale-95 disabled:opacity-40"
+                  aria-label={`Remover ${participant.user.displayName ?? participant.user.name} do lobby`}
+                >
+                  {removingThis ? <span className="text-[9px] font-black">...</span> : <Trash2 className="h-4 w-4" />}
+                </button>
+              )}
             </div>
-            {participant.userId === hostId && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-700">HOST</span>}
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-[#073B8C]" />
-          </Link>
-        ))}
+          );
+        })}
       </div>
+      {remove.isError && <p className="mt-3 rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{removeParticipantError(remove.error)}</p>}
     </section>
   );
 }
@@ -267,6 +330,7 @@ function TeamAvatar({ name, logoUrl, compact = false }: { name: string; logoUrl?
 function ScoreInput({ value, onChange, disabled, label }: { value: number; onChange: (value: number) => void; disabled: boolean; label: string }) { return <input aria-label={label} type="number" inputMode="numeric" min={0} max={99} disabled={disabled} value={value} onChange={(event) => onChange(Math.min(99, Math.max(0, Number(event.target.value) || 0)))} className="h-11 w-11 rounded-xl border border-slate-200 bg-slate-50 text-center text-lg font-black text-slate-900 outline-none focus:border-blue-400 disabled:text-slate-400" />; }
 function scoreError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível registrar o placar.'; if (error.code === 'EVIDENCE_REQUIRED') return 'A foto do placar é obrigatória nesta Copa.'; if (error.code === 'SCORER_TOTAL_EXCEEDS_SCORE') return 'A soma dos gols dos goleadores não pode ultrapassar o placar.'; if (error.code === 'INVALID_MATCH_TRANSITION') return 'Este jogo não aceita um novo placar neste momento.'; if (error.code === 'FORBIDDEN') return 'Você não pode registrar o placar deste jogo.'; return 'Falha ao registrar o placar.'; }
 function startError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível iniciar o campeonato.'; if (error.code === 'NOT_ENOUGH_PARTICIPANTS') return 'Convide pelo menos mais um jogador antes de começar.'; if (error.code === 'COMPETITION_ALREADY_STARTED' || error.code === 'START_CONFLICT') return 'Este campeonato já começou em outra ação.'; if (error.code === 'MATCHES_ALREADY_EXIST') return 'As partidas desta copa já foram geradas.'; return 'Não foi possível gerar as partidas. Tente novamente.'; }
+function removeParticipantError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível remover este jogador.'; if (error.code === 'HOST_CANNOT_REMOVE_SELF') return 'O Host não pode remover a si mesmo.'; if (error.code === 'LOBBY_LOCKED') return 'O lobby já foi encerrado e não aceita remoções.'; if (error.code === 'PARTICIPANT_NOT_FOUND') return 'Esse jogador já não está no lobby.'; if (error.code === 'HOST_ONLY') return 'Somente o Host pode remover jogadores.'; return 'Não foi possível remover este jogador agora.'; }
 function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Medal; label: string }) { return <button type="button" onClick={onClick} className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-2xl px-2 text-[11px] font-black transition sm:gap-2 sm:text-sm ${active ? 'bg-[#073B8C] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="h-4 w-4 shrink-0" /><span className="truncate">{label}</span></button>; }
 type RuleTone = 'blue' | 'violet' | 'amber' | 'emerald' | 'rose';
 function RuleBadge({ icon: Icon, label, tone }: { icon: typeof Repeat2; label: string; tone: RuleTone }) { const tones: Record<RuleTone, string> = { blue: 'border-blue-200 bg-blue-50 text-[#073B8C]', violet: 'border-violet-200 bg-violet-50 text-violet-700', amber: 'border-amber-200 bg-amber-50 text-amber-700', emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700', rose: 'border-rose-200 bg-rose-50 text-rose-700' }; return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-black ${tones[tone]}`}><Icon className="h-3.5 w-3.5" />{label}</span>; }
