@@ -81,7 +81,7 @@ scorers.get('/:id/top-scorers', async (c) => {
           totals.*,
           ROW_NUMBER() OVER (
             PARTITION BY totals."playerKey"
-            ORDER BY totals."teamGoals" DESC, totals."lastGoalAt" DESC, totals."teamId"
+            ORDER BY totals."teamGoals" DESC, totals."lastGoalAt" DESC, totals."teamId" ASC
           ) AS rn
         FROM scorer_team_totals totals
       ) ranked
@@ -90,7 +90,7 @@ scorers.get('/:id/top-scorers', async (c) => {
     scorer_totals AS (
       SELECT
         ms."playerKey" AS "playerKey",
-        (ARRAY_AGG(ms."playerName" ORDER BY ms."createdAt" DESC))[1] AS "playerName",
+        (ARRAY_AGG(ms."playerName" ORDER BY ms."createdAt" DESC, ms."id" DESC))[1] AS "playerName",
         SUM(ms."goals")::INTEGER AS "goals"
       FROM "MatchScorer" ms
       INNER JOIN valid_team_match valid
@@ -109,7 +109,7 @@ scorers.get('/:id/top-scorers', async (c) => {
       ON representative."playerKey" = totals."playerKey"
     INNER JOIN "Team" team
       ON team."id" = representative."teamId"
-    ORDER BY totals."goals" DESC, totals."playerName" ASC
+    ORDER BY totals."goals" DESC, totals."playerName" ASC, totals."playerKey" ASC
     LIMIT 100
   `;
 
