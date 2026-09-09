@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Eye, EyeOff, LockKeyhole, Mail, Phone } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { Logo } from '../../components/brand/Logo';
 import { useAuth } from '../../hooks/useAuth';
 import { ApiError } from '../../lib/api';
@@ -85,7 +86,7 @@ export function LoginPage() {
           <div className="flex justify-end"><Link to="/forgot-password" className="text-sm font-extrabold text-[#073B8C]">Esqueceu a senha?</Link></div>
 
           {auth.login.isError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-[#E31B23]">{loginErrorMessage(auth.login.error)}</p>}
-          <button disabled={auth.login.isPending} className="min-h-14 w-full rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.login.isPending ? 'Entrando…' : 'Entrar'}</button>
+          <button disabled={auth.login.isPending} className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.login.isPending ? <GlobalLoader mode="inline" label="Entrando…" className="[&_*]:text-white" /> : 'Entrar'}</button>
         </form>
 
         <div className="my-6 flex items-center gap-3 text-xs font-bold text-slate-400"><span className="h-px flex-1 bg-slate-200" />OU<span className="h-px flex-1 bg-slate-200" /></div>
