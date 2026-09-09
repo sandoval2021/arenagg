@@ -196,6 +196,8 @@ model Competition {
   matchPace                      MatchPace         @default(QUICK)
   teamSelection                  TeamSelection     @default(FREE)
   maxParticipants                Int               @default(20)
+  entryFee                       Int               @default(0)
+  prizeDistribution              String            @default("60,30,10")
   firstPrize                     String?
   secondPrize                    String?
   thirdPrize                     String?
@@ -343,6 +345,13 @@ model Match {
   awayScore            Int?
   homePenaltyScore     Int?
   awayPenaltyScore     Int?
+  homeReady            Boolean      @default(false)
+  awayReady            Boolean      @default(false)
+  homeReadyAt          DateTime?
+  awayReadyAt          DateTime?
+  walkoverWinnerTeamId String?      @db.Uuid
+  walkoverAppliedAt    DateTime?
+  walkoverAppliedById  String?      @db.Uuid
   playerAEvidenceUrl   String?
   playerBEvidenceUrl   String?
   submittedById        String?      @db.Uuid
@@ -366,6 +375,7 @@ model Match {
   @@index([stageId, roundId])
   @@index([groupId])
   @@index([profileAppliedAt])
+  @@index([walkoverAppliedAt])
 }
 
 model MatchScorer {
