@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Chavea</title>
+  <desc id="desc">Troféu dourado, nome Chavea e linhas de chaveamento sobre fundo azul-marinho.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#071b46"/>
+      <stop offset="1" stop-color="#020c1f"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1b0"/>
+      <stop offset="0.48" stop-color="#f6c443"/>
+      <stop offset="1" stop-color="#b66b08"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#2563eb" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#2563eb" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="86" fill="url(#bg)"/>
+  <circle cx="256" cy="170" r="180" fill="url(#glow)"/>
+  <rect x="18" y="18" width="476" height="476" rx="72" fill="none" stroke="#f6c443" stroke-opacity=".75" stroke-width="4"/>
+
+  <g fill="none" stroke="url(#gold)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <path d="M190 90h132v86c0 46-30 76-66 76s-66-30-66-76V90Z" fill="url(#gold)" stroke="none"/>
+    <path d="M190 112h-30c-26 0-44 18-44 46s18 54 50 54h24"/>
+    <path d="M322 112h30c26 0 44 18 44 46s-18 54-50 54h-24"/>
+    <path d="M256 252v48M214 300h84"/>
+  </g>
+
+  <text x="256" y="360" text-anchor="middle" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="66" font-weight="950" letter-spacing="-4" fill="url(#gold)" stroke="#7c4506" stroke-width="2" paint-order="stroke">CHAVEA</text>
+
+  <g fill="none" stroke="#f6c443" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M112 405v-26M112 405h109v31h70v-31h109v-26"/>
+    <path d="M256 436v36"/>
+  </g>
+  <circle cx="256" cy="476" r="7" fill="#ffe08a"/>
+</svg>
