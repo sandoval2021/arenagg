@@ -12,7 +12,8 @@
     "build": "npm run build --workspace=@chavea/web",
     "preview": "npm run preview --workspace=@chavea/web",
     "db:generate": "prisma generate --schema prisma/schema.prisma",
-    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma"
+    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:seed:cards": "node scripts/seed-chavea-cards.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
