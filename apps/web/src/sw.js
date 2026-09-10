@@ -1,4 +1,5 @@
-const APP_CACHE = 'chavea-shell-v4';
+const CACHE_PREFIX = 'chavea-shell-';
+const APP_CACHE = `${CACHE_PREFIX}v6-20260910`;
 const PRECACHE = self.__WB_MANIFEST;
 const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
 
@@ -6,13 +7,19 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
     await Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)));
+    // Never leave a fresh mobile build stuck in the waiting state.
+    await self.skipWaiting();
   })());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(names.filter((name) => name.startsWith('chavea-shell-') && name !== APP_CACHE).map((name) => caches.delete(name)));
+    await Promise.all(
+      names
+        .filter((name) => name !== APP_CACHE && (name.startsWith(CACHE_PREFIX) || name.startsWith('workbox-precache-')))
+        .map((name) => caches.delete(name)),
+    );
     await self.clients.claim();
   })());
 });
@@ -31,7 +38,7 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        return await fetch(request);
+        return await fetch(request, { cache: 'no-store' });
       } catch {
         return (await caches.match('/index.html')) || Response.error();
       }
@@ -39,9 +46,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-first prevents a previously cached JS/CSS asset from pinning an
+  // outdated PWA. Cache remains only as an offline fallback.
   event.respondWith((async () => {
-    const cached = await caches.match(request);
-    return cached || fetch(request);
+    const cache = await caches.open(APP_CACHE);
+    try {
+      const fresh = await fetch(request);
+      if (fresh.ok) await cache.put(request, fresh.clone());
+      return fresh;
+    } catch {
+      return (await cache.match(request)) || Response.error();
+    }
   })());
 });
 
