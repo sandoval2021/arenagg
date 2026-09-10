@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Equal, Flame, Shield, Swords, Trophy } from 'lucide-react';
+import { Equal, Flame, Gamepad2, Shield, Swords, Trophy } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { GlobalLoader } from '../brand/GlobalLoader';
 import { getHeadToHead } from '../../lib/phase-one-api';
@@ -27,10 +27,7 @@ export function HeadToHeadCard({ userId, opponentName }: { userId: string; oppon
       </header>
 
       {query.isLoading && <GlobalLoader mode="section" label="Buscando confrontos…" />}
-
-      {query.isError && (
-        <div className="p-4 text-center text-sm font-bold text-slate-500">Não foi possível carregar o retrospecto agora.</div>
-      )}
+      {query.isError && <div className="p-4 text-center text-sm font-bold text-slate-500">Não foi possível carregar o retrospecto agora.</div>}
 
       {query.data && (
         <div className="p-4 sm:p-5">
@@ -43,11 +40,16 @@ export function HeadToHeadCard({ userId, opponentName }: { userId: string; oppon
             <ScoreSide label={opponentName} value={query.data.opponentWins} tone="amber" />
           </div>
 
+          <div className="mt-3 flex flex-wrap justify-center gap-2 text-[9px] font-black uppercase tracking-wider">
+            <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">{query.data.competitionMatches} em Copas</span>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">{query.data.friendlyMatches} amistosos</span>
+          </div>
+
           {query.data.totalMatches === 0 ? (
             <div className="mt-4 rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-4 text-center">
               <Swords className="mx-auto h-5 w-5 text-[#073B8C]" />
               <p className="mt-2 text-sm font-black text-slate-900">Ainda não rolou o tira-teima.</p>
-              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Quando vocês se enfrentarem em uma Copa, o placar direto aparece aqui.</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Confrontos em Copas e amistosos confirmados aparecem juntos aqui.</p>
             </div>
           ) : (
             <>
@@ -56,18 +58,27 @@ export function HeadToHeadCard({ userId, opponentName }: { userId: string; oppon
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-500">{query.data.totalMatches} jogos</span>
               </div>
               <div className="mt-2 space-y-2">
-                {query.data.recentMatches.map((match) => (
-                  <Link key={match.id} to={`/competitions/${encodeURIComponent(match.competitionId)}`} className="flex min-h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 transition hover:border-blue-200 hover:bg-blue-50/40">
-                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${match.result === 'WIN' ? 'bg-emerald-50 text-emerald-700' : match.result === 'LOSS' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {match.result === 'DRAW' ? <Shield className="h-4 w-4" /> : <Trophy className="h-4 w-4" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-black text-slate-900">{match.competitionName}</p>
-                      <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">{match.viewerTeam?.name ?? 'Seu time'} × {match.opponentTeam?.name ?? opponentName}</p>
-                    </div>
-                    <span className="shrink-0 rounded-xl bg-slate-950 px-2.5 py-1.5 text-sm font-black text-white">{match.viewerScore}×{match.opponentScore}</span>
-                  </Link>
-                ))}
+                {query.data.recentMatches.map((match) => {
+                  const to = match.source === 'FRIENDLY' && match.roomId
+                    ? `/play/rooms/${encodeURIComponent(match.roomId)}`
+                    : `/competitions/${encodeURIComponent(match.competitionId ?? '')}`;
+                  const subtitle = match.source === 'FRIENDLY'
+                    ? `Amistoso${match.platform ? ` · ${friendlyPlatformLabel(match.platform)}` : ''} · MMR não alterado`
+                    : `${match.viewerTeam?.name ?? 'Seu time'} × ${match.opponentTeam?.name ?? opponentName}`;
+
+                  return (
+                    <Link key={`${match.source}:${match.id}`} to={to} className="flex min-h-14 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 transition hover:border-blue-200 hover:bg-blue-50/40">
+                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${match.result === 'WIN' ? 'bg-emerald-50 text-emerald-700' : match.result === 'LOSS' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {match.source === 'FRIENDLY' ? <Gamepad2 className="h-4 w-4" /> : match.result === 'DRAW' ? <Shield className="h-4 w-4" /> : <Trophy className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5"><p className="truncate text-xs font-black text-slate-900">{match.competitionName}</p>{match.source === 'FRIENDLY' && <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-black text-emerald-700">UNRANKED</span>}</div>
+                        <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">{subtitle}</p>
+                      </div>
+                      <span className="shrink-0 rounded-xl bg-slate-950 px-2.5 py-1.5 text-sm font-black text-white">{match.viewerScore}×{match.opponentScore}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </>
           )}
@@ -86,4 +97,10 @@ function ScoreSide({ label, value, tone }: { label: string; value: number; tone:
       <p className="text-[9px] font-bold text-slate-400">vitórias</p>
     </div>
   );
+}
+
+function friendlyPlatformLabel(platform: string): string {
+  if (platform === 'XBOX_ONE') return 'Xbox One';
+  if (platform === 'XBOX_SERIES') return 'Xbox Series';
+  return platform;
 }
