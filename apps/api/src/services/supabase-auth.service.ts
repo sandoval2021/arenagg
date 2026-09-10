@@ -1,9 +1,18 @@
-import { createClient, type Session, type SupabaseClient, type User as SupabaseAuthUser } from '@supabase/supabase-js';
+import {
+  createClient,
+  UserRole,
+  type Session,
+  type SupabaseClient,
+  type User as SupabaseAuthUser,
+} from '@supabase/supabase-js';
 import type { PrismaClient, User } from '@prisma/client';
 import type { Env } from '../types/env';
 import { normalizeEmail, normalizePhone, toPublicUser, type PublicUser } from './auth.service';
 
-type SupabaseAuthConfig = Pick<Env['Bindings'], 'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'>;
+type SupabaseAuthConfig = Pick<
+  Env['Bindings'],
+  'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY' | 'OWNER_EMAIL'
+>;
 
 export type BrowserAuthSession = {
   accessToken: string;
@@ -60,14 +69,11 @@ function sameIdentifier(authUser: SupabaseAuthUser, user: User): boolean {
 }
 
 async function findSupabaseUserByIdentifier(client: SupabaseClient, user: User): Promise<SupabaseAuthUser | null> {
-  // This path only runs once for legacy accounts that predate Supabase Auth.
-  // Keep it bounded so a malformed/massive Auth tenant cannot stall the Worker.
+  // Legacy bridge only. Keep bounded so Auth migration cannot stall the Worker.
   const perPage = 1000;
   for (let page = 1; page <= 20; page += 1) {
     const { data, error } = await client.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      throw new SupabaseAuthBridgeError('SUPABASE_AUTH_LOOKUP_FAILED', error.message);
-    }
+    if (error) throw new SupabaseAuthBridgeError('SUPABASE_AUTH_LOOKUP_FAILED', error.message);
     const match = data.users.find((candidate) => sameIdentifier(candidate, user));
     if (match) return match;
     if (data.users.length < perPage) break;
@@ -201,6 +207,76 @@ export async function provisionAndIssueSupabaseSession(
   return toBrowserSession(data.session);
 }
 
+function safeDisplayName(authUser: SupabaseAuthUser): string {
+  const metadataName = authUser.user_metadata?.name;
+  if (typeof metadataName === 'string') {
+    const trimmed = metadataName.trim().slice(0, 80);
+    if (trimmed.length >= 2) return trimmed;
+  }
+  if (authUser.email) return authUser.email.split('@')[0]?.slice(0, 80) || 'Jogador Chavea';
+  if (authUser.phone) return `Jogador ${authUser.phone.slice(-4)}`;
+  return 'Jogador Chavea';
+}
+
+function prismaRoleForAuthUser(config: SupabaseAuthConfig, authUser: SupabaseAuthUser): UserRole {
+  const ownerEmail = config.OWNER_EMAIL?.trim().toLowerCase();
+  const email = authUser.email?.trim().toLowerCase();
+  return ownerEmail && email === ownerEmail ? UserRole.ADMIN : UserRole.USER;
+}
+
+function isPrismaUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
+async function findExistingPrismaUser(prisma: PrismaClient, authUser: SupabaseAuthUser): Promise<User | null> {
+  const mappedId = authUser.app_metadata?.chavea_user_id;
+  if (typeof mappedId === 'string') {
+    const mapped = await prisma.user.findUnique({ where: { id: mappedId } }).catch(() => null);
+    if (mapped) return mapped;
+  }
+
+  const direct = await prisma.user.findUnique({ where: { supabaseAuthId: authUser.id } });
+  if (direct) return direct;
+
+  if (authUser.email) {
+    const byEmail = await prisma.user.findUnique({ where: { email: normalizeEmail(authUser.email) } });
+    if (byEmail) return byEmail;
+  }
+  if (authUser.phone) {
+    const byPhone = await prisma.user.findUnique({ where: { phone: normalizePhone(authUser.phone) } });
+    if (byPhone) return byPhone;
+  }
+  return null;
+}
+
+async function createPrismaUserFromSupabase(
+  config: SupabaseAuthConfig,
+  prisma: PrismaClient,
+  authUser: SupabaseAuthUser,
+): Promise<User | null> {
+  const email = authUser.email ? normalizeEmail(authUser.email) : null;
+  const phone = authUser.phone ? normalizePhone(authUser.phone) : null;
+  if (!email && !phone) return null;
+
+  try {
+    return await prisma.user.create({
+      data: {
+        name: safeDisplayName(authUser),
+        email,
+        phone,
+        emailVerified: authUser.email_confirmed_at ? new Date(authUser.email_confirmed_at) : null,
+        phoneVerified: authUser.phone_confirmed_at ? new Date(authUser.phone_confirmed_at) : null,
+        supabaseAuthId: authUser.id,
+        role: prismaRoleForAuthUser(config, authUser),
+        profile: { create: {} },
+      },
+    });
+  } catch (error) {
+    if (!isPrismaUniqueConstraintError(error)) throw error;
+    return findExistingPrismaUser(prisma, authUser);
+  }
+}
+
 export async function resolveBearerUser(
   config: SupabaseAuthConfig,
   prisma: PrismaClient,
@@ -211,13 +287,8 @@ export async function resolveBearerUser(
   const authUser = data.user;
   if (error || !authUser) return null;
 
-  let user = await prisma.user.findUnique({ where: { supabaseAuthId: authUser.id } });
-  if (!user && authUser.email) {
-    user = await prisma.user.findUnique({ where: { email: normalizeEmail(authUser.email) } });
-  }
-  if (!user && authUser.phone) {
-    user = await prisma.user.findUnique({ where: { phone: normalizePhone(authUser.phone) } });
-  }
+  let user = await findExistingPrismaUser(prisma, authUser);
+  if (!user) user = await createPrismaUserFromSupabase(config, prisma, authUser);
   if (!user || !user.isActive) return null;
 
   if (!user.supabaseAuthId) {
@@ -233,15 +304,24 @@ export async function resolveBearerUser(
     }
   }
 
+  // Owner/admin authorization is persisted in Prisma. Never trust user_metadata
+  // for roles because Supabase users can edit that metadata themselves.
+  if (
+    user.role === UserRole.USER &&
+    user.email &&
+    config.OWNER_EMAIL &&
+    normalizeEmail(user.email) === normalizeEmail(config.OWNER_EMAIL)
+  ) {
+    user = await prisma.user.update({ where: { id: user.id }, data: { role: UserRole.ADMIN } });
+  }
+
   return toPublicUser(user);
 }
 
 export async function revokeSupabaseSession(config: SupabaseAuthConfig, accessToken: string): Promise<void> {
   const client = getAdminClient(config);
   const { error } = await client.auth.admin.signOut(accessToken, 'local');
-  if (error) {
-    console.warn('[supabase-auth] local sign-out failed', { message: error.message });
-  }
+  if (error) console.warn('[supabase-auth] local sign-out failed', { message: error.message });
 }
 
 export function createTemporaryMigrationPassword(): string {
