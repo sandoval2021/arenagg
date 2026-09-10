@@ -1,0 +1,50 @@
+name: Zero Latency Final CI
+
+on:
+  push:
+    branches: [release-zero-latency-final]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert zero-latency integration
+        run: |
+          set -euo pipefail
+          grep -Fq "lazy(() => import(" apps/web/src/app/router.tsx
+          grep -Fq 'hydrateSupabaseAccessTokenSync();' apps/web/src/main.tsx
+          grep -Fq 'installImagePerformanceDefaults();' apps/web/src/main.tsx
+          grep -Fq 'storageKey: SUPABASE_STORAGE_KEY' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'hasPersistedSession' apps/web/src/components/auth/ProtectedRoute.tsx
+          if grep -q 'AUTH_BOOT_TIMEOUT_MS\|SessionBootScreen\|SessionRecoveryScreen' apps/web/src/hooks/useAuth.tsx; then
+            echo 'Blocking auth watchdog UI is still present.' >&2
+            exit 1
+          fi
+      - name: Report entry bundle size
+        run: |
+          set -euo pipefail
+          ENTRY=$(find apps/web/dist/assets -maxdepth 1 -type f -name 'index-*.js' | head -n 1)
+          test -n "$ENTRY"
+          RAW=$(wc -c < "$ENTRY")
+          GZIP=$(gzip -c "$ENTRY" | wc -c)
+          echo "entry_file=$ENTRY"
+          echo "entry_raw_bytes=$RAW"
+          echo "entry_gzip_bytes=$GZIP"
+          if [ "$GZIP" -gt 160000 ]; then
+            echo "Entry bundle regression: gzip exceeds 160 KB." >&2
+            exit 1
+          fi
