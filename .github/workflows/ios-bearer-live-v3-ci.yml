@@ -1,0 +1,69 @@
+name: iOS Bearer Live V3 CI
+
+on:
+  push:
+    branches: [hotfix-ios-bearer-live-v3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert Supabase localStorage and Bearer contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'storage: window.localStorage' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'persistSession: true' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'autoRefreshToken: true' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'readPersistedSupabaseSession' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'Authorization' apps/web/src/lib/api.ts
+          grep -Fq 'Bearer ${accessToken}' apps/web/src/lib/api.ts
+          grep -Fq 'refreshSupabaseAccessToken' apps/web/src/lib/api.ts
+          grep -Fq 'response.status === 401' apps/web/src/lib/api.ts
+          grep -Fq "c.req.header('Authorization')" apps/api/src/middleware/auth.middleware.ts
+          grep -Fq "'Authorization'" apps/api/src/index.ts
+          if grep -Fq 'window.localStorage.clear()' apps/web/src/hooks/useAuth.tsx; then
+            echo 'Auth bootstrap must not clear all localStorage.' >&2
+            exit 1
+          fi
+      - name: Assert 3 second live synchronization
+        run: |
+          set -euo pipefail
+          grep -Fq 'COMPETITION_LIVE_POLL_MS = 3_000' apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq "['competition', competitionId]" apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq "['standings', competitionId]" apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq "['match-stats', competitionId]" apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq 'useCompetitionLivePolling(competitionId)' apps/web/src/pages/competitions/CompetitionDetailExperience.tsx
+          grep -Fq 'LIVE_POLL_MS = 3_000' apps/web/src/pages/competitions/StandingsPage.tsx
+      - name: Assert mobile standings contract
+        run: |
+          set -euo pipefail
+          for file in apps/web/src/components/standings/StandingsTable.tsx apps/web/src/components/competition/GroupStagePanel.tsx; do
+            grep -Fq 'overflow-x-auto pb-2' "$file"
+            grep -Fq 'min-w-[520px]' "$file"
+            grep -Fq 'max-w-[80px] truncate' "$file"
+            if grep -Fq 'hidden' "$file"; then
+              echo "Mobile standings still contains a hidden class: $file" >&2
+              exit 1
+            fi
+            for col in PTS J V E D SG; do
+              grep -Fq ">$col<" "$file"
+            done
+          done
+          grep -Rq 'overflow-x:auto' apps/web/dist/assets/*.css
