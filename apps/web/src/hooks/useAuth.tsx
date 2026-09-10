@@ -7,11 +7,13 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '../lib/api';
+import { ApiError, apiRequest } from '../lib/api';
 import {
+  clearOAuthFragment,
   clearSupabaseSession,
+  getSupabaseAccessToken,
   persistSupabaseSession,
-  supabase,
+  readOAuthSessionFromLocation,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
@@ -49,29 +51,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
 const AUTH_BOOT_TIMEOUT_MS = 5_000;
 
-function hardClearBrowserAuth() {
-  // This path is deliberately stronger than a normal logout. If auth bootstrap
-  // stalls or fails, stale refresh/access tokens must not keep the PWA trapped
-  // in a restore loop on its next launch.
-  try {
-    window.localStorage.clear();
-  } catch {
-    // Safari private/managed modes can reject storage access. The redirect to
-    // /login still gives the user a deterministic escape route.
-  }
-
-  // Do not await signOut here: the auth provider is specifically recovering
-  // from a potentially stalled auth client. The hard reload into /login creates
-  // a fresh Supabase client after localStorage has already been cleared.
-  void clearSupabaseSession();
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      reject(new Error('AUTH_BOOT_TIMEOUT'));
-    }, timeoutMs);
-
+    const timeout = window.setTimeout(() => reject(new Error('AUTH_BOOT_TIMEOUT')), timeoutMs);
     promise.then(
       (value) => {
         window.clearTimeout(timeout);
@@ -104,24 +86,21 @@ async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
 
   if (response.status === 401) return null;
   const body = (await response.json().catch(() => null)) as AuthSessionResponse | null;
-  if (!response.ok || !body?.session || !body.user) {
-    throw new Error('AUTH_MIGRATION_FAILED');
-  }
-
+  if (!response.ok || !body?.session || !body.user) throw new Error('AUTH_MIGRATION_FAILED');
   await persistSupabaseSession(body.session);
   return body;
 }
 
 async function loadPersistentSession(): Promise<AuthSessionResponse> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-
-  if (data.session) {
-    return requestSession();
+  const oauthSession = readOAuthSessionFromLocation();
+  if (oauthSession) {
+    await persistSupabaseSession(oauthSession);
+    clearOAuthFragment();
   }
 
-  // One-time bridge from the legacy HttpOnly-cookie release. If iOS already
-  // removed the cookie, the user simply lands on Login and signs in once.
+  const token = await getSupabaseAccessToken();
+  if (token) return requestSession();
+
   const migrated = await migrateLegacyCookie();
   if (migrated) return migrated;
   return { user: null, rewards: { dailyPackGranted: false } };
@@ -131,10 +110,13 @@ async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
   try {
     return await withTimeout(loadPersistentSession(), AUTH_BOOT_TIMEOUT_MS);
   } catch (error) {
-    console.error('[auth] bootstrap failed; forcing clean login', {
+    console.error('[auth] bootstrap failed; clearing local bearer session', {
+      status: error instanceof ApiError ? error.status : undefined,
+      code: error instanceof ApiError ? error.code : undefined,
+      details: error instanceof ApiError ? error.details : undefined,
       reason: error instanceof Error ? error.message : String(error),
     });
-    hardClearBrowserAuth();
+    await clearSupabaseSession();
     return {
       user: null,
       rewards: { dailyPackGranted: false },
@@ -144,7 +126,7 @@ async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
 }
 
 async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
-  if (!data.session) throw new Error('AUTH_SESSION_MISSING');
+  if (!data.session?.accessToken) throw new Error('AUTH_SESSION_MISSING');
   await persistSupabaseSession(data.session);
   return data;
 }
@@ -157,37 +139,30 @@ function useAuthState() {
     queryFn: bootstrapPersistentSession,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    // Bootstrap has its own strict 5-second deadline. React Query retries would
-    // extend the white/loading screen beyond that contract.
     retry: false,
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
     refetchOnReconnect: true,
   });
 
-  useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        queryClient.setQueryData(AUTH_QUERY_KEY, {
-          user: null,
-          rewards: { dailyPackGranted: false },
-          bootstrapFailed: false,
-        });
-      }
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
-      }
-    });
-    return () => data.subscription.unsubscribe();
-  }, [queryClient]);
-
   const login = useMutation({
     mutationFn: async (data: Credentials) => {
-      const response = await apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-      return persistLoginResponse(response);
+      try {
+        const response = await apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+        return await persistLoginResponse(response);
+      } catch (error) {
+        console.error('[auth.login] failed', {
+          identifierType: data.email ? 'email' : 'phone',
+          status: error instanceof ApiError ? error.status : undefined,
+          code: error instanceof ApiError ? error.code : undefined,
+          details: error instanceof ApiError ? error.details : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     },
     onSuccess: (data) => {
       queryClient.setQueryData(AUTH_QUERY_KEY, { ...data, bootstrapFailed: false });
@@ -216,30 +191,22 @@ function useAuthState() {
       }
     },
     onSuccess: () => {
+      queryClient.clear();
       queryClient.setQueryData(AUTH_QUERY_KEY, {
         user: null,
         rewards: { dailyPackGranted: false },
         bootstrapFailed: false,
       });
-      queryClient.removeQueries({ queryKey: ['competitions'] });
-      queryClient.removeQueries({ queryKey: ['default-shields'] });
-      queryClient.removeQueries({ queryKey: ['owner', 'default-shields'] });
     },
   });
 
   const forceLoginRecovery = useCallback(() => {
-    hardClearBrowserAuth();
-
+    void clearSupabaseSession();
+    queryClient.clear();
     if (window.location.pathname !== '/login') {
-      // Clear stale protected data before leaving this JS realm. The navigation
-      // then creates a fresh QueryClient and Supabase client.
-      queryClient.clear();
       window.location.replace('/login');
       return;
     }
-
-    // Already on Login: do not reload-loop. Keep the provider alive with a
-    // clean anonymous state so the form can render immediately.
     queryClient.setQueryData(AUTH_QUERY_KEY, {
       user: null,
       rewards: { dailyPackGranted: false },
@@ -300,9 +267,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [value.bootstrapFailed, value.forceLoginRecovery]);
 
   if (value.isBootstrapping) return <SessionBootScreen />;
-
-  // During the single render before location.replace(), keep the UI deterministic
-  // and never expose the old dead-end recovery page.
   if (value.bootstrapFailed && window.location.pathname !== '/login') {
     return <GlobalLoader mode="screen" label="Abrindo login…" />;
   }
