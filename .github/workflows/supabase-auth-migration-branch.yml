@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -18,28 +18,9 @@ jobs:
       VITE_API_URL: https://arenagg-api.example.workers.dev
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-
-      - name: Apply remaining migration patches once
-        if: contains(github.event.head_commit.message, 'validate Supabase bearer migration branch')
-        run: node scripts/patch-supabase-auth-branch.mjs
-
-      - name: Commit patched product files
-        if: contains(github.event.head_commit.message, 'validate Supabase bearer migration branch')
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add apps/web/src/lib/api.ts apps/api/src/routes/auth.routes.ts apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx apps/web/src/pages/auth/RegisterPage.tsx apps/web/src/pages/auth/LoginPage.tsx
-          if ! git diff --cached --quiet; then
-            git commit -m 'refactor(auth): finish bearer client and remove cookie auth bridge'
-            git push origin HEAD:supabase-auth-bearer-migration
-          fi
-
       - name: Install dependencies
         run: npm install
       - name: Generate Prisma Client
@@ -109,3 +90,12 @@ jobs:
           grep -Fq 'self.skipWaiting()' apps/web/src/sw.js
           grep -Fq 'self.clients.claim()' apps/web/src/sw.js
           grep -Fq 'registration.update()' apps/web/src/main.tsx
+
+      - name: Assert production deployment contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' .github/workflows/deploy.yml
+          grep -Fq 'VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}' .github/workflows/deploy.yml
+          grep -Fq 'Smoke test Bearer auth and CORS' .github/workflows/deploy.yml
+          grep -Fq 'Authorization: Bearer $ACCESS_TOKEN' .github/workflows/deploy.yml
+          ! grep -Fq "set-cookie: chavea_session=" .github/workflows/deploy.yml
