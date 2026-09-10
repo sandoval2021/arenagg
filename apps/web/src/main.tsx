@@ -29,17 +29,31 @@ function installSilentPwaUpdateChecks() {
 
   let lastCheckAt = 0;
   let inFlight = false;
+  let reloadingForController = false;
+
+  const getOrCreateRegistration = async () => {
+    let registration = await navigator.serviceWorker.getRegistration('/');
+    if (!registration) {
+      registration = await navigator.serviceWorker.register('/sw.js', {
+        scope: '/',
+        // iOS must not be allowed to satisfy the SW update algorithm from its
+        // HTTP cache. Every explicit update check goes back to the network.
+        updateViaCache: 'none',
+      });
+    }
+    return registration;
+  };
 
   const checkForUpdate = async () => {
     if (!navigator.onLine || inFlight) return;
 
     const now = Date.now();
-    if (now - lastCheckAt < 15_000) return;
+    if (now - lastCheckAt < 5_000) return;
     lastCheckAt = now;
     inFlight = true;
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await getOrCreateRegistration();
       await registration.update();
     } catch (error) {
       console.warn('[pwa] silent update check failed', error);
@@ -52,13 +66,26 @@ function installSilentPwaUpdateChecks() {
     if (document.visibilityState === 'visible') void checkForUpdate();
   };
 
-  // Do not await any of these checks: rendering must never depend on SW update
-  // I/O. They only force the browser to ask for a newer sw.js when connectivity
-  // is available or the standalone PWA returns to the foreground.
+  // When a newly installed worker takes control, reload exactly once so the
+  // current WebKit process also switches from the old JS bundle to the new one.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadingForController) return;
+    reloadingForController = true;
+    window.location.reload();
+  });
+
   void checkForUpdate();
   window.addEventListener('online', checkForUpdate);
   window.addEventListener('pageshow', checkForUpdate);
+  window.addEventListener('focus', checkForUpdate);
   document.addEventListener('visibilitychange', onVisibilityChange);
+
+  // A long-running installed PWA should discover a deployment without needing
+  // to be killed/reopened. Browsers throttle background timers, so only check
+  // while visible and online.
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible' && navigator.onLine) void checkForUpdate();
+  }, 60_000);
 }
 
 installSilentPwaUpdateChecks();
