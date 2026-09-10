@@ -16,6 +16,9 @@ export type FormationOption = (typeof FORMATION_OPTIONS)[number];
 export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
 export type BadgeCode = AchievementCode;
 
+const AVATAR_OPTIMIZE_THRESHOLD = 2 * 1024 * 1024;
+const AVATAR_MAX_DIMENSION = 1600;
+
 export type GamerProfile = {
   id: string;
   name: string;
@@ -80,9 +83,41 @@ export function updateMyGamerProfile(input: {
   });
 }
 
-export function uploadMyAvatar(file: File): Promise<{ avatarUrl: string; requestId?: string }> {
+async function optimizeAvatar(file: File): Promise<File> {
+  if (file.size < AVATAR_OPTIMIZE_THRESHOLD || typeof createImageBitmap !== 'function') return file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, AVATAR_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { alpha: file.type !== 'image/jpeg' });
+    if (!context) {
+      bitmap.close();
+      return file;
+    }
+
+    context.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    const outputType = file.type === 'image/png' ? 'image/png' : file.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, 0.86));
+    if (!blob || blob.size >= file.size) return file;
+
+    return new File([blob], file.name, { type: outputType, lastModified: Date.now() });
+  } catch {
+    // Some older PWA/WebKit builds cannot decode through createImageBitmap.
+    // The original <=10 MiB file can still be validated and uploaded safely.
+    return file;
+  }
+}
+
+export async function uploadMyAvatar(file: File): Promise<{ avatarUrl: string; requestId?: string }> {
+  const optimized = await optimizeAvatar(file);
   const body = new FormData();
-  body.set('file', file);
+  body.set('file', optimized);
   return apiRequest('/api/profile/me/avatar', { method: 'POST', body });
 }
 
