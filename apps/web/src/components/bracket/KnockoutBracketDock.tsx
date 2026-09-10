@@ -302,7 +302,7 @@ function TeamRow({
   return (
     <div className={`flex items-center gap-2.5 transition ${loser ? 'opacity-50' : 'opacity-100'}`}>
       {team?.logoUrl ? (
-        <img src={team.logoUrl} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" referrerPolicy="no-referrer" />
+        <img src={team.logoUrl} alt="" className="h-8 w-8 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" referrerPolicy="no-referrer" decoding="async" />
       ) : (
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400"><Shield className="h-4 w-4" /></span>
       )}
@@ -433,7 +433,7 @@ function MatchDetailSheet({
 function CompactTeam({ team, align }: { team: BracketMatch['homeTeam']; align: 'left' | 'right' }) {
   return (
     <div className={`min-w-0 ${align === 'right' ? 'text-right' : 'text-left'}`}>
-      {team?.logoUrl ? <img src={team.logoUrl} alt="" className={`h-9 w-9 rounded-xl border border-slate-200 bg-white object-cover ${align === 'right' ? 'ml-auto' : ''}`} /> : <span className={`grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-400 ${align === 'right' ? 'ml-auto' : ''}`}><Shield className="h-4 w-4" /></span>}
+      {team?.logoUrl ? <img src={team.logoUrl} alt="" className={`h-9 w-9 rounded-xl border border-slate-200 bg-white object-cover ${align === 'right' ? 'ml-auto' : ''}`} loading="lazy" decoding="async" /> : <span className={`grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-400 ${align === 'right' ? 'ml-auto' : ''}`}><Shield className="h-4 w-4" /></span>}
       <p className="mt-1 truncate text-[10px] font-black text-slate-700">{team?.name ?? 'A definir'}</p>
     </div>
   );

@@ -106,7 +106,7 @@ function Avatar({ entry, size }: { entry: RankingEntry; size: 'sm' | 'lg' }) {
   const box = size === 'lg' ? 'h-14 w-14 rounded-2xl' : 'h-11 w-11 rounded-xl';
   return (
     <span className={`relative grid shrink-0 place-items-center overflow-hidden border border-slate-200 bg-slate-50 ${box}`}>
-      {entry.crest?.logoUrl ? <img src={entry.crest.logoUrl} alt="" className="h-full w-full object-contain p-1" /> : entry.avatarUrl ? <img src={entry.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5 text-[#073B8C]" />}
+      {entry.crest?.logoUrl ? <img src={entry.crest.logoUrl} alt="" className="h-full w-full object-contain p-1" loading="lazy" decoding="async" /> : entry.avatarUrl ? <img src={entry.avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" /> : <UserRound className="h-5 w-5 text-[#073B8C]" />}
       {entry.crest && !entry.crest.logoUrl && <Shield className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 text-slate-400" />}
     </span>
   );

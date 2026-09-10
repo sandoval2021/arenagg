@@ -89,7 +89,7 @@ export function ProfilePage() {
           <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-300/25 blur-3xl" />
           <div className="relative flex items-center gap-4">
             <span className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[1.4rem] border border-amber-200 bg-white shadow-lg shadow-amber-100">
-              {data?.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
+              {data?.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2"><span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-[.16em] text-amber-700">CHAVEA PLAYER</span><Sparkles className="h-4 w-4 text-amber-500" /></div>
@@ -157,4 +157,4 @@ export function ProfilePage() {
 }
 
 function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-2xl font-black text-slate-900">{value}</p></div>; }
-function MiniAvatar({ url, name }: { url: string | null; name: string }) { return url ? <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-cover" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-xs font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>; }
+function MiniAvatar({ url, name }: { url: string | null; name: string }) { return url ? <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-cover" loading="lazy" decoding="async" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-xs font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>; }

@@ -213,11 +213,11 @@ export function CasualMatchRoomPage() {
 }
 
 function PlayerSide({ player, label }: { player: CasualRoomPlayer; label: string }) {
-  return <div className="min-w-0 text-center"><div className="mx-auto h-16 w-16 overflow-hidden rounded-[1.3rem] border border-slate-200 bg-white shadow-sm">{player.avatarUrl ? <img src={player.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-lg font-black text-[#073B8C]">{player.name.slice(0, 2).toUpperCase()}</span>}</div><p className="mt-2 truncate text-sm font-black">{player.name}</p><p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</p></div>;
+  return <div className="min-w-0 text-center"><div className="mx-auto h-16 w-16 overflow-hidden rounded-[1.3rem] border border-slate-200 bg-white shadow-sm">{player.avatarUrl ? <img src={player.avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" /> : <span className="grid h-full w-full place-items-center text-lg font-black text-[#073B8C]">{player.name.slice(0, 2).toUpperCase()}</span>}</div><p className="mt-2 truncate text-sm font-black">{player.name}</p><p className="mt-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</p></div>;
 }
 
 function MiniAvatar({ url, name }: { url: string | null; name: string }) {
-  return url ? <img src={url} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-[10px] font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>;
+  return url ? <img src={url} alt="" className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" loading="lazy" decoding="async" /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-100 text-[10px] font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>;
 }
 
 function InfoPill({ icon: Icon, label }: { icon: typeof Gamepad2; label: string }) {

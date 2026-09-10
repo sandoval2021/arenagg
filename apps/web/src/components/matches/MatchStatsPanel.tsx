@@ -383,7 +383,7 @@ function TeamMini({ team }: { team: CompetitionMatch['homeTeam'] }) {
   const name = team?.name ?? 'A definir';
   return (
     <div className="min-w-0">
-      {team?.logoUrl ? <img src={team.logoUrl} alt="" className="mx-auto h-12 w-12 rounded-2xl border border-white/10 bg-white/5 object-cover" referrerPolicy="no-referrer" /> : <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/[.06] text-xs font-black text-cyan-200">{name.slice(0, 2).toUpperCase()}</span>}
+      {team?.logoUrl ? <img src={team.logoUrl} alt="" className="mx-auto h-12 w-12 rounded-2xl border border-white/10 bg-white/5 object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" /> : <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/[.06] text-xs font-black text-cyan-200">{name.slice(0, 2).toUpperCase()}</span>}
       <p className="mt-2 truncate text-xs font-black text-white">{name}</p>
     </div>
   );

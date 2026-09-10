@@ -195,7 +195,7 @@ function StickerSlot({ card }: { card: AlbumCard }) {
 function CardArtwork({ card }: { card: Pick<AlbumCard, 'imageUrl' | 'name'> }) {
   const [failed, setFailed] = useState(false);
   if (card.imageUrl && !failed) {
-    return <img src={card.imageUrl} alt={card.name} onError={() => setFailed(true)} className="h-full w-full rounded-[1.1rem] object-cover" />;
+    return <img src={card.imageUrl} alt={card.name} onError={() = loading="lazy" decoding="async" > setFailed(true)} className="h-full w-full rounded-[1.1rem] object-cover" />;
   }
   return (
     <div className="grid h-full place-items-center rounded-[1.1rem] bg-white/15 p-4 text-center">
@@ -213,7 +213,7 @@ function PackReveal({ result, onClose }: { result: OpenPackResponse; onClose: ()
           {result.cards.map((card, index) => (
             <article key={`${card.id}-${index}`} className={`relative aspect-[3/4] overflow-hidden rounded-[1.5rem] border p-2 shadow-lg ${rarityStyle[card.rarity]}`}>
               <span className="absolute left-2 top-2 z-10 rounded-full bg-white/80 px-2 py-1 text-[9px] font-black text-slate-700">#{String(card.cardNumber).padStart(3, '0')}</span>
-              {card.imageUrl ? <img src={card.imageUrl} alt={card.name} className="h-full w-full rounded-[1.1rem] object-cover" /> : <div className="grid h-full place-items-center rounded-[1.1rem] bg-white/15 p-3 text-center"><p className="text-sm font-black">{card.name}</p></div>}
+              {card.imageUrl ? <img src={card.imageUrl} alt={card.name} className="h-full w-full rounded-[1.1rem] object-cover" loading="lazy" decoding="async" /> : <div className="grid h-full place-items-center rounded-[1.1rem] bg-white/15 p-3 text-center"><p className="text-sm font-black">{card.name}</p></div>}
               <div className={`absolute inset-x-2 bottom-2 rounded-xl px-2 py-2 backdrop-blur ${card.rarity === 'LEGENDARY' ? 'bg-black/45' : 'bg-white/80'}`}><p className="truncate text-xs font-black">{card.name}</p><p className="mt-0.5 text-[8px] font-black uppercase tracking-wider opacity-70">{rarityLabel[card.rarity]}</p></div>
             </article>
           ))}

@@ -131,7 +131,7 @@ function TimelineIcon({ children, tone }: { children: React.ReactNode; tone: 'bl
 }
 
 function AvatarOrShield({ name, url }: { name: string; url: string | null }) {
-  if (url) return <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm" loading="lazy" referrerPolicy="no-referrer" />;
+  if (url) return <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm" loading="lazy" referrerPolicy="no-referrer" decoding="async" />;
   return <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400"><Shield className="h-4 w-4" /><span className="sr-only">{name}</span></span>;
 }
 

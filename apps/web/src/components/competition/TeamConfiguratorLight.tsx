@@ -118,7 +118,7 @@ export function TeamConfiguratorLight({
       <p className="mt-5 text-xs font-black uppercase tracking-wider text-slate-500">Escudo do time</p>
       <div className="mt-2 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-          {visibleLogo ? <img src={visibleLogo} alt="Preview do escudo" className="h-full w-full rounded-xl object-contain" /> : <Shield className="h-8 w-8 text-slate-300" />}
+          {visibleLogo ? <img src={visibleLogo} alt="Preview do escudo" className="h-full w-full rounded-xl object-contain" loading="lazy" decoding="async" /> : <Shield className="h-8 w-8 text-slate-300" />}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-black text-slate-800">Preview instantâneo</p>
@@ -172,7 +172,7 @@ export function TeamConfiguratorLight({
                     aria-label={`Usar escudo ${shield.name}`}
                   >
                     <span className="mx-auto block aspect-square w-full max-w-[5rem] overflow-hidden rounded-xl bg-slate-950/5">
-                      <img src={shield.url} alt="" className="h-full w-full object-contain" />
+                      <img src={shield.url} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
                     </span>
                     <span className="mt-1.5 block truncate text-[9px] font-black text-slate-600 sm:text-[10px]">{shield.name}</span>
                     {selected && <span className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
@@ -202,7 +202,7 @@ export function TeamConfiguratorLight({
                   aria-label={`Usar escudo ${shield.name}`}
                   title={shield.name}
                 >
-                  <img src={shield.url} alt="" className="h-full w-full rounded-xl object-contain" />
+                  <img src={shield.url} alt="" className="h-full w-full rounded-xl object-contain" loading="lazy" decoding="async" />
                   {selected && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3 w-3" /></span>}
                 </button>
               );

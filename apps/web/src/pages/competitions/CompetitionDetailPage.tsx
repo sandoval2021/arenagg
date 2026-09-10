@@ -301,7 +301,7 @@ function TeamConfigurator({ competitionId, participant }: { competitionId: strin
       <div className="mt-2 flex gap-2">
         {presetShields.map((shield) => (
           <button key={shield.url} type="button" onClick={() => setTeamLogoUrl(shield.url)} aria-label={`Usar escudo ${shield.label}`} className={`grid h-12 w-12 place-items-center rounded-2xl border bg-white/5 p-1.5 transition ${teamLogoUrl === shield.url ? 'border-cyan-300 ring-2 ring-cyan-300/20' : 'border-white/10'}`}>
-            <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" referrerPolicy="no-referrer" />
+            <img src={shield.url} alt="" className="h-full w-full rounded-xl object-cover" referrerPolicy="no-referrer" loading="lazy" decoding="async" />
           </button>
         ))}
       </div>
@@ -448,7 +448,7 @@ function TeamSide({ team, align }: { team: CompetitionMatch['homeTeam']; align: 
 
 function TeamAvatar({ name, logoUrl, compact = false }: { name: string; logoUrl?: string; compact?: boolean }) {
   const size = compact ? 'h-10 w-10' : 'h-11 w-11';
-  if (logoUrl) return <img src={logoUrl} alt="" className={`${size} shrink-0 rounded-xl border border-white/10 bg-white/5 object-cover shadow-lg`} loading="lazy" referrerPolicy="no-referrer" />;
+  if (logoUrl) return <img src={logoUrl} alt="" className={`${size} shrink-0 rounded-xl border border-white/10 bg-white/5 object-cover shadow-lg`} loading="lazy" referrerPolicy="no-referrer" decoding="async" />;
   return <span className={`inline-grid ${size} shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[.06] text-[10px] font-black text-cyan-200 shadow-inner`}>{name.slice(0, 2).toUpperCase()}</span>;
 }
 

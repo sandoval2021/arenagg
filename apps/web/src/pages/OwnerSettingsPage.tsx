@@ -182,7 +182,7 @@ export function OwnerSettingsPage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {shields.data?.map((shield) => (
               <article key={shield.id} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-                <img src={shield.url} alt="" className="h-14 w-14 rounded-2xl border border-slate-200 bg-white object-cover shadow-sm" />
+                <img src={shield.url} alt="" className="h-14 w-14 rounded-2xl border border-slate-200 bg-white object-cover shadow-sm" loading="lazy" decoding="async" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-black">{shield.name}</p>
                   <p className={`mt-1 text-[11px] font-bold ${shield.isActive ? 'text-emerald-700' : 'text-slate-400'}`}>{shield.isActive ? 'Disponível para jogadores' : 'Oculto'}</p>
