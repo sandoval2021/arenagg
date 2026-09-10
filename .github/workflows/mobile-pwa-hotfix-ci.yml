@@ -35,8 +35,7 @@ jobs:
             apps/web/src/components/standings/StandingsTable.tsx \
             apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx \
             apps/web/src/components/matches/CompetitionMatchAutomationPanel.tsx \
-            apps/web/src/components/competition/GroupStagePanel.tsx \
-            .github/workflows/deploy.yml
+            apps/web/src/components/competition/GroupStagePanel.tsx
           if git diff --cached --quiet; then
             echo 'Hotfix already committed.'
           else
