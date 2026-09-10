@@ -1,81 +1,99 @@
-import { createClient, type Session } from '@supabase/supabase-js';
-
-const SUPABASE_URL = 'https://uruwrztfbjbykgxwtgvg.supabase.co';
-const AUTH_PROXY_KEY = 'chavea-browser-auth-proxy';
-const AUTH_PROXY_PATH = '/api/auth/supabase-proxy';
-
-async function proxiedAuthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const request = new Request(input, init);
-  const target = new URL(request.url);
-  const projectOrigin = new URL(SUPABASE_URL).origin;
-
-  if (target.origin !== projectOrigin || !target.pathname.startsWith('/auth/v1/')) {
-    return fetch(request);
-  }
-
-  const proxyUrl = new URL(AUTH_PROXY_PATH, window.location.origin);
-  proxyUrl.searchParams.set('target', `${target.pathname}${target.search}`);
-
-  const headers = new Headers(request.headers);
-  headers.delete('apikey');
-  headers.delete('x-client-info');
-
-  const body = request.method === 'GET' || request.method === 'HEAD'
-    ? undefined
-    : await request.arrayBuffer();
-
-  return fetch(proxyUrl, {
-    method: request.method,
-    headers,
-    body,
-    cache: 'no-store',
-    credentials: 'omit',
-    redirect: 'manual',
-  });
-}
-
-export const supabase = createClient(SUPABASE_URL, AUTH_PROXY_KEY, {
-  auth: {
-    storage: window.localStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-  global: {
-    fetch: proxiedAuthFetch,
-  },
-});
+const STORAGE_KEY = 'chavea.auth.session.v2';
+const LEGACY_HINT_KEY = 'chaveaHasSession';
 
 export type BrowserSessionEnvelope = {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string;
   expiresAt: number | null;
   expiresIn: number;
   tokenType: string;
 };
 
-export async function persistSupabaseSession(session: BrowserSessionEnvelope): Promise<Session> {
-  const { data, error } = await supabase.auth.setSession({
-    access_token: session.accessToken,
-    refresh_token: session.refreshToken,
-  });
-  if (error || !data.session) {
-    throw error ?? new Error('SUPABASE_SESSION_PERSIST_FAILED');
+type StoredSession = {
+  accessToken: string;
+  expiresAt: number | null;
+  tokenType: string;
+};
+
+function readStoredSession(): StoredSession | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredSession>;
+    if (typeof parsed.accessToken !== 'string' || !parsed.accessToken.trim()) return null;
+    const expiresAt = typeof parsed.expiresAt === 'number' ? parsed.expiresAt : null;
+    if (expiresAt && expiresAt <= Math.floor(Date.now() / 1000)) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return {
+      accessToken: parsed.accessToken,
+      expiresAt,
+      tokenType: typeof parsed.tokenType === 'string' && parsed.tokenType ? parsed.tokenType : 'bearer',
+    };
+  } catch {
+    return null;
   }
-  return data.session;
+}
+
+function clearLegacySupabaseArtifacts() {
+  try {
+    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.localStorage.key(index);
+      if (!key) continue;
+      if (/^sb-.*-auth-token$/i.test(key) || key === LEGACY_HINT_KEY) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Storage may be unavailable in private/managed browsing modes.
+  }
+}
+
+export async function persistSupabaseSession(session: BrowserSessionEnvelope): Promise<BrowserSessionEnvelope> {
+  const normalized: StoredSession = {
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    tokenType: session.tokenType || 'bearer',
+  };
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  clearLegacySupabaseArtifacts();
+  return session;
 }
 
 export async function getSupabaseAccessToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) return null;
-  return data.session?.access_token ?? null;
+  return readStoredSession()?.accessToken ?? null;
 }
 
 export async function clearSupabaseSession(): Promise<void> {
   try {
-    await supabase.auth.signOut({ scope: 'local' });
+    window.localStorage.removeItem(STORAGE_KEY);
+    clearLegacySupabaseArtifacts();
   } catch {
-    // Supabase still clears local session state on a local sign-out path; the
-    // AuthProvider also clears its React Query cache after this call.
+    // The AuthProvider still resets React state and redirects to /login.
   }
+}
+
+export function readOAuthSessionFromLocation(): BrowserSessionEnvelope | null {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  if (params.get('type') !== 'oauth') return null;
+  const accessToken = params.get('access_token');
+  if (!accessToken) return null;
+
+  const expiresAtRaw = Number(params.get('expires_at'));
+  const expiresInRaw = Number(params.get('expires_in'));
+  return {
+    accessToken,
+    refreshToken: '',
+    expiresAt: Number.isFinite(expiresAtRaw) && expiresAtRaw > 0 ? expiresAtRaw : null,
+    expiresIn: Number.isFinite(expiresInRaw) && expiresInRaw > 0 ? expiresInRaw : 30 * 24 * 60 * 60,
+    tokenType: params.get('token_type') || 'bearer',
+  };
+}
+
+export function clearOAuthFragment() {
+  if (!window.location.hash) return;
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
 }
