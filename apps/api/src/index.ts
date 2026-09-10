@@ -10,6 +10,7 @@ import { competitions } from './routes/competitions.routes';
 import { competitionJoin } from './routes/competition-join.routes';
 import { competitionChat } from './routes/competition-chat.routes';
 import { competitionStartV2 } from './routes/competition-start-v2.routes';
+import { casualRoomChat } from './routes/casual-room-chat.routes';
 import { lobbyModeration } from './routes/lobby-moderation.routes';
 import { teamSettings } from './routes/team-settings.routes';
 import { scorers } from './routes/scorers.routes';
@@ -121,7 +122,9 @@ app.route('/api/auth', devAuth);
 app.route('/api/push', push);
 app.route('/api/gamification', gamification);
 app.route('/api/reputation', reputation);
-// Mounted first so score confirmation always follows the unranked closure path.
+// Mounted before the general LFG router: casual chat and unranked score closure
+// remain isolated from the historical ranked handlers.
+app.route('/api/matchmaking', casualRoomChat);
 app.route('/api/matchmaking', matchmakingUnranked);
 app.route('/api/matchmaking', matchmaking);
 app.route('/api/feed', globalFeed);
