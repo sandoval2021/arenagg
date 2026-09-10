@@ -24,6 +24,25 @@ const queryClient = new QueryClient({
   },
 });
 
+function forceServiceWorkerUpdate() {
+  if (!('serviceWorker' in navigator)) return;
+  void navigator.serviceWorker
+    .getRegistration()
+    .then((registration) => registration?.update())
+    .catch((error) => console.warn('[pwa] update check failed', error));
+}
+
+if ('serviceWorker' in navigator) {
+  if (document.readyState === 'complete') forceServiceWorkerUpdate();
+  else window.addEventListener('load', forceServiceWorkerUpdate, { once: true });
+
+  window.addEventListener('online', forceServiceWorkerUpdate);
+  window.addEventListener('pageshow', forceServiceWorkerUpdate);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') forceServiceWorkerUpdate();
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
