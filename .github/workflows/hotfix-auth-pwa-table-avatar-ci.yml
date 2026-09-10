@@ -1,0 +1,237 @@
+name: Auth PWA Table Avatar Hotfix CI
+
+on:
+  push:
+    branches: [hotfix-auth-pwa-table-avatar]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Apply targeted hotfix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'pattern not found in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          # 1) Auth: deterministic escape to /login on any bootstrap timeout/error.
+          replace_once(
+              'apps/web/src/hooks/useAuth.tsx',
+              """    hardClearBrowserAuth();\n    return {\n      user: null,\n      rewards: { dailyPackGranted: false },\n      bootstrapFailed: true,\n    };""",
+              """    hardClearBrowserAuth();\n    if (window.location.pathname !== '/login') {\n      window.location.replace('/login');\n    }\n    return {\n      user: null,\n      rewards: { dailyPackGranted: false },\n      bootstrapFailed: true,\n    };""",
+          )
+
+          # 2) PWA: always re-register same scope with updateViaCache=none, then update.
+          replace_once(
+              'apps/web/src/main.tsx',
+              """  const getOrCreateRegistration = async () => {\n    let registration = await navigator.serviceWorker.getRegistration('/');\n    if (!registration) {\n      registration = await navigator.serviceWorker.register('/sw.js', {\n        scope: '/',\n        // iOS must not be allowed to satisfy the SW update algorithm from its\n        // HTTP cache. Every explicit update check goes back to the network.\n        updateViaCache: 'none',\n      });\n    }\n    return registration;\n  };""",
+              """  const getOrCreateRegistration = () =>\n    navigator.serviceWorker.register('/sw.js', {\n      scope: '/',\n      // Re-registering the same scope is safe and also upgrades older installs\n      // to updateViaCache=none, forcing WebKit to revalidate sw.js on the network.\n      updateViaCache: 'none',\n    });""",
+          )
+          replace_once('apps/web/src/main.tsx', '  }, 60_000);', '  }, 30_000);')
+          replace_once(
+              'apps/web/src/sw.js',
+              "const APP_CACHE = `${CACHE_PREFIX}v6-20260910`;",
+              "const APP_CACHE = `${CACHE_PREFIX}v9-20260910-mobile-recovery`;",
+          )
+
+          # 3) API contracts expose player avatar explicitly instead of flattening it.
+          replace_once(
+              'apps/web/src/lib/api.ts',
+              "homeTeam: { id: string; name: string; logoUrl: string | null } | null;\n    awayTeam: { id: string; name: string; logoUrl: string | null } | null;",
+              "homeTeam: { id: string; name: string; logoUrl: string | null; user: { avatarUrl: string | null } } | null;\n    awayTeam: { id: string; name: string; logoUrl: string | null; user: { avatarUrl: string | null } } | null;",
+          )
+          replace_once(
+              'apps/web/src/lib/api.ts',
+              "  logoUrl?: string;\n  playerName: string;",
+              "  logoUrl?: string;\n  user: { id: string; avatarUrl: string | null } | null;\n  playerName: string;",
+          )
+          replace_once(
+              'apps/web/src/lib/phase-six-api.ts',
+              """  team: {\n    name: string;\n    logoUrl: string | null;\n    participation: {\n      user: { id: string; name: string; displayName: string | null };\n    };\n  };""",
+              """  user: { id: string; name: string; displayName: string | null; avatarUrl: string | null };\n  team: {\n    name: string;\n    logoUrl: string | null;\n  };""",
+          )
+
+          # 4) General standings: fixed table, no horizontal scroll, avatar first.
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              """      <div\n        className=\"w-full overflow-x-auto pb-2 overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]\"\n        style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}\n        role=\"region\"\n        aria-label=\"Tabela de classificação com rolagem horizontal\"\n        tabIndex={0}\n      >\n        <table className=\"w-full min-w-[560px] border-collapse text-[10px] text-slate-700 sm:text-xs\">""",
+              """      <div className=\"w-full pb-1\">\n        <table className=\"w-full table-fixed border-collapse text-[10px] text-slate-700 sm:text-xs\">""",
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<th className="w-9 px-1.5 py-1.5 text-center sm:sticky sm:left-0 sm:z-20 sm:w-14 sm:bg-slate-50 sm:px-3 sm:py-3">Pos</th><th className="w-[110px] px-1.5 py-1.5 text-left sm:sticky sm:left-14 sm:z-20 sm:min-w-52 sm:bg-slate-50 sm:px-3 sm:py-3">Time</th>{[\'PTS\', \'J\', \'V\', \'E\', \'D\', \'SG\'].map((column) => <th key={column} className="px-1.5 py-1.5 text-center sm:px-3 sm:py-3">{column}</th>)}',
+              '<th className="w-6 px-1 py-1 text-center sm:w-12 sm:px-2 sm:py-2">#</th><th className="w-[92px] px-1 py-1 text-left sm:w-auto sm:px-2 sm:py-2">Time</th>{[\'PTS\', \'J\', \'V\', \'E\', \'D\', \'SG\'].map((column) => <th key={column} className="w-7 px-1 py-1 text-center text-[10px] sm:w-10 sm:px-2 sm:py-2">{column}</th>)}',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<TeamLogo name={row.team} logoUrl={row.logoUrl} podium={podium} />',
+              '<TeamLogo name={row.team} logoUrl={row.user?.avatarUrl ?? row.logoUrl} podium={podium} />',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              'max-w-[80px] truncate text-[11px]',
+              'max-w-[70px] truncate text-[10px]',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<td className="px-1.5 py-1.5 text-center sm:sticky sm:left-0 sm:z-10 sm:bg-white sm:px-3 sm:py-3">',
+              '<td className="w-6 px-1 py-1 text-center sm:w-12 sm:px-2 sm:py-2">',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<td className="px-1.5 py-1.5 sm:sticky sm:left-14 sm:z-10 sm:bg-white sm:px-3 sm:py-2">',
+              '<td className="w-[92px] px-1 py-1 sm:w-auto sm:px-2 sm:py-2">',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<td className="px-1.5 py-1.5 text-center text-[11px] font-black text-[#073B8C] sm:px-3 sm:py-3 sm:text-base">',
+              '<td className="w-7 px-1 py-1 text-center text-[10px] font-black text-[#073B8C] sm:w-10 sm:px-2 sm:py-2 sm:text-sm">',
+          )
+          for old, new in [
+              ('<td className="px-1.5 py-1.5 text-center font-extrabold text-slate-600 sm:px-3 sm:py-3">', '<td className="w-7 px-1 py-1 text-center text-[10px] font-extrabold text-slate-600 sm:w-10 sm:px-2 sm:py-2">'),
+              ('<td className="px-1.5 py-1.5 text-center font-extrabold text-emerald-700 sm:px-3 sm:py-3">', '<td className="w-7 px-1 py-1 text-center text-[10px] font-extrabold text-emerald-700 sm:w-10 sm:px-2 sm:py-2">'),
+              ('<td className="px-1.5 py-1.5 text-center font-extrabold text-rose-600 sm:px-3 sm:py-3">', '<td className="w-7 px-1 py-1 text-center text-[10px] font-extrabold text-rose-600 sm:w-10 sm:px-2 sm:py-2">'),
+          ]:
+              p = Path('apps/web/src/components/standings/StandingsTable.tsx')
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'cell pattern not found: {old}')
+              p.write_text(text.replace(old, new))
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              '<td className={`px-1.5 py-1.5 text-center font-black sm:px-3 sm:py-3 ${row.goalDifference > 0 ?',
+              '<td className={`w-7 px-1 py-1 text-center text-[10px] font-black sm:w-10 sm:px-2 sm:py-2 ${row.goalDifference > 0 ?',
+          )
+          replace_once(
+              'apps/web/src/components/standings/StandingsTable.tsx',
+              'Arraste para o lado no celular para ver PTS, J, V, E, D e SG. Toque no jogador para abrir o perfil público.',
+              'PTS, J, V, E, D e SG aparecem juntos no celular. Toque no jogador para abrir o perfil público.',
+          )
+
+          # 5) Group standings: no carousel/no table scroll; all math columns fit at once.
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              '<div className="-mx-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden sm:-mx-5 sm:px-5">\n              <div className="flex w-max snap-x snap-mandatory gap-3 pr-4">',
+              '<div className="grid gap-3 md:grid-cols-2">',
+          )
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              'className="w-[min(92vw,420px)] shrink-0 snap-center overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"',
+              'className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"',
+          )
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              """                    <div\n                      className=\"w-full overflow-x-auto pb-2 overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]\"\n                      style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}\n                      role=\"region\"\n                      aria-label={`${group.name}: classificação com rolagem horizontal`}\n                      tabIndex={0}\n                    >\n                      <table className=\"w-full min-w-[500px] border-collapse text-[10px] text-slate-700\">""",
+              """                    <div className=\"w-full pb-1\">\n                      <table className=\"w-full table-fixed border-collapse text-[10px] text-slate-700\">""",
+          )
+          replace_once('apps/web/src/components/competition/GroupStagePanel.tsx', '<th className="w-8 px-1.5 py-1.5 text-center">#</th>', '<th className="w-6 px-1 py-1 text-center text-[10px]">#</th>')
+          replace_once('apps/web/src/components/competition/GroupStagePanel.tsx', '<th className="w-[110px] px-1.5 py-1.5 text-left">Time</th>', '<th className="w-[88px] px-1 py-1 text-left text-[10px]">Time</th>')
+          for col in ['PTS','J','V','E','D','SG']:
+              replace_once('apps/web/src/components/competition/GroupStagePanel.tsx', f'<th className="px-1.5 py-1.5 text-center">{col}</th>', f'<th className="w-7 px-1 py-1 text-center text-[10px]">{col}</th>')
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              'const qualified = index < 2;\n                            return (',
+              'const qualified = index < 2;\n                            const playerImage = row.user?.avatarUrl ?? row.team.logoUrl;\n                            return (',
+          )
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              '{row.team.logoUrl ? <img src={row.team.logoUrl}',
+              '{playerImage ? <img src={playerImage}',
+          )
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              'max-w-[80px] truncate text-[10px]',
+              'max-w-[70px] truncate text-[10px]',
+          )
+          replace_once(
+              'apps/web/src/components/competition/GroupStagePanel.tsx',
+              """                ))}\n              </div>\n            </div>\n\n            <div className=\"mt-3 flex items-center gap-2 rounded-2xl bg-blue-50 px-3 py-2.5 text-[10px] font-bold text-[#073B8C]\"><Sparkles className=\"h-4 w-4 shrink-0\" />Arraste a tabela para o lado no celular. PTS, J, V, E, D e SG permanecem sempre disponíveis.</div>""",
+              """                ))}\n            </div>""",
+          )
+          # Remove now-unused Sparkles import.
+          replace_once('apps/web/src/components/competition/GroupStagePanel.tsx', 'Shield, Sparkles, Table2', 'Shield, Table2')
+
+          # 6) Backend: expose avatar as user data and stop letting a legacy shield mask it.
+          replace_once(
+              'apps/api/src/routes/competitions.routes.ts',
+              """            logoUrl: match.homeTeam.logoUrl\n              ?? match.homeTeam.participation.user.avatarUrl\n              ?? match.homeTeam.participation.teamLogoUrl\n              ?? null,""",
+              """            logoUrl: match.homeTeam.logoUrl ?? match.homeTeam.participation.teamLogoUrl ?? null,\n            user: { avatarUrl: match.homeTeam.participation.user.avatarUrl },""",
+          )
+          replace_once(
+              'apps/api/src/routes/competitions.routes.ts',
+              """            logoUrl: match.awayTeam.logoUrl\n              ?? match.awayTeam.participation.user.avatarUrl\n              ?? match.awayTeam.participation.teamLogoUrl\n              ?? null,""",
+              """            logoUrl: match.awayTeam.logoUrl ?? match.awayTeam.participation.teamLogoUrl ?? null,\n            user: { avatarUrl: match.awayTeam.participation.user.avatarUrl },""",
+          )
+          replace_once(
+              'apps/api/src/routes/competitions.routes.ts',
+              """        logoUrl:\n          team?.logoUrl\n          ?? team?.participation.user.avatarUrl\n          ?? team?.participation.teamLogoUrl\n          ?? undefined,\n        playerName:""",
+              """        logoUrl: team?.logoUrl ?? team?.participation.teamLogoUrl ?? undefined,\n        user: team\n          ? { id: team.participation.user.id, avatarUrl: team.participation.user.avatarUrl }\n          : null,\n        playerName:""",
+          )
+          replace_once(
+              'apps/api/src/routes/phase-six-competition.routes.ts',
+              """      standings: group.standings.map((row) => ({\n        ...row,\n        team: {\n          ...row.team,\n          logoUrl: row.team.logoUrl\n            ?? row.team.participation.user.avatarUrl\n            ?? row.team.participation.teamLogoUrl\n            ?? null,\n        },\n      })),""",
+              """      standings: group.standings.map((row) => ({\n        ...row,\n        user: row.team.participation.user,\n        team: {\n          name: row.team.name,\n          logoUrl: row.team.logoUrl ?? row.team.participation.teamLogoUrl ?? null,\n        },\n      })),""",
+          )
+
+          # 7) Rounds: use explicit user avatar before team/legacy logo.
+          replace_once(
+              'apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx',
+              'logoUrl={team?.logoUrl ?? undefined} compact',
+              'logoUrl={team?.user?.avatarUrl ?? team?.logoUrl ?? undefined} compact',
+          )
+          PY
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert recovery, PWA and mobile contracts
+        run: |
+          set -euo pipefail
+          grep -Fq "window.location.replace('/login')" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'AUTH_BOOT_TIMEOUT_MS = 5_000' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "registerType: 'autoUpdate'" apps/web/vite.config.ts
+          grep -Fq "updateViaCache: 'none'" apps/web/src/main.tsx
+          grep -Fq 'registration.update()' apps/web/src/main.tsx
+          grep -Fq 'self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'self.clients.claim()' apps/web/src/sw.js
+          grep -Fq 'v9-20260910-mobile-recovery' apps/web/src/sw.js
+          grep -Fq 'table-fixed' apps/web/src/components/standings/StandingsTable.tsx
+          grep -Fq 'table-fixed' apps/web/src/components/competition/GroupStagePanel.tsx
+          ! grep -Fq 'overflow-x-auto' apps/web/src/components/standings/StandingsTable.tsx
+          ! grep -Fq 'overflow-x-auto' apps/web/src/components/competition/GroupStagePanel.tsx
+          ! grep -Fq 'Arraste a tabela' apps/web/src/components/competition/GroupStagePanel.tsx
+          for col in PTS J V E D SG; do grep -Fq ">$col<" apps/web/src/components/competition/GroupStagePanel.tsx; done
+          grep -Fq 'user: { avatarUrl: match.homeTeam.participation.user.avatarUrl }' apps/api/src/routes/competitions.routes.ts
+          grep -Fq 'user: row.team.participation.user' apps/api/src/routes/phase-six-competition.routes.ts
+          grep -Fq 'row.user?.avatarUrl ?? row.team.logoUrl' apps/web/src/components/competition/GroupStagePanel.tsx
+          grep -Fq 'row.user?.avatarUrl ?? row.logoUrl' apps/web/src/components/standings/StandingsTable.tsx
+          grep -Fq 'refetchInterval: 3_000' apps/web/src/pages/competitions/StandingsPage.tsx
+          grep -Fq 'refetchInterval: 3_000' apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
+      - name: Commit product hotfix to branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/api/src/routes/competitions.routes.ts apps/api/src/routes/phase-six-competition.routes.ts apps/web/src/hooks/useAuth.tsx apps/web/src/main.tsx apps/web/src/sw.js apps/web/src/lib/api.ts apps/web/src/lib/phase-six-api.ts apps/web/src/components/standings/StandingsTable.tsx apps/web/src/components/competition/GroupStagePanel.tsx apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
+          git commit -m 'fix: harden mobile auth updates standings and avatars [skip ci]'
+          git push origin HEAD:hotfix-auth-pwa-table-avatar
