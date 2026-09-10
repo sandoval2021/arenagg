@@ -21,3 +21,9 @@ button, a { -webkit-touch-callout: none; }
  * back while it is being incrementally migrated to GlobalLoader.
  */
 svg.animate-spin { display: none !important; }
+
+/* Stable neutral paint box while mobile images decode off the main thread. */
+img {
+  background-color: #f1f5f9;
+  color: transparent;
+}
