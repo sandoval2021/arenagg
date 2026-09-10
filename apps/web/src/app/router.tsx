@@ -7,6 +7,8 @@ import { ProfilePage } from '../pages/ProfilePage';
 import { EditProfilePage } from '../pages/EditProfilePage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
 import { RankingPage } from '../pages/RankingPage';
+import { JogarAgoraPage } from '../pages/JogarAgoraPage';
+import { CasualMatchRoomPage } from '../pages/CasualMatchRoomPage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
@@ -33,6 +35,8 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       { path: '/dashboard', element: <DashboardPage /> },
+      { path: '/play', element: <JogarAgoraPage /> },
+      { path: '/play/rooms/:roomId', element: <CasualMatchRoomPage /> },
       { path: '/competitions', element: <CompetitionsPage /> },
       { path: '/competitions/new', element: <CreateCompetitionPhaseThreePage /> },
       { path: '/competitions/:competitionId', element: <CompetitionDetailExperience /> },
