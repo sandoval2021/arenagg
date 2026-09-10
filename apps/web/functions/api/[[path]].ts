@@ -51,10 +51,12 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
     );
   }
 
-  // Preserve every upstream response header, including Set-Cookie. Because the
-  // browser receives this response from chavea.pages.dev, the host-only
-  // chavea_session cookie is persisted for the PWA origin instead of workers.dev.
+  // Preserve every upstream response header. Re-assign Set-Cookie explicitly
+  // as an extra guard because it is the critical credential handoff between
+  // workers.dev and the first-party Pages response seen by the PWA.
   const headers = new Headers(upstreamResponse.headers);
+  const setCookie = upstreamResponse.headers.get('set-cookie');
+  if (setCookie) headers.set('set-cookie', setCookie);
   headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   headers.set('X-Chavea-Api-Proxy', 'pages');
 
