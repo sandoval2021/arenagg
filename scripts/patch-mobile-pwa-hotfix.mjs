@@ -240,8 +240,23 @@ replaceOnce(
 );
 replaceOnce(
   'apps/web/src/components/competition/GroupStagePanel.tsx',
-  `<span className="text-center text-sm font-black text-[#073B8C]">{row.points}</span><span className="text-center text-xs font-bold text-slate-600">{row.played}</span><span className="text-center text-xs font-bold text-emerald-700">{row.wins}</span><span className={`text-center text-xs font-black`,
-  `<span className="text-center text-xs font-black text-[#073B8C]">{row.points}</span><span className="text-center text-[10px] font-bold text-slate-600">{row.played}</span><span className="text-center text-[10px] font-bold text-emerald-700">{row.wins}</span><span className="text-center text-[10px] font-bold text-slate-600">{row.draws}</span><span className="text-center text-[10px] font-bold text-rose-600">{row.losses}</span><span className={`text-center text-[10px] font-black`,
+  '>{row.wins}</span><span className={`text-center text-xs font-black',
+  '>{row.wins}</span><span className="text-center text-[10px] font-bold text-slate-600">{row.draws}</span><span className="text-center text-[10px] font-bold text-rose-600">{row.losses}</span><span className={`text-center text-[10px] font-black',
+);
+replaceOnce(
+  'apps/web/src/components/competition/GroupStagePanel.tsx',
+  `text-center text-sm font-black text-[#073B8C]`,
+  `text-center text-xs font-black text-[#073B8C]`,
+);
+replaceOnce(
+  'apps/web/src/components/competition/GroupStagePanel.tsx',
+  `text-center text-xs font-bold text-slate-600`,
+  `text-center text-[10px] font-bold text-slate-600`,
+);
+replaceOnce(
+  'apps/web/src/components/competition/GroupStagePanel.tsx',
+  `text-center text-xs font-bold text-emerald-700`,
+  `text-center text-[10px] font-bold text-emerald-700`,
 );
 
 // CI gate: production auth smoke must prove persistent Max-Age is serialized.
