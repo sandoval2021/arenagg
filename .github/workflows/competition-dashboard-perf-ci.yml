@@ -22,8 +22,8 @@ jobs:
       - name: Apply product patch when needed
         run: |
           set -euo pipefail
-          if git log -1 --pretty=%s | grep -Fq 'perf: make competition dashboard zero-latency'; then
-            echo 'Product patch already committed.'
+          if grep -Fq "competitions.get('/:id/matches'" apps/api/src/routes/competitions.routes.ts; then
+            echo 'Product patch already present.'
           else
             # StandingsPage already received 3s polling from the previous PWA QA hotfix.
             # Let the temporary patcher treat that specific target as already compliant.
