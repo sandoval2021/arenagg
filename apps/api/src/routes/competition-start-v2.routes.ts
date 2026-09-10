@@ -65,7 +65,7 @@ function safePrismaMeta(error: unknown) {
 }
 
 async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`competition-start-v2:${competitionId}`}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`competition-start-v2:${competitionId}`}))`;
 }
 
 async function ensureParticipantTeam(
