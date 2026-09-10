@@ -7,7 +7,6 @@ import {
   supabase,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
-import { Logo } from '../components/brand/Logo';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 
 export type AuthUser = {
@@ -40,9 +39,29 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
 function isAuthorizationError(error: unknown): error is ApiError {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function withBootstrapTimeout<T>(operation: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new ApiError(0, 'AUTH_BOOTSTRAP_TIMEOUT'));
+    }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+
+    operation.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function requestSession(): Promise<AuthSessionResponse> {
@@ -109,11 +128,12 @@ function useAuthState() {
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
-    queryFn: loadPersistentSession,
+    // The entire bootstrap has a hard 5s deadline. A broken token refresh or
+    // auth proxy can never keep the standalone PWA stuck on a loading screen.
+    queryFn: () => withBootstrapTimeout(loadPersistentSession()),
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    retry: (failureCount, error) => !isAuthorizationError(error) && failureCount < 2,
-    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
+    retry: false,
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
     refetchOnReconnect: true,
@@ -192,34 +212,8 @@ function useAuthState() {
   };
 }
 
-function SessionBootScreen() {
-  return <GlobalLoader mode="screen" label="Restaurando sua sessão…" />;
-}
-
-function SessionRecoveryScreen({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const networkFailure = error instanceof ApiError && error.status === 0;
-  return (
-    <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
-      <div className="w-full max-w-sm text-center">
-        <div className="flex justify-center"><Logo size="md" /></div>
-        <h1 className="mt-7 text-xl font-black">
-          {networkFailure ? 'Não foi possível conectar ao Chavea.' : 'Não foi possível validar sua sessão.'}
-        </h1>
-        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-          {networkFailure
-            ? 'Verifique sua conexão e tente novamente.'
-            : 'Sua sessão não foi descartada. Tente validar novamente.'}
-        </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-5 min-h-12 w-full rounded-2xl bg-[#073B8C] px-4 text-sm font-black text-white shadow-md"
-        >
-          Tentar novamente
-        </button>
-      </div>
-    </main>
-  );
+function SessionBootScreen({ label = 'Restaurando sua sessão…' }: { label?: string }) {
+  return <GlobalLoader mode="screen" label={label} />;
 }
 
 function DailyPackToast({ granted }: { granted: boolean }) {
@@ -246,13 +240,34 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
+  const queryClient = useQueryClient();
 
-  // The router never mounts before Supabase has finished reading/refreshing the
-  // localStorage session. This prevents a transient redirect to Login on iOS.
+  useEffect(() => {
+    if (!value.hasBootstrapError) return;
+
+    // Fail open to the login route instead of trapping the PWA in a recovery
+    // dead-end. Clear all browser-persisted state synchronously first so a
+    // corrupt Supabase refresh token cannot immediately recreate the loop.
+    try {
+      window.localStorage.clear();
+    } catch {
+      // Storage can be unavailable in hardened/private browser modes.
+    }
+
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'auth' });
+    queryClient.setQueryData(AUTH_QUERY_KEY, {
+      user: null,
+      rewards: { dailyPackGranted: false },
+    });
+    void clearSupabaseSession();
+
+    if (window.location.pathname !== '/login') {
+      window.location.replace('/login');
+    }
+  }, [queryClient, value.hasBootstrapError]);
+
   if (value.isBootstrapping) return <SessionBootScreen />;
-  if (value.hasBootstrapError) {
-    return <SessionRecoveryScreen error={value.bootstrapError} onRetry={() => void value.refresh()} />;
-  }
+  if (value.hasBootstrapError) return <SessionBootScreen label="Voltando para o login…" />;
 
   return (
     <AuthContext.Provider value={value}>
