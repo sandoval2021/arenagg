@@ -6,6 +6,7 @@ import { requireAuth } from './middleware/auth.middleware';
 import { requireOwner } from './middleware/owner.middleware';
 import { requireAdmin } from './middleware/admin.middleware';
 import { auth } from './routes/auth.routes';
+import { supabaseAuthProxy } from './routes/supabase-auth-proxy.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { album } from './routes/album.routes';
 import { adminCards } from './routes/admin-cards.routes';
@@ -63,9 +64,9 @@ app.use(
       const configuredOrigin = c.env.WEB_APP_URL ? normalizeOrigin(c.env.WEB_APP_URL) : undefined;
       return isAllowedWebOrigin(requestOrigin, configuredOrigin) ? requestOrigin : '';
     },
-    credentials: true,
+    credentials: false,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'X-Dev-Reset-Token'],
+    allowHeaders: ['Authorization', 'Content-Type', 'X-Dev-Reset-Token'],
     maxAge: 86_400,
   }),
 );
@@ -124,6 +125,10 @@ app.get('/api/health/db', async (c) => {
   return c.json({ status: 'ok', database: 'ok' });
 });
 
+// Public/auth bootstrap routes. The Supabase route is a strict allowlist proxy
+// used by supabase-js for localStorage session refresh, user validation and
+// logout; it cannot reach GoTrue admin APIs.
+app.route('/api/supabase', supabaseAuthProxy);
 app.route('/api/auth', auth);
 app.route('/api/auth', devAuth);
 app.route('/api/push', push);
