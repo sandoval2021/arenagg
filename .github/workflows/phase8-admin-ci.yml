@@ -35,4 +35,6 @@ jobs:
           grep -F "adminCards.post('/bulk-upload'" apps/api/src/routes/admin-cards.routes.ts
           grep -F 'skipDuplicates: true' apps/api/src/routes/admin-cards.routes.ts
           grep -F "'/api/admin/cards/bulk-upload'" apps/web/src/lib/admin-cards-api.ts
+          grep -F "auth.user?.role === 'ADMIN'" apps/web/src/pages/OwnerSettingsPage.tsx
+          grep -F "auth.user?.role === 'ADMIN'" apps/web/src/pages/ProfilePage.tsx
           grep -F "'cards-assets'" prisma/migrations/20260910055000_phase8_admin_card_import/migration.sql
