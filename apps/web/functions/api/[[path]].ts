@@ -6,15 +6,15 @@ type PagesFunctionContext = {
 };
 
 function buildUpstreamRequest(request: Request, upstreamUrl: URL): Request {
-  // Build a fresh Request for the Worker and explicitly preserve the browser
-  // cookie. This avoids relying on runtime-specific Request cloning semantics
-  // when the target origin changes from chavea.pages.dev to workers.dev.
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('content-length');
+  headers.delete('cookie');
 
-  const cookie = request.headers.get('cookie');
-  if (cookie) headers.set('cookie', cookie);
+  // Authorization is the only application session credential. Set it
+  // explicitly so Pages -> Worker origin changes cannot drop the Bearer JWT.
+  const authorization = request.headers.get('authorization');
+  if (authorization) headers.set('authorization', authorization);
 
   return new Request(upstreamUrl.toString(), {
     method: request.method,
@@ -31,8 +31,6 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
   const upstreamUrl = new URL(`/api/${suffix}`, API_ORIGIN);
   upstreamUrl.search = incoming.search;
 
-  // Browser -> chavea.pages.dev/api/* is first-party. The HttpOnly session
-  // cookie arrives here and is forwarded explicitly server-to-server.
   let upstreamResponse: Response;
   try {
     upstreamResponse = await fetch(buildUpstreamRequest(context.request, upstreamUrl));
@@ -51,14 +49,10 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
     );
   }
 
-  // Preserve every upstream response header. Re-assign Set-Cookie explicitly
-  // as an extra guard because it is the critical credential handoff between
-  // workers.dev and the first-party Pages response seen by the PWA.
   const headers = new Headers(upstreamResponse.headers);
-  const setCookie = upstreamResponse.headers.get('set-cookie');
-  if (setCookie) headers.set('set-cookie', setCookie);
+  headers.delete('set-cookie');
   headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  headers.set('X-Chavea-Api-Proxy', 'pages');
+  headers.set('X-Chavea-Api-Proxy', 'pages-bearer');
 
   return new Response(upstreamResponse.body, {
     status: upstreamResponse.status,
