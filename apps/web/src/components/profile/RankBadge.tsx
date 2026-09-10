@@ -22,18 +22,22 @@ function RankIcon({ code, className = 'h-4 w-4' }: { code: RankCode; className?:
 export function RankBadge({ mmr, compact = false }: { mmr: number; compact?: boolean }) {
   const rank = resolveRankLocally(mmr);
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full bg-gradient-to-br font-black ring-2 ${styles[rank.code]} ${compact ? 'px-2 py-1 text-[9px]' : 'px-3 py-1.5 text-[10px]'} shadow-lg`}>
-      <RankIcon code={rank.code} className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+    <span className={`inline-flex items-center rounded-full bg-gradient-to-br font-black ring-1 ${styles[rank.code]} ${compact ? 'gap-0.5 px-1.5 py-0.5 text-[8px]' : 'gap-1 px-3 py-1.5 text-[10px]'} shadow-sm`}>
+      <RankIcon code={rank.code} className={compact ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'} />
       {rank.label}
-      {rank.code === 'CHAVEA_PRO' && <Sparkles className="h-3 w-3" />}
+      {!compact && rank.code === 'CHAVEA_PRO' && <Sparkles className="h-3 w-3" />}
     </span>
   );
 }
 
 export function RankEmblem({ rank, compact = false }: { rank: PlayerRank['rank']; compact?: boolean }) {
   return (
-    <span title={`${rank.label} · ${rank.subtitle}`} className={`grid place-items-center rounded-full bg-gradient-to-br ring-2 ring-white ${styles[rank.code]} shadow-xl ${compact ? 'h-7 w-7' : 'h-9 w-9'}`}>
-      <RankIcon code={rank.code} className={compact ? 'h-3.5 w-3.5' : 'h-4.5 w-4.5'} />
+    <span
+      title={`${rank.label} · ${rank.subtitle}`}
+      aria-label={`Patente ${rank.label}`}
+      className={`grid place-items-center rounded-full bg-gradient-to-br ring-2 ring-white ${styles[rank.code]} ${compact ? 'h-5 w-5 shadow-md' : 'h-9 w-9 shadow-xl'}`}
+    >
+      <RankIcon code={rank.code} className={compact ? 'h-2.5 w-2.5' : 'h-4.5 w-4.5'} />
     </span>
   );
 }
