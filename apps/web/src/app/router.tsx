@@ -1,23 +1,35 @@
+import { Suspense, lazy, type PropsWithChildren, type ReactNode } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
-import { LandingPageLight } from '../pages/LandingPageLight';
-import { InvitePage } from '../pages/InvitePage';
-import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
-import { ProfilePage } from '../pages/ProfilePage';
-import { EditProfilePage } from '../pages/EditProfilePage';
-import { PublicProfilePage } from '../pages/PublicProfilePage';
-import { AlbumPage } from '../pages/AlbumPage';
-import { RankingPage } from '../pages/RankingPage';
-import { JogarAgoraPage } from '../pages/JogarAgoraPage';
-import { CasualMatchRoomPage } from '../pages/CasualMatchRoomPage';
-import { LoginPage } from '../pages/auth/LoginPage';
-import { RegisterPage } from '../pages/auth/RegisterPage';
-import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
-import { CompetitionsPage } from '../pages/competitions/CompetitionsPage';
-import { CompetitionDetailExperience } from '../pages/competitions/CompetitionDetailExperience';
-import { CreateCompetitionPhaseThreePage } from '../pages/competitions/CreateCompetitionPhaseThreePage';
-import { StandingsPage } from '../pages/competitions/StandingsPage';
-import { DashboardPage } from '../pages/dashboard/DashboardPage';
+
+const LandingPageLight = lazy(() => import('../pages/LandingPageLight').then((m) => ({ default: m.LandingPageLight })));
+const LoginPage = lazy(() => import('../pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import('../pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('../pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
+const InvitePage = lazy(() => import('../pages/InvitePage').then((m) => ({ default: m.InvitePage })));
+const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const JogarAgoraPage = lazy(() => import('../pages/JogarAgoraPage').then((m) => ({ default: m.JogarAgoraPage })));
+const CasualMatchRoomPage = lazy(() => import('../pages/CasualMatchRoomPage').then((m) => ({ default: m.CasualMatchRoomPage })));
+const CompetitionsPage = lazy(() => import('../pages/competitions/CompetitionsPage').then((m) => ({ default: m.CompetitionsPage })));
+const CompetitionDetailExperience = lazy(() => import('../pages/competitions/CompetitionDetailExperience').then((m) => ({ default: m.CompetitionDetailExperience })));
+const CreateCompetitionPhaseThreePage = lazy(() => import('../pages/competitions/CreateCompetitionPhaseThreePage').then((m) => ({ default: m.CreateCompetitionPhaseThreePage })));
+const StandingsPage = lazy(() => import('../pages/competitions/StandingsPage').then((m) => ({ default: m.StandingsPage })));
+const RankingPage = lazy(() => import('../pages/RankingPage').then((m) => ({ default: m.RankingPage })));
+const ProfilePage = lazy(() => import('../pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
+const EditProfilePage = lazy(() => import('../pages/EditProfilePage').then((m) => ({ default: m.EditProfilePage })));
+const AlbumPage = lazy(() => import('../pages/AlbumPage').then((m) => ({ default: m.AlbumPage })));
+const PublicProfilePage = lazy(() => import('../pages/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })));
+const OwnerSettingsPage = lazy(() => import('../pages/OwnerSettingsPage').then((m) => ({ default: m.OwnerSettingsPage })));
+
+function RouteChunk({ children }: PropsWithChildren) {
+  return (
+    <Suspense fallback={<div className="min-h-dvh bg-white" aria-label="Abrindo tela" />}>
+      {children}
+    </Suspense>
+  );
+}
+
+const lazyElement = (element: ReactNode) => <RouteChunk>{element}</RouteChunk>;
 
 const Placeholder = ({ title }: { title: string }) => (
   <main className="mx-auto max-w-lg bg-white p-6 text-slate-900">
@@ -27,28 +39,28 @@ const Placeholder = ({ title }: { title: string }) => (
 );
 
 export const router = createBrowserRouter([
-  { path: '/', element: <LandingPageLight /> },
-  { path: '/login', element: <LoginPage /> },
-  { path: '/register', element: <RegisterPage /> },
-  { path: '/forgot-password', element: <ForgotPasswordPage /> },
-  { path: '/invite/:id', element: <InvitePage /> },
+  { path: '/', element: lazyElement(<LandingPageLight />) },
+  { path: '/login', element: lazyElement(<LoginPage />) },
+  { path: '/register', element: lazyElement(<RegisterPage />) },
+  { path: '/forgot-password', element: lazyElement(<ForgotPasswordPage />) },
+  { path: '/invite/:id', element: lazyElement(<InvitePage />) },
   {
     element: <ProtectedRoute />,
     children: [
-      { path: '/dashboard', element: <DashboardPage /> },
-      { path: '/play', element: <JogarAgoraPage /> },
-      { path: '/play/rooms/:roomId', element: <CasualMatchRoomPage /> },
-      { path: '/competitions', element: <CompetitionsPage /> },
-      { path: '/competitions/new', element: <CreateCompetitionPhaseThreePage /> },
-      { path: '/competitions/:competitionId', element: <CompetitionDetailExperience /> },
-      { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
+      { path: '/dashboard', element: lazyElement(<DashboardPage />) },
+      { path: '/play', element: lazyElement(<JogarAgoraPage />) },
+      { path: '/play/rooms/:roomId', element: lazyElement(<CasualMatchRoomPage />) },
+      { path: '/competitions', element: lazyElement(<CompetitionsPage />) },
+      { path: '/competitions/new', element: lazyElement(<CreateCompetitionPhaseThreePage />) },
+      { path: '/competitions/:competitionId', element: lazyElement(<CompetitionDetailExperience />) },
+      { path: '/competitions/:competitionId/standings', element: lazyElement(<StandingsPage />) },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
-      { path: '/ranking', element: <RankingPage /> },
-      { path: '/profile', element: <ProfilePage /> },
-      { path: '/profile/edit', element: <EditProfilePage /> },
-      { path: '/profile/album', element: <AlbumPage /> },
-      { path: '/profile/:userId', element: <PublicProfilePage /> },
-      { path: '/owner/settings', element: <OwnerSettingsPage /> },
+      { path: '/ranking', element: lazyElement(<RankingPage />) },
+      { path: '/profile', element: lazyElement(<ProfilePage />) },
+      { path: '/profile/edit', element: lazyElement(<EditProfilePage />) },
+      { path: '/profile/album', element: lazyElement(<AlbumPage />) },
+      { path: '/profile/:userId', element: lazyElement(<PublicProfilePage />) },
+      { path: '/owner/settings', element: lazyElement(<OwnerSettingsPage />) },
     ],
   },
 ]);
