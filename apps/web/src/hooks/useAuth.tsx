@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { Logo } from '../components/brand/Logo';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 
@@ -24,8 +25,14 @@ type Registration = Credentials & {
   name: string;
 };
 
+type PersistableSession = {
+  access_token: string;
+  refresh_token: string;
+};
+
 type AuthSessionResponse = {
   user: AuthUser | null;
+  session?: PersistableSession;
   rewards?: { dailyPackGranted?: boolean };
 };
 
@@ -33,70 +40,42 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
-const KNOWN_SESSION_KEY = 'chaveaHasSession';
-
-function readKnownSession(): boolean {
-  try {
-    return window.localStorage.getItem(KNOWN_SESSION_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function writeKnownSession(value: boolean) {
-  try {
-    if (value) window.localStorage.setItem(KNOWN_SESSION_KEY, 'true');
-    else window.localStorage.removeItem(KNOWN_SESSION_KEY);
-  } catch {
-    // Non-sensitive hint only; HttpOnly cookie remains the source of truth.
-  }
-}
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-}
 
 function isAuthorizationError(error: unknown): error is ApiError {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
-async function requestSession(): Promise<AuthSessionResponse> {
-  try {
-    return await apiRequest<AuthSessionResponse>('/api/auth/me');
-  } catch (error) {
-    // 401/403 are authorization outcomes, not connectivity failures. Clear only
-    // the non-sensitive session hint and let the router show the login flow.
-    if (isAuthorizationError(error)) {
-      writeKnownSession(false);
-      return { user: null, rewards: { dailyPackGranted: false } };
-    }
-    throw error;
+async function persistServerSession(data: AuthSessionResponse): Promise<void> {
+  if (!data.session?.access_token || !data.session.refresh_token) {
+    throw new ApiError(401, 'SESSION_PERSIST_FAILED');
+  }
+
+  const { error } = await supabase.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  });
+  if (error) {
+    console.error('[auth] Supabase local session persistence failed', error.message);
+    throw new ApiError(401, 'SESSION_PERSIST_FAILED', { message: error.message });
   }
 }
 
-async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
-  const first = await requestSession();
-  if (first.user) {
-    writeKnownSession(true);
-    return first;
+async function requestSession(): Promise<AuthSessionResponse> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new ApiError(0, 'SESSION_RESTORE_FAILED', { message: error.message });
+  if (!data.session?.access_token) {
+    return { user: null, rewards: { dailyPackGranted: false } };
   }
 
-  // iOS/Android standalone PWAs can resume before persisted cookie storage is
-  // fully hydrated. A tiny bounded retry avoids ejecting a known signed-in user
-  // during that window. No credential/token is ever stored in localStorage.
-  if (!readKnownSession()) return first;
-
-  const delays = [250, 750, 1500, 2500] as const;
-  let latest = first;
-  for (const delay of delays) {
-    await sleep(delay);
-    latest = await requestSession();
-    if (latest.user) {
-      writeKnownSession(true);
-      return latest;
+  try {
+    return await apiRequest<AuthSessionResponse>('/api/auth/me');
+  } catch (requestError) {
+    if (isAuthorizationError(requestError)) {
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+      return { user: null, rewards: { dailyPackGranted: false } };
     }
+    throw requestError;
   }
-  return latest;
 }
 
 function useAuthState() {
@@ -104,50 +83,69 @@ function useAuthState() {
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
-    // Source of truth after every hard refresh/PWA reopen: secure HttpOnly
-    // chavea_session cookie validated against the persistent Session table.
-    queryFn: loadSessionWithPwaGrace,
-    staleTime: 5 * 60_000,
+    // Supabase restores/refreshes the access + refresh token pair from browser
+    // localStorage before the Worker validates the Bearer JWT via /auth/me.
+    queryFn: requestSession,
+    staleTime: 60_000,
     gcTime: 30 * 60_000,
     retry: (failureCount, error) => !isAuthorizationError(error) && failureCount < 2,
     retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     refetchOnMount: 'always',
     refetchOnReconnect: true,
   });
 
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        queryClient.setQueryData(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
+      }
+      if (event === 'TOKEN_REFRESHED') {
+        void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, [queryClient]);
+
   const login = useMutation({
-    mutationFn: (data: Credentials) =>
-      apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    onSuccess: (data) => {
-      writeKnownSession(true);
-      queryClient.setQueryData(AUTH_QUERY_KEY, data);
+    mutationFn: async (credentials: Credentials) => {
+      const response = await apiRequest<AuthSessionResponse & { user: AuthUser; session: PersistableSession }>(
+        '/api/auth/login',
+        { method: 'POST', body: JSON.stringify(credentials) },
+      );
+      await persistServerSession(response);
+      return response;
     },
+    onSuccess: (data) => queryClient.setQueryData(AUTH_QUERY_KEY, data),
   });
 
   const register = useMutation({
-    mutationFn: (data: Registration) =>
-      apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    onSuccess: (data) => {
-      writeKnownSession(true);
-      queryClient.setQueryData(AUTH_QUERY_KEY, data);
+    mutationFn: async (registration: Registration) => {
+      const response = await apiRequest<AuthSessionResponse & { user: AuthUser; session: PersistableSession }>(
+        '/api/auth/register',
+        { method: 'POST', body: JSON.stringify(registration) },
+      );
+      await persistServerSession(response);
+      return response;
     },
+    onSuccess: (data) => queryClient.setQueryData(AUTH_QUERY_KEY, data),
   });
 
   const logout = useMutation({
-    mutationFn: () => apiRequest<void>('/api/auth/logout', { method: 'POST' }),
-    onSuccess: () => {
-      writeKnownSession(false);
-      queryClient.setQueryData(AUTH_QUERY_KEY, { user: null });
+    mutationFn: async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('[auth] remote sign-out failed; clearing local session', error.message);
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+      }
+    },
+    onSettled: () => {
+      queryClient.setQueryData(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
       queryClient.removeQueries({ queryKey: ['competitions'] });
       queryClient.removeQueries({ queryKey: ['default-shields'] });
       queryClient.removeQueries({ queryKey: ['owner', 'default-shields'] });
+      queryClient.removeQueries({ queryKey: ['ranking'] });
+      queryClient.removeQueries({ queryKey: ['global-friendly-feed'] });
     },
   });
 
@@ -166,7 +164,7 @@ function useAuthState() {
     register,
     logout,
     refresh: () => me.refetch(),
-    googleLoginUrl: '/api/auth/google',
+    googleLoginUrl: '',
   };
 }
 
@@ -186,7 +184,7 @@ function SessionRecoveryScreen({ error, onRetry }: { error: unknown; onRetry: ()
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
           {networkFailure
             ? 'Verifique sua conexão e tente novamente.'
-            : 'O serviço de autenticação respondeu com erro. Sua conta não foi marcada como desconectada.'}
+            : 'O serviço de autenticação respondeu com erro. Sua sessão local foi preservada para nova tentativa.'}
         </p>
         <button
           type="button"
@@ -225,8 +223,6 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
 
-  // Never mount the router until the initial persistent session check (including
-  // the bounded PWA hydration grace) has completed.
   if (value.isBootstrapping) return <SessionBootScreen />;
   if (value.hasBootstrapError) {
     return <SessionRecoveryScreen error={value.bootstrapError} onRetry={() => void value.refresh()} />;
