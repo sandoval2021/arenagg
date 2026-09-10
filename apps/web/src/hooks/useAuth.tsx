@@ -11,7 +11,9 @@ import { apiRequest } from '../lib/api';
 import {
   clearSupabaseSession,
   persistSupabaseSession,
+  setSupabaseAccessToken,
   supabase,
+  suspendSupabasePersistence,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
@@ -48,30 +50,23 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
 const AUTH_BOOT_TIMEOUT_MS = 5_000;
+const AUTH_ME_TIMEOUT_MS = 4_500;
 
 function hardClearBrowserAuth() {
-  // This path is deliberately stronger than a normal logout. If auth bootstrap
-  // stalls or fails, stale refresh/access tokens must not keep the PWA trapped
-  // in a restore loop on its next launch.
+  // Freeze GoTrue persistence before clearing storage. This prevents a stale
+  // refresh promise from re-populating localStorage after the recovery redirect.
+  suspendSupabasePersistence();
   try {
     window.localStorage.clear();
   } catch {
     // Safari private/managed modes can reject storage access. The redirect to
-    // /login still gives the user a deterministic escape route.
+    // /login still provides a deterministic escape route.
   }
-
-  // Do not await signOut here: the auth provider is specifically recovering
-  // from a potentially stalled auth client. The hard reload into /login creates
-  // a fresh Supabase client after localStorage has already been cleared.
-  void clearSupabaseSession();
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      reject(new Error('AUTH_BOOT_TIMEOUT'));
-    }, timeoutMs);
-
+    const timeout = window.setTimeout(() => reject(new Error('AUTH_BOOT_TIMEOUT')), timeoutMs);
     promise.then(
       (value) => {
         window.clearTimeout(timeout);
@@ -86,7 +81,13 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 async function requestSession(): Promise<AuthSessionResponse> {
-  return apiRequest<AuthSessionResponse>('/api/auth/me');
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
+  try {
+    return await apiRequest<AuthSessionResponse>('/api/auth/me', { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
@@ -104,26 +105,28 @@ async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
 
   if (response.status === 401) return null;
   const body = (await response.json().catch(() => null)) as AuthSessionResponse | null;
-  if (!response.ok || !body?.session || !body.user) {
-    throw new Error('AUTH_MIGRATION_FAILED');
-  }
+  if (!response.ok || !body?.session || !body.user) throw new Error('AUTH_MIGRATION_FAILED');
 
   await persistSupabaseSession(body.session);
+  setSupabaseAccessToken(body.session.accessToken);
   return body;
 }
 
 async function loadPersistentSession(): Promise<AuthSessionResponse> {
+  // This is the only getSession() on the critical bootstrap path. It is bounded
+  // by AUTH_BOOT_TIMEOUT_MS, and every later API call reads the cached Bearer
+  // token instead of entering GoTrue's storage/Web Locks machinery again.
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
 
   if (data.session) {
+    setSupabaseAccessToken(data.session.access_token);
     return requestSession();
   }
 
-  // One-time bridge from the legacy HttpOnly-cookie release. If iOS already
-  // removed the cookie, the user simply lands on Login and signs in once.
   const migrated = await migrateLegacyCookie();
   if (migrated) return migrated;
+  setSupabaseAccessToken(null);
   return { user: null, rewards: { dailyPackGranted: false } };
 }
 
@@ -145,7 +148,8 @@ async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
 
 async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
   if (!data.session) throw new Error('AUTH_SESSION_MISSING');
-  await persistSupabaseSession(data.session);
+  const session = await persistSupabaseSession(data.session);
+  setSupabaseAccessToken(session.access_token);
   return data;
 }
 
@@ -157,8 +161,6 @@ function useAuthState() {
     queryFn: bootstrapPersistentSession,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    // Bootstrap has its own strict 5-second deadline. React Query retries would
-    // extend the white/loading screen beyond that contract.
     retry: false,
     refetchOnWindowFocus: true,
     refetchOnMount: 'always',
@@ -166,7 +168,9 @@ function useAuthState() {
   });
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      setSupabaseAccessToken(session?.access_token ?? null);
+
       if (event === 'SIGNED_OUT') {
         queryClient.setQueryData(AUTH_QUERY_KEY, {
           user: null,
@@ -229,17 +233,14 @@ function useAuthState() {
 
   const forceLoginRecovery = useCallback(() => {
     hardClearBrowserAuth();
+    void queryClient.cancelQueries({ queryKey: AUTH_QUERY_KEY });
 
     if (window.location.pathname !== '/login') {
-      // Clear stale protected data before leaving this JS realm. The navigation
-      // then creates a fresh QueryClient and Supabase client.
       queryClient.clear();
       window.location.replace('/login');
       return;
     }
 
-    // Already on Login: do not reload-loop. Keep the provider alive with a
-    // clean anonymous state so the form can render immediately.
     queryClient.setQueryData(AUTH_QUERY_KEY, {
       user: null,
       rewards: { dailyPackGranted: false },
@@ -295,14 +296,20 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
 
+  // Independent watchdog: even if GoTrue leaves a promise permanently pending
+  // on iOS, React never gets to keep the user on a white/loading screen forever.
+  useEffect(() => {
+    if (!value.isBootstrapping) return;
+    const watchdog = window.setTimeout(() => value.forceLoginRecovery(), AUTH_BOOT_TIMEOUT_MS);
+    return () => window.clearTimeout(watchdog);
+  }, [value.isBootstrapping, value.forceLoginRecovery]);
+
   useEffect(() => {
     if (value.bootstrapFailed) value.forceLoginRecovery();
   }, [value.bootstrapFailed, value.forceLoginRecovery]);
 
   if (value.isBootstrapping) return <SessionBootScreen />;
 
-  // During the single render before location.replace(), keep the UI deterministic
-  // and never expose the old dead-end recovery page.
   if (value.bootstrapFailed && window.location.pathname !== '/login') {
     return <GlobalLoader mode="screen" label="Abrindo login…" />;
   }
