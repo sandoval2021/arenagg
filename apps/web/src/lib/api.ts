@@ -1,4 +1,4 @@
-import { getSupabaseAccessToken } from './supabase-auth';
+import { getSupabaseAccessToken, refreshSupabaseAccessToken } from './supabase-auth';
 
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
@@ -188,20 +188,13 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
+function isSessionIssuingPath(path: string): boolean {
+  return path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/migrate-cookie';
+}
 
-  const accessToken = await getSupabaseAccessToken();
-  if (accessToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${accessToken}`);
-  }
-
-  let response: Response;
+async function fetchApi(path: string, init: RequestInit, headers: Headers): Promise<Response> {
   try {
-    response = await fetch(resolveRequestUrl(path), {
+    return await fetch(resolveRequestUrl(path), {
       ...init,
       headers,
       credentials: 'omit',
@@ -214,6 +207,39 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       message: error instanceof Error ? error.message : String(error),
     });
     throw new ApiError(0, 'NETWORK_ERROR');
+  }
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const accessToken = getSupabaseAccessToken();
+  if (accessToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+
+  let response = await fetchApi(path, init, headers);
+
+  // iOS can resume the PWA after an access JWT expires. Supabase keeps the
+  // refresh token in localStorage; refresh once and replay the same protected
+  // request with a fresh Bearer token. This is bounded to one retry.
+  if (response.status === 401 && accessToken && !isSessionIssuingPath(path)) {
+    try {
+      const refreshedToken = await refreshSupabaseAccessToken();
+      if (refreshedToken) {
+        const retryHeaders = new Headers(headers);
+        retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+        response = await fetchApi(path, init, retryHeaders);
+      }
+    } catch (refreshError) {
+      console.warn('[api] bearer refresh failed', {
+        path,
+        message: refreshError instanceof Error ? refreshError.message : String(refreshError),
+      });
+    }
   }
 
   if (!response.ok) {
