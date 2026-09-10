@@ -6,6 +6,7 @@ import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { EditProfilePage } from '../pages/EditProfilePage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
+import { AlbumPage } from '../pages/AlbumPage';
 import { RankingPage } from '../pages/RankingPage';
 import { JogarAgoraPage } from '../pages/JogarAgoraPage';
 import { CasualMatchRoomPage } from '../pages/CasualMatchRoomPage';
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
       { path: '/ranking', element: <RankingPage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/profile/edit', element: <EditProfilePage /> },
+      { path: '/profile/album', element: <AlbumPage /> },
       { path: '/profile/:userId', element: <PublicProfilePage /> },
       { path: '/owner/settings', element: <OwnerSettingsPage /> },
     ],
