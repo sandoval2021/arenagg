@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './app/router';
 import { AuthProvider } from './hooks/useAuth';
 import { GlobalActivityLoader } from './components/brand/GlobalActivityLoader';
-import { PwaUpdatePrompt } from './components/pwa/PwaUpdatePrompt';
 import { DEFAULT_STALE_TIME, QUERY_GC_TIME } from './lib/query-cache';
 import './styles/globals.css';
+
+const PwaUpdatePrompt = lazy(() =>
+  import('./components/pwa/PwaUpdatePrompt').then((module) => ({ default: module.PwaUpdatePrompt })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +27,23 @@ const queryClient = new QueryClient({
   },
 });
 
+function DeferredPwaUpdater() {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    // Service-worker bookkeeping must not compete with the initial React paint.
+    const timer = window.setTimeout(() => setEnabled(true), 800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!enabled) return null;
+  return (
+    <Suspense fallback={null}>
+      <PwaUpdatePrompt />
+    </Suspense>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -31,7 +51,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <RouterProvider router={router} />
       </AuthProvider>
       <GlobalActivityLoader />
-      <PwaUpdatePrompt />
+      <DeferredPwaUpdater />
     </QueryClientProvider>
   </React.StrictMode>,
 );
