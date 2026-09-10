@@ -14,6 +14,12 @@ body { margin: 0; min-width: 320px; min-height: 100dvh; background: #fff; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-touch-callout: none; }
 
+/* Keep avatar/shield boxes visually stable while mobile image decoding happens. */
+img {
+  background-color: #f1f5f9;
+  color: transparent;
+}
+
 /*
  * Chavea loading language: the application-level Query activity indicator and
  * GlobalLoader own the loading animation. Legacy Lucide LoaderCircle/Loader2
