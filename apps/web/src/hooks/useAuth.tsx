@@ -27,16 +27,62 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
+const KNOWN_SESSION_KEY = 'chaveaHasSession';
+
+function readKnownSession(): boolean {
+  try {
+    return window.localStorage.getItem(KNOWN_SESSION_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeKnownSession(value: boolean) {
+  try {
+    if (value) window.localStorage.setItem(KNOWN_SESSION_KEY, 'true');
+    else window.localStorage.removeItem(KNOWN_SESSION_KEY);
+  } catch {
+    // Non-sensitive hint only; HttpOnly cookie remains the source of truth.
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function loadSessionWithPwaGrace(): Promise<{ user: AuthUser | null }> {
+  const first = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+  if (first.user) {
+    writeKnownSession(true);
+    return first;
+  }
+
+  // iOS/Android standalone PWAs can resume before persisted cookie storage is
+  // fully hydrated. A tiny bounded retry avoids ejecting a known signed-in user
+  // during that window. No credential/token is ever stored in localStorage.
+  if (!readKnownSession()) return first;
+
+  await sleep(250);
+  const second = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+  if (second.user) {
+    writeKnownSession(true);
+    return second;
+  }
+
+  await sleep(500);
+  const third = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+  if (third.user) writeKnownSession(true);
+  return third;
+}
 
 function useAuthState() {
   const queryClient = useQueryClient();
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
-    // This is the source of truth after every hard refresh/F5. No auth token is
-    // stored in localStorage/sessionStorage: the browser sends only the secure
-    // HttpOnly chavea_session cookie and the API validates it against Session.
-    queryFn: () => apiRequest<{ user: AuthUser | null }>('/api/auth/me'),
+    // Source of truth after every hard refresh/PWA reopen: secure HttpOnly
+    // chavea_session cookie validated against the persistent Session table.
+    queryFn: loadSessionWithPwaGrace,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     retry: 2,
@@ -53,6 +99,7 @@ function useAuthState() {
         body: JSON.stringify(data),
       }),
     onSuccess: (data) => {
+      writeKnownSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
@@ -64,6 +111,7 @@ function useAuthState() {
         body: JSON.stringify(data),
       }),
     onSuccess: (data) => {
+      writeKnownSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
@@ -71,6 +119,7 @@ function useAuthState() {
   const logout = useMutation({
     mutationFn: () => apiRequest<void>('/api/auth/logout', { method: 'POST' }),
     onSuccess: () => {
+      writeKnownSession(false);
       queryClient.setQueryData(AUTH_QUERY_KEY, { user: null });
       queryClient.removeQueries({ queryKey: ['competitions'] });
       queryClient.removeQueries({ queryKey: ['default-shields'] });
@@ -123,8 +172,8 @@ function SessionRecoveryScreen({ onRetry }: { onRetry: () => void }) {
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
 
-  // Do not mount the router until /api/auth/me resolves. This prevents a hard
-  // refresh from briefly seeing user=null and redirecting to /login.
+  // Never mount the router until the initial persistent session check (including
+  // the bounded PWA hydration grace) has completed.
   if (value.isBootstrapping) return <SessionBootScreen />;
   if (value.hasBootstrapError) return <SessionRecoveryScreen onRetry={() => void value.refresh()} />;
 
