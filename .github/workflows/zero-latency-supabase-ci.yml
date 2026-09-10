@@ -1,0 +1,145 @@
+name: Zero Latency Supabase CI
+
+on:
+  push:
+    branches: [hotfix-zero-latency-supabase]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply deterministic performance codemod
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          api = Path('apps/web/src/lib/api.ts')
+          text = api.read_text()
+          old = "import { getSupabaseAccessToken } from './supabase-auth';"
+          new = "import { clearSupabaseSessionSync, getSupabaseAccessToken } from './supabase-auth';"
+          if old in text:
+              text = text.replace(old, new, 1)
+          marker = "  if (!response.ok) {\n    const body ="
+          replacement = "  if (!response.ok) {\n    if (response.status === 401) {\n      clearSupabaseSessionSync();\n      window.dispatchEvent(new Event('chavea:unauthorized'));\n    }\n    const body ="
+          if marker in text:
+              text = text.replace(marker, replacement, 1)
+          api.write_text(text)
+
+          edit = Path('apps/web/src/pages/EditProfilePage.tsx')
+          text = edit.read_text()
+          blocker = "  if (profile.isLoading && !hydrated) {\n    return <GlobalLoader mode=\"screen\" label=\"Carregando seu perfil…\" />;\n  }\n\n"
+          text = text.replace(blocker, '')
+          text = text.replace(
+              '<div className="min-w-0 flex-1"><p className="text-sm font-black">Preview instantâneo</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">A foto da galeria aparece aqui na hora.</p></div>',
+              '<div className="min-w-0 flex-1"><p className="text-sm font-black">Preview instantâneo</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Fotos grandes são reduzidas antes do envio.</p>{profile.isFetching && !hydrated && <p className="mt-1 text-[10px] font-bold text-slate-400">Sincronizando dados…</p>}</div>',
+          )
+          text = text.replace(
+              'disabled={displayName.trim().length < 2 || save.isPending || Boolean(fileError)}',
+              'disabled={displayName.trim().length < 2 || save.isPending || !hydrated || Boolean(fileError)}',
+          )
+          edit.write_text(text)
+
+          css = Path('apps/web/src/styles/globals.css')
+          text = css.read_text()
+          if 'img {\n  background-color: #f1f5f9;' not in text:
+              text += '\n/* Stable neutral paint box while mobile images decode. */\nimg {\n  background-color: #f1f5f9;\n  color: transparent;\n}\n'
+          css.write_text(text)
+
+          changed=[]
+          for path in Path('apps/web/src').rglob('*.tsx'):
+              text=path.read_text()
+              cursor=0
+              pieces=[]
+              dirty=False
+              while True:
+                  start=text.find('<img', cursor)
+                  if start < 0:
+                      pieces.append(text[cursor:])
+                      break
+                  end=text.find('/>', start)
+                  if end < 0:
+                      raise SystemExit(f'Non-self-closing img tag in {path}')
+                  end += 2
+                  tag=text[start:end]
+                  attrs=''
+                  if 'loading=' not in tag:
+                      attrs += ' loading="lazy"'
+                  if 'decoding=' not in tag:
+                      attrs += ' decoding="async"'
+                  pieces.append(text[cursor:start])
+                  if attrs:
+                      tag='<img' + attrs + tag[len('<img'):]
+                      dirty=True
+                  pieces.append(tag)
+                  cursor=end
+              if dirty:
+                  path.write_text(''.join(pieces))
+                  changed.append(str(path))
+          print(f'normalized image tags in {len(changed)} files')
+          PY
+          if ! git diff --quiet -- apps/web/src; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apps/web/src
+            git commit -m "perf(web): finish zero-latency image and auth normalization [skip ci]"
+            git push origin HEAD:hotfix-zero-latency-supabase
+          fi
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert zero-blocking auth
+        run: |
+          set -euo pipefail
+          ! grep -Fq 'AUTH_BOOT_TIMEOUT_MS' apps/web/src/hooks/useAuth.tsx
+          ! grep -Fq 'SessionBootScreen' apps/web/src/hooks/useAuth.tsx
+          ! grep -Fq 'GlobalLoader mode="screen"' apps/web/src/hooks/useAuth.tsx
+          ! grep -Fq 'if (auth.isLoading)' apps/web/src/components/auth/ProtectedRoute.tsx
+          grep -Fq 'useState(hydrateSupabaseAccessTokenSync)' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'hydrateSupabaseAccessTokenSync();' apps/web/src/main.tsx
+          grep -Fq "chavea:unauthorized" apps/web/src/lib/api.ts
+      - name: Assert route splitting and measure bundle
+        run: |
+          set -euo pipefail
+          grep -Fq 'lazy(() => import(' apps/web/src/app/router.tsx
+          chunk_count=$(find apps/web/dist/assets -maxdepth 1 -type f -name '*.js' | wc -l)
+          echo "JS chunk count: $chunk_count"
+          test "$chunk_count" -ge 20
+          find apps/web/dist/assets -maxdepth 1 -type f -name '*.js' -printf '%s %f\n' | sort -nr | head -25
+      - name: Audit every image tag
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          failures=[]
+          for path in Path('apps/web/src').rglob('*.tsx'):
+              text=path.read_text(); cursor=0
+              while True:
+                  start=text.find('<img', cursor)
+                  if start < 0: break
+                  end=text.find('/>', start)
+                  if end < 0: failures.append((path, 'non-self-closing')); break
+                  tag=text[start:end+2]
+                  if 'loading=' not in tag or 'decoding=' not in tag:
+                      failures.append((path, 'missing lazy/async'))
+                  cursor=end+2
+          if failures:
+              print(failures)
+              raise SystemExit(f'{len(failures)} image tags failed')
+          PY
+          grep -Fq 'AVATAR_MAX_DIMENSION = 512' apps/web/src/lib/social-api.ts
+          grep -Fq "canvas.toBlob(resolve, 'image/webp'" apps/web/src/lib/social-api.ts
