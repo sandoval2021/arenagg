@@ -50,6 +50,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
 const KNOWN_SESSION_KEY = 'chaveaHasSession';
 const USER_SNAPSHOT_KEY = 'chaveaUserSnapshot';
+const AUTH_RECOVERY_DELAYS_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 function isPublicAuthPath(pathname: string): boolean {
   return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
@@ -123,6 +124,10 @@ function clearUserSnapshot(): void {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function isAuthorizationError(error: unknown): error is ApiError {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
@@ -161,32 +166,84 @@ async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
   return body;
 }
 
+async function readStoredSessionWithGrace() {
+  let session = await readPersistedSupabaseSession();
+  if (session || !hasPersistedSessionSync()) return session;
+
+  // iOS can briefly expose the PWA shell before storage/session hydration has
+  // settled. Keep the app interactive and give persisted auth a bounded grace
+  // window before treating an absent SDK session as a real sign-out.
+  for (const delay of AUTH_RECOVERY_DELAYS_MS) {
+    await sleep(delay);
+    session = await readPersistedSupabaseSession();
+    if (session) return session;
+  }
+
+  return null;
+}
+
+async function validateBearerSessionWithGrace(): Promise<AuthSessionResponse | null> {
+  let lastAuthorizationError: unknown = null;
+
+  for (let attempt = 0; attempt <= AUTH_RECOVERY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await requestSession();
+    } catch (error) {
+      if (!isAuthorizationError(error)) throw error;
+      lastAuthorizationError = error;
+    }
+
+    try {
+      const refreshed = await refreshSupabaseAccessToken();
+      if (refreshed) {
+        try {
+          return await requestSession();
+        } catch (error) {
+          if (!isAuthorizationError(error)) throw error;
+          lastAuthorizationError = error;
+        }
+      }
+    } catch (refreshError) {
+      // Connectivity/runtime failures are not logout signals. Bubble them so
+      // cached user state remains mounted and React Query can retry later.
+      if (!isClientAuthError(refreshError)) throw refreshError;
+      lastAuthorizationError = refreshError;
+    }
+
+    if (attempt < AUTH_RECOVERY_DELAYS_MS.length) {
+      await sleep(AUTH_RECOVERY_DELAYS_MS[attempt]);
+    }
+  }
+
+  console.warn('[auth] bearer session remained unauthorized after recovery grace', lastAuthorizationError);
+  return null;
+}
+
 async function loadPersistentSession(): Promise<AuthSessionResponse> {
-  const storedSession = await readPersistedSupabaseSession();
+  const hadPersistedSession = hasPersistedSessionSync();
+  const storedSession = await readStoredSessionWithGrace();
 
   if (!storedSession) {
     const migrated = await migrateLegacyCookie();
     if (migrated) return migrated;
+
     setSupabaseAccessToken(null);
-    return { user: null, rewards: { dailyPackGranted: false } };
-  }
-
-  try {
-    return await requestSession();
-  } catch (error) {
-    if (!isAuthorizationError(error)) throw error;
-
-    try {
-      const refreshed = await refreshSupabaseAccessToken();
-      if (refreshed) return await requestSession();
-    } catch (refreshError) {
-      if (!isClientAuthError(refreshError)) throw refreshError;
+    if (hadPersistedSession) {
+      // Only after the full storage grace window do we accept that the browser
+      // truly lost the persisted Supabase session.
+      await clearSupabaseSession();
+      clearUserSnapshot();
     }
-
-    await clearSupabaseSession();
-    clearUserSnapshot();
     return { user: null, rewards: { dailyPackGranted: false } };
   }
+
+  setSupabaseAccessToken(storedSession.access_token);
+  const validated = await validateBearerSessionWithGrace();
+  if (validated) return validated;
+
+  await clearSupabaseSession();
+  clearUserSnapshot();
+  return { user: null, rewards: { dailyPackGranted: false } };
 }
 
 async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
@@ -209,8 +266,9 @@ function useAuthState() {
     enabled: !isPublicAuthRoute,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
-    retry: false,
-    refetchOnWindowFocus: !isPublicAuthRoute,
+    retry: (failureCount, error) => !isAuthorizationError(error) && failureCount < 2,
+    retryDelay: (attempt) => Math.min(750 * 2 ** attempt, 3_000),
+    refetchOnWindowFocus: false,
     refetchOnMount: isPublicAuthRoute ? false : 'always',
     refetchOnReconnect: !isPublicAuthRoute,
   });
@@ -230,16 +288,19 @@ function useAuthState() {
 
   useEffect(() => subscribeSupabaseAuthState((event, session) => {
     setSupabaseAccessToken(session?.access_token ?? null);
-    if (session) setHasPersistedSession(true);
+    if (session) {
+      setHasPersistedSession(true);
+      return;
+    }
 
     if (event === 'SIGNED_OUT') {
-      clearUserSnapshot();
-      setCachedUser(null);
-      setHasPersistedSession(false);
-      queryClient.setQueryData(AUTH_QUERY_KEY, {
-        user: null,
-        rewards: { dailyPackGranted: false },
-      });
+      // Supabase can transiently emit SIGNED_OUT while an iOS PWA is restoring
+      // or refreshing tokens. Do not tear down the React user immediately.
+      // Explicit logout has its own deterministic onSettled cleanup below;
+      // unexpected sign-out signals are confirmed by the guarded /auth/me flow.
+      window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY, refetchType: 'active' });
+      }, 1_000);
     }
   }), [queryClient]);
 
@@ -313,7 +374,7 @@ function useAuthState() {
 
   return {
     user,
-    // Network validation runs in the background and never blocks the first paint.
+    // Network/session validation runs in the background and never blocks paint.
     isLoading: false,
     isBootstrapping,
     hasPersistedSession,
