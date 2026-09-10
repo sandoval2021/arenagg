@@ -64,6 +64,6 @@ export function StandingsTable({ standings, userIdByTeam = {} }: { standings: St
 
 function TeamLogo({ name, logoUrl, podium }: { name: string; logoUrl?: string; podium: boolean }) {
   const frame = `h-7 w-7 shrink-0 rounded-lg border sm:h-10 sm:w-10 sm:rounded-xl ${podium ? 'border-blue-200' : 'border-slate-200'}`;
-  if (logoUrl) return <img src={logoUrl} alt="" className={`${frame} bg-white object-cover shadow-sm`} loading="lazy" referrerPolicy="no-referrer" />;
+  if (logoUrl) return <img decoding="async" src={logoUrl} alt="" className={`${frame} bg-white object-cover shadow-sm`} loading="lazy" referrerPolicy="no-referrer" />;
   return <div className={`grid ${frame} place-items-center bg-slate-50 text-[8px] font-black text-slate-600 ${podium ? 'bg-blue-50 text-[#073B8C]' : ''}`}>{name.slice(0, 2).toUpperCase()}</div>;
 }

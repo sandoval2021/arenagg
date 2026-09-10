@@ -102,10 +102,6 @@ export function EditProfilePage() {
     setAvatarUrl('');
   }
 
-  if (profile.isLoading && !hydrated) {
-    return <GlobalLoader mode="screen" label="Carregando seu perfil…" />;
-  }
-
   const visibleAvatar = preview || avatarUrl;
 
   return (
@@ -119,7 +115,7 @@ export function EditProfilePage() {
         <section className="mt-4 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/50">
           <div className="flex items-center gap-4">
             <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-[1.6rem] border border-blue-200 bg-blue-50 shadow-sm">
-              {visibleAvatar ? <img src={visibleAvatar} alt="Preview do avatar" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
+              {visibleAvatar ? <img loading="lazy" decoding="async" src={visibleAvatar} alt="Preview do avatar" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
             </div>
             <div className="min-w-0 flex-1"><p className="text-sm font-black">Preview instantâneo</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Fotos grandes do celular são otimizadas antes do envio.</p></div>
           </div>
@@ -135,7 +131,7 @@ export function EditProfilePage() {
           <div className="mt-3 grid grid-cols-3 gap-3">
             {BUILT_IN_AVATARS.map((avatar) => {
               const selected = !file && avatarUrl === avatar.url;
-              return <button key={avatar.url} type="button" onClick={() => { setFile(null); setFileError(null); setAvatarUrl(avatar.url); }} className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-2 shadow-sm ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}><img src={avatar.url} alt={avatar.name} className="h-full w-full rounded-xl object-cover" />{selected && <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3.5 w-3.5" /></span>}</button>;
+              return <button key={avatar.url} type="button" onClick={() => { setFile(null); setFileError(null); setAvatarUrl(avatar.url); }} className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-2 shadow-sm ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}><img loading="lazy" decoding="async" src={avatar.url} alt={avatar.name} className="h-full w-full rounded-xl object-cover" />{selected && <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3.5 w-3.5" /></span>}</button>;
             })}
           </div>
 

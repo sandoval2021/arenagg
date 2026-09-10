@@ -62,7 +62,7 @@ function ScorerRow({ scorer }: { scorer: TopScorer }) {
       </span>
 
       {scorer.teamLogoUrl ? (
-        <img src={scorer.teamLogoUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-contain shadow-sm sm:h-11 sm:w-11" loading="lazy" referrerPolicy="no-referrer" />
+        <img decoding="async" src={scorer.teamLogoUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white object-contain shadow-sm sm:h-11 sm:w-11" loading="lazy" referrerPolicy="no-referrer" />
       ) : (
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-400 sm:h-11 sm:w-11"><Shield className="h-5 w-5" /></span>
       )}

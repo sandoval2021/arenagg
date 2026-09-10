@@ -1,4 +1,4 @@
-import { getSupabaseAccessToken } from './supabase-auth';
+import { clearSupabaseSessionSync, getSupabaseAccessToken } from './supabase-auth';
 
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
@@ -217,6 +217,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearSupabaseSessionSync();
+      window.dispatchEvent(new Event('chavea:unauthorized'));
+    }
     const body = (await response.json().catch(() => ({ error: 'REQUEST_FAILED' }))) as {
       error?: string;
       issues?: unknown;

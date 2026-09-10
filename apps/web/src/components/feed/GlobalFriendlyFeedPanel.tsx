@@ -59,7 +59,7 @@ function Player({ avatarUrl, name, score }: { avatarUrl: string | null; name: st
   return (
     <div className="min-w-0 text-center">
       <div className="mx-auto h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-        {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" /> : <span className="grid h-full w-full place-items-center text-[10px] font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>}
+        {avatarUrl ? <img decoding="async" src={avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" /> : <span className="grid h-full w-full place-items-center text-[10px] font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>}
       </div>
       <p className="mt-1.5 truncate text-[11px] font-black text-slate-800">{name}</p>
       <p className="mt-1 text-2xl font-black text-slate-950">{score}</p>

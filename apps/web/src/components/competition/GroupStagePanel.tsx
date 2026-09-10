@@ -86,7 +86,7 @@ export function GroupStagePanel() {
                                 <td className="px-1 py-1 text-center text-[10px]"><span className={`inline-grid h-6 w-6 place-items-center rounded-lg text-[10px] font-black ${qualified ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span></td>
                                 <td className="px-1 py-1">
                                   <div className="flex min-w-0 items-center gap-1.5">
-                                    {playerImage ? <img src={playerImage} alt="" className="h-7 w-7 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-[8px] font-black text-[#073B8C]">{row.team.name.slice(0, 2).toUpperCase()}</span>}
+                                    {playerImage ? <img decoding="async" src={playerImage} alt="" className="h-7 w-7 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-[8px] font-black text-[#073B8C]">{row.team.name.slice(0, 2).toUpperCase()}</span>}
                                     <div className="min-w-0"><p className="max-w-[70px] truncate text-[10px] font-black text-slate-900">{row.team.name}</p>{qualified && <p className="max-w-[80px] truncate text-[7px] font-black uppercase text-emerald-600">Classifica</p>}</div>
                                   </div>
                                 </td>

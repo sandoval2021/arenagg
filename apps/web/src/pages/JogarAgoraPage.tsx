@@ -221,7 +221,7 @@ export function JogarAgoraPage() {
 
 function PlayerAvatar({ url, name, size = 'md' }: { url: string | null; name: string; size?: 'md' | 'lg' }) {
   const classes = size === 'lg' ? 'h-14 w-14 rounded-2xl' : 'h-11 w-11 rounded-xl';
-  if (url) return <img src={url} alt="" className={`${classes} shrink-0 border border-slate-200 bg-white object-cover`} loading="lazy" referrerPolicy="no-referrer" />;
+  if (url) return <img decoding="async" src={url} alt="" className={`${classes} shrink-0 border border-slate-200 bg-white object-cover`} loading="lazy" referrerPolicy="no-referrer" />;
   return <span className={`${classes} grid shrink-0 place-items-center bg-blue-50 text-xs font-black text-[#073B8C]`}>{name.slice(0, 2).toUpperCase()}</span>;
 }
 
