@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   BarChart3,
   Check,
+  CheckCircle2,
   ChevronDown,
   Gavel,
   LoaderCircle,
   Save,
   ShieldCheck,
+  Siren,
   Swords,
   X,
 } from 'lucide-react';
@@ -21,6 +23,12 @@ import {
   type MatchStats,
   type MatchStatsInput,
 } from '../../lib/api';
+import {
+  applyWalkover,
+  getPhaseThreeCompetition,
+  markMatchReady,
+  type PhaseThreeMatch,
+} from '../../lib/phase-three-api';
 
 type CompetitionMatch = CompetitionDetail['matches'][number];
 type CounterKey = Exclude<keyof MatchStatsInput, 'homePossession' | 'awayPossession'>;
@@ -83,8 +91,64 @@ export function MatchStatsPanelLight({
 }) {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [walkoverChoiceOpen, setWalkoverChoiceOpen] = useState(false);
   const [form, setForm] = useState<MatchStatsInput>(() => toInput(stats));
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['match-stats', competitionId] });
+
+  const operations = useQuery({
+    queryKey: ['competition-operations', competitionId],
+    queryFn: () => getPhaseThreeCompetition(competitionId),
+    enabled: Boolean(competitionId) && (canEdit || isHost),
+    staleTime: 1_000,
+    refetchInterval: 3_000,
+    refetchIntervalInBackground: false,
+    placeholderData: (previousData) => previousData,
+  });
+
+  const operationMatch = operations.data?.matches.find((item) => item.id === match.id);
+  const myTeamId = operations.data?.participations.find((participant) => participant.userId === operations.data?.currentUserId)?.team?.id;
+  const viewerSide = operationMatch?.homeTeam?.id === myTeamId
+    ? 'HOME'
+    : operationMatch?.awayTeam?.id === myTeamId
+      ? 'AWAY'
+      : null;
+  const viewerReady = viewerSide === 'HOME'
+    ? Boolean(operationMatch?.homeReady)
+    : viewerSide === 'AWAY'
+      ? Boolean(operationMatch?.awayReady)
+      : false;
+  const operationOpen = Boolean(
+    operationMatch
+      && operationMatch.homeTeam
+      && operationMatch.awayTeam
+      && !['FINISHED', 'CANCELED'].includes(operationMatch.status),
+  );
+
+  const invalidateCompetition = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-operations', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-matches', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['global-ranking'] }),
+    ]);
+  };
+
+  const ready = useMutation({
+    mutationFn: () => markMatchReady(match.id),
+    onSuccess: invalidateCompetition,
+  });
+
+  const walkover = useMutation({
+    mutationFn: ({ current, winner }: { current: PhaseThreeMatch; winner: 'AUTO' | 'HOME' | 'AWAY' }) =>
+      applyWalkover(current.id, { winner, version: current.version }),
+    onSuccess: async () => {
+      setWalkoverChoiceOpen(false);
+      await invalidateCompetition();
+    },
+  });
 
   const submit = useMutation({
     mutationFn: () => submitMatchStats(match.id, form),
@@ -98,58 +162,134 @@ export function MatchStatsPanelLight({
 
   const teamsReady = Boolean(match.homeTeam && match.awayTeam);
   const canOpenEditor = canEdit && teamsReady && !statsLoading && (!stats || isHost || (stats.statsStatus === 'PENDING_APPROVAL' && stats.submittedByMe));
+  const showQuickActions = operationOpen && Boolean(viewerSide || isHost);
 
   function openEditor() {
     setForm(toInput(stats));
     setModalOpen(true);
   }
 
+  function requestWalkover() {
+    if (!operationMatch) return;
+    const autoWinnerAvailable = operationMatch.homeReady !== operationMatch.awayReady;
+    if (autoWinnerAvailable) {
+      const winnerName = operationMatch.homeReady ? operationMatch.homeTeam?.name : operationMatch.awayTeam?.name;
+      if (window.confirm(`Aplicar W.O. 3x0 para ${winnerName ?? 'o jogador pronto'}?`)) {
+        walkover.mutate({ current: operationMatch, winner: 'AUTO' });
+      }
+      return;
+    }
+    setWalkoverChoiceOpen((value) => !value);
+  }
+
   return (
-    <div className="mt-3 border-t border-slate-200 pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-[#073B8C]" /><span className="text-[11px] font-black uppercase tracking-[.14em] text-slate-500">Estatísticas</span></div>
-        <StatusBadge stats={stats} loading={statsLoading} />
-      </div>
-
-      {!statsLoading && !stats && canOpenEditor && (
-        <button type="button" onClick={openEditor} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-black text-[#073B8C]">
-          <BarChart3 className="h-4 w-4" />📊 Adicionar Estatísticas
-        </button>
-      )}
-
-      {stats?.statsStatus === 'PENDING_APPROVAL' && (
-        <div className={`mt-3 rounded-2xl border p-3 ${stats.canApprove ? 'border-amber-200 bg-amber-50' : 'border-blue-100 bg-blue-50/70'}`}>
-          <div className="flex items-start gap-2">
-            <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${stats.canApprove ? 'text-amber-600' : 'text-blue-600'}`} />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-black text-slate-900">{stats.canApprove ? (isHost ? 'Estatísticas aguardando decisão do Host.' : 'Estatísticas enviadas pelo adversário. Validar?') : 'Estatísticas enviadas. Aguardando o adversário.'}</p>
-              <p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">{stats.canApprove ? 'Confira os números antes de aprovar.' : 'Você pode ajustar os dados enquanto ainda não houve resposta.'}</p>
-            </div>
-          </div>
-          {stats.canApprove && (
-            <div className={`mt-3 grid gap-2 ${stats.canDispute ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              {stats.canDispute && <button type="button" disabled={dispute.isPending} onClick={() => dispute.mutate()} className="min-h-10 rounded-xl border border-red-200 bg-red-50 text-xs font-black text-red-700">Contestar</button>}
-              <button type="button" disabled={approve.isPending} onClick={() => approve.mutate()} className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white disabled:opacity-50">{approve.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Aprovar</button>
-            </div>
+    <div className="mt-2">
+      {showQuickActions && (
+        <div className="flex flex-wrap items-center gap-2">
+          {viewerSide && (
+            <button
+              type="button"
+              disabled={viewerReady || ready.isPending}
+              onClick={() => ready.mutate()}
+              className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-[11px] font-black transition sm:flex-none ${viewerReady ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-blue-200 bg-blue-50 text-[#073B8C]'} disabled:opacity-70`}
+            >
+              {viewerReady ? <CheckCircle2 className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+              {viewerReady ? 'Pronto ✅' : ready.isPending ? 'Confirmando…' : 'Estou Pronto'}
+            </button>
           )}
-          {!stats.canApprove && canOpenEditor && <button type="button" onClick={openEditor} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-600">Ajustar antes da aprovação</button>}
+          {isHost && operationMatch && (
+            <button
+              type="button"
+              disabled={walkover.isPending}
+              onClick={requestWalkover}
+              className="flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 text-[11px] font-black text-rose-700 transition hover:bg-rose-50 sm:flex-none"
+            >
+              <Siren className="h-3.5 w-3.5" />
+              {walkover.isPending ? 'Aplicando…' : 'Aplicar W.O.'}
+            </button>
+          )}
         </div>
       )}
 
-      {stats?.statsStatus === 'DISPUTED' && (
-        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
-          <div className="flex items-start gap-2"><Gavel className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><div><p className="text-xs font-black text-slate-900">Estatísticas contestadas.</p><p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">{isHost ? 'Você é o juiz final: corrija ou aprove os números atuais.' : 'Os dados ficam preservados para o Host decidir.'}</p></div></div>
-          {isHost && <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={openEditor} className="min-h-10 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700">Corrigir</button><button type="button" onClick={() => approve.mutate()} className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-xs font-black text-white"><ShieldCheck className="h-4 w-4" />Aprovar</button></div>}
+      {walkoverChoiceOpen && operationMatch && isHost && (
+        <div className="mt-2 rounded-xl border border-rose-100 bg-rose-50/70 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-black text-rose-800">Escolha o vencedor por 3×0</p>
+            <button type="button" onClick={() => setWalkoverChoiceOpen(false)} className="grid h-7 w-7 place-items-center rounded-lg bg-white text-rose-600" aria-label="Cancelar W.O."><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <WalkoverWinnerButton current={operationMatch} winner="HOME" label={operationMatch.homeTeam?.name ?? 'Mandante'} pending={walkover.isPending} onApply={(winner) => walkover.mutate({ current: operationMatch, winner })} />
+            <WalkoverWinnerButton current={operationMatch} winner="AWAY" label={operationMatch.awayTeam?.name ?? 'Visitante'} pending={walkover.isPending} onApply={(winner) => walkover.mutate({ current: operationMatch, winner })} />
+          </div>
         </div>
       )}
 
-      {stats?.statsStatus === 'APPROVED' && <ApprovedReport stats={stats} homeName={match.homeTeam?.name ?? 'Mandante'} awayName={match.awayTeam?.name ?? 'Visitante'} />}
-      {stats?.statsStatus === 'APPROVED' && isHost && canOpenEditor && <button type="button" onClick={openEditor} className="mt-2 min-h-9 w-full rounded-xl border border-slate-200 bg-white text-[11px] font-black text-slate-500">Editar como Host</button>}
+      {(ready.isError || walkover.isError) && (
+        <p className="mt-2 rounded-xl bg-rose-50 p-2 text-center text-[11px] font-bold text-rose-700">{matchActionError(ready.error ?? walkover.error)}</p>
+      )}
 
-      {(submit.isError || approve.isError || dispute.isError) && <p className="mt-2 text-center text-[11px] font-bold text-red-600">{statsError(submit.error ?? approve.error ?? dispute.error)}</p>}
+      <div className={`${showQuickActions ? 'mt-3' : ''} border-t border-slate-200 pt-3`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-[#073B8C]" /><span className="text-[11px] font-black uppercase tracking-[.14em] text-slate-500">Estatísticas</span></div>
+          <StatusBadge stats={stats} loading={statsLoading} />
+        </div>
 
-      {modalOpen && <StatsModal match={match} form={form} setForm={setForm} isHost={isHost} pending={submit.isPending} error={submit.isError ? statsError(submit.error) : null} onClose={() => setModalOpen(false)} onSave={() => submit.mutate()} />}
+        {!statsLoading && !stats && canOpenEditor && (
+          <button type="button" onClick={openEditor} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-black text-[#073B8C]">
+            <BarChart3 className="h-4 w-4" />📊 Adicionar Estatísticas
+          </button>
+        )}
+
+        {stats?.statsStatus === 'PENDING_APPROVAL' && (
+          <div className={`mt-3 rounded-2xl border p-3 ${stats.canApprove ? 'border-amber-200 bg-amber-50' : 'border-blue-100 bg-blue-50/70'}`}>
+            <div className="flex items-start gap-2">
+              <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${stats.canApprove ? 'text-amber-600' : 'text-blue-600'}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-black text-slate-900">{stats.canApprove ? (isHost ? 'Estatísticas aguardando decisão do Host.' : 'Estatísticas enviadas pelo adversário. Validar?') : 'Estatísticas enviadas. Aguardando o adversário.'}</p>
+                <p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">{stats.canApprove ? 'Confira os números antes de aprovar.' : 'Você pode ajustar os dados enquanto ainda não houve resposta.'}</p>
+              </div>
+            </div>
+            {stats.canApprove && (
+              <div className={`mt-3 grid gap-2 ${stats.canDispute ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                {stats.canDispute && <button type="button" disabled={dispute.isPending} onClick={() => dispute.mutate()} className="min-h-10 rounded-xl border border-red-200 bg-red-50 text-xs font-black text-red-700">Contestar</button>}
+                <button type="button" disabled={approve.isPending} onClick={() => approve.mutate()} className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-black text-white disabled:opacity-50">{approve.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Aprovar</button>
+              </div>
+            )}
+            {!stats.canApprove && canOpenEditor && <button type="button" onClick={openEditor} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-600">Ajustar antes da aprovação</button>}
+          </div>
+        )}
+
+        {stats?.statsStatus === 'DISPUTED' && (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
+            <div className="flex items-start gap-2"><Gavel className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><div><p className="text-xs font-black text-slate-900">Estatísticas contestadas.</p><p className="mt-1 text-[11px] font-medium leading-5 text-slate-500">{isHost ? 'Você é o juiz final: corrija ou aprove os números atuais.' : 'Os dados ficam preservados para o Host decidir.'}</p></div></div>
+            {isHost && <div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={openEditor} className="min-h-10 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700">Corrigir</button><button type="button" onClick={() => approve.mutate()} className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 text-xs font-black text-white"><ShieldCheck className="h-4 w-4" />Aprovar</button></div>}
+          </div>
+        )}
+
+        {stats?.statsStatus === 'APPROVED' && <ApprovedReport stats={stats} homeName={match.homeTeam?.name ?? 'Mandante'} awayName={match.awayTeam?.name ?? 'Visitante'} />}
+        {stats?.statsStatus === 'APPROVED' && isHost && canOpenEditor && <button type="button" onClick={openEditor} className="mt-2 min-h-9 w-full rounded-xl border border-slate-200 bg-white text-[11px] font-black text-slate-500">Editar como Host</button>}
+
+        {(submit.isError || approve.isError || dispute.isError) && <p className="mt-2 text-center text-[11px] font-bold text-red-600">{statsError(submit.error ?? approve.error ?? dispute.error)}</p>}
+
+        {modalOpen && <StatsModal match={match} form={form} setForm={setForm} isHost={isHost} pending={submit.isPending} error={submit.isError ? statsError(submit.error) : null} onClose={() => setModalOpen(false)} onSave={() => submit.mutate()} />}
+      </div>
     </div>
+  );
+}
+
+function WalkoverWinnerButton({ current, winner, label, pending, onApply }: { current: PhaseThreeMatch; winner: 'HOME' | 'AWAY'; label: string; pending: boolean; onApply: (winner: 'HOME' | 'AWAY') => void }) {
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        if (window.confirm(`Confirmar W.O. 3x0 para ${label}?`)) onApply(winner);
+      }}
+      className="min-h-9 truncate rounded-lg bg-rose-600 px-2 text-[11px] font-black text-white shadow-sm disabled:opacity-50"
+      data-match-id={current.id}
+    >
+      3×0 {label}
+    </button>
   );
 }
 
@@ -211,6 +351,17 @@ function StatusBadge({ stats, loading }: { stats?: MatchStats; loading: boolean 
   const styles = { PENDING_APPROVAL: 'bg-amber-50 text-amber-700 border-amber-200', APPROVED: 'bg-emerald-50 text-emerald-700 border-emerald-200', DISPUTED: 'bg-red-50 text-red-700 border-red-200', NONE: 'bg-slate-100 text-slate-500 border-slate-200' } as const;
   const labels = { PENDING_APPROVAL: 'Aguardando', APPROVED: 'Aprovadas', DISPUTED: 'Contestadas', NONE: 'Opcional' } as const;
   return <span className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wider ${styles[stats.statsStatus]}`}>{labels[stats.statsStatus]}</span>;
+}
+
+function matchActionError(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Não foi possível concluir esta ação.';
+  if (error.code === 'PLAYER_ONLY') return 'Somente um dos jogadores deste confronto pode fazer check-in.';
+  if (error.code === 'MATCH_NOT_OPEN' || error.code === 'INVALID_MATCH_TRANSITION') return 'Esta partida já foi encerrada ou não aceita mais esta ação.';
+  if (error.code === 'MATCH_NOT_READY') return 'Os dois jogadores ainda não foram definidos nesta partida.';
+  if (error.code === 'HOST_ONLY') return 'Somente o Host pode aplicar W.O.';
+  if (error.code === 'WALKOVER_WINNER_REQUIRED') return 'Escolha quem receberá a vitória por W.O.';
+  if (error.code === 'VERSION_CONFLICT') return 'A partida mudou em outra tela. Atualizamos os dados; tente novamente.';
+  return 'Não foi possível concluir esta ação.';
 }
 
 function statsError(error: unknown): string {
