@@ -15,7 +15,7 @@ import {
 import { claimDailyLoginReward } from '../services/sticker-pack-rewards.service';
 
 const auth = new Hono<Env>();
-const SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000; // 30 days; explicit for mobile/PWA persistence.
+const SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000; // 30 days.
 const password = z.string().min(10).max(128);
 const registerSchema = z
   .object({
@@ -33,16 +33,17 @@ const loginSchema = z
   })
   .refine((value) => Boolean(value.email) !== Boolean(value.phone), 'Provide exactly one identifier');
 
-// /api is proxied by Cloudflare Pages in production, so this is a first-party
-// session cookie. Lax is more resilient in standalone PWAs than third-party-style
-// SameSite=None while keeping the session inaccessible to JavaScript.
-const cookieOptions = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'Lax' as const,
-  path: '/',
-  maxAge: SESSION_COOKIE_MAX_AGE_SECONDS,
-};
+function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string) {
+  // Production requests use the same-origin Cloudflare Pages /api proxy, so
+  // SameSite=Lax is first-party and reliable in standalone iOS/Android PWAs.
+  // Keep the exact persistent security contract explicit instead of relying on
+  // serializer defaults or an Expires clock that can drift on mobile devices.
+  c.header(
+    'Set-Cookie',
+    `chavea_session=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_SECONDS}; Path=/`,
+    { append: true },
+  );
+}
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
   const result = schema.safeParse(body);
@@ -76,10 +77,7 @@ async function attachSession(
   userId: string,
 ) {
   const session = await createSession(prisma, userId);
-  setCookie(c, 'chavea_session', session.token, {
-    ...cookieOptions,
-    expires: session.expiresAt,
-  });
+  setSessionCookie(c, session.token);
 }
 
 type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'create_session';
@@ -174,12 +172,8 @@ auth.get('/me', async (c) => {
   const user = await getSessionUser(prisma, token);
   if (!user) return c.json({ user: null, rewards: { dailyPackGranted: false } });
 
-  // Renew the first-party HttpOnly cookie on every successful bootstrap.
-  // Mobile/PWA app termination must not downgrade it to a browser-session cookie.
-  setCookie(c, 'chavea_session', token, {
-    ...cookieOptions,
-    expires: new Date(Date.now() + SESSION_COOKIE_MAX_AGE_SECONDS * 1_000),
-  });
+  // Sliding 30-day browser lifetime on every successful PWA bootstrap.
+  setSessionCookie(c, token);
 
   const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
   return c.json({ user, rewards: { dailyPackGranted } });
@@ -188,7 +182,7 @@ auth.get('/me', async (c) => {
 auth.post('/logout', async (c) => {
   const token = getCookie(c, 'chavea_session');
   if (token) await revokeSession(c.get('prisma'), token);
-  deleteCookie(c, 'chavea_session', { path: '/', secure: true });
+  deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
   return c.body(null, 204);
 });
 
