@@ -19,14 +19,14 @@ type ProfileDelta = {
 };
 
 async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${competitionId}))`;
 }
 
 async function lockPlayerProfiles(tx: Tx, userIds: string[]): Promise<void> {
   const orderedIds = [...new Set(userIds)].sort();
   for (const userId of orderedIds) {
     const lockKey = `profile:${userId}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
   }
 }
 
