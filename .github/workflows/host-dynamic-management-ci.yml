@@ -36,14 +36,17 @@ jobs:
           python3 scripts/apply-host-dynamic-patches.py
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('apps/api/src/routes/competitions.routes.ts')
           s = p.read_text()
-          old = "    hasJoined: competition.participations.some((participation) => participation.userId === user.id),"
-          new = old + "\n    hasKnockoutStage: competition.stages.some((stage) => stage.type === 'KNOCKOUT'),"
-          if old in s and new not in s:
-              s = s.replace(old, new, 1)
-          if s.count('hasKnockoutStage:') < 2:
-              raise SystemExit('expected hasKnockoutStage in compact and operations responses')
+          pattern = re.compile(r"^    hasJoined: competition\.participations\.some\(\(participation\) => participation\.userId === user\.id\),$", re.M)
+          match = pattern.search(s)
+          if not match:
+              raise SystemExit('operations hasJoined response line not found')
+          replacement = match.group(0) + "\n    hasKnockoutStage: competition.stages.some((stage) => stage.type === 'KNOCKOUT'),"
+          s = s[:match.start()] + replacement + s[match.end():]
+          if s.count('hasKnockoutStage:') != 2:
+              raise SystemExit(f"expected exactly 2 hasKnockoutStage fields, got {s.count('hasKnockoutStage:')}")
           p.write_text(s)
           PY
       - name: Install dependencies
@@ -61,7 +64,7 @@ jobs:
           grep -Fq "type: 'KNOCKOUT'" apps/api/src/routes/host-actions.routes.ts
           grep -Fq 'generateRoundRobin(teams.map((team) => team.id), false)' apps/api/src/routes/host-actions.routes.ts
           grep -Fq "stage: { type: 'LEAGUE' as const }" apps/api/src/routes/competitions.routes.ts
-          test "$(grep -Fc 'hasKnockoutStage:' apps/api/src/routes/competitions.routes.ts)" -ge 2
+          test "$(grep -Fc 'hasKnockoutStage:' apps/api/src/routes/competitions.routes.ts)" -eq 2
           grep -Fq "label=\"Mata-Mata\"" apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
           grep -Fq "CompetitionHostActionsPanel" apps/web/src/pages/competitions/CompetitionDetailExperience.tsx
           grep -Fq "refetchInterval: 3_000" apps/web/src/components/bracket/CompetitionPlayoffTab.tsx
