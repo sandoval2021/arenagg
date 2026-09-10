@@ -21,7 +21,7 @@ jobs:
           node-version: '22'
       - name: Apply mobile PWA hotfix patches
         run: |
-          sed -i '117s/  6,/  5,/' scripts/patch-mobile-pwa-hotfix.mjs
+          node scripts/fix-mobile-patcher-count.mjs
           node scripts/patch-mobile-pwa-hotfix.mjs
       - name: Commit product hotfix
         run: |
