@@ -195,7 +195,7 @@ function StickerSlot({ card }: { card: AlbumCard }) {
 function CardArtwork({ card }: { card: Pick<AlbumCard, 'imageUrl' | 'name'> }) {
   const [failed, setFailed] = useState(false);
   if (card.imageUrl && !failed) {
-    return <img src={card.imageUrl} alt={card.name} onError={() = loading="lazy" decoding="async" > setFailed(true)} className="h-full w-full rounded-[1.1rem] object-cover" />;
+    return <img src={card.imageUrl} alt={card.name} onError={() => setFailed(true)} loading="lazy" decoding="async" className="h-full w-full rounded-[1.1rem] object-cover" />;
   }
   return (
     <div className="grid h-full place-items-center rounded-[1.1rem] bg-white/15 p-4 text-center">
