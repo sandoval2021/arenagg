@@ -1,3 +1,5 @@
+import { getAccessToken } from './supabase';
+
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
   | 'DRAFT'
@@ -191,12 +193,19 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json');
   }
 
+  // Every API surface (Copas, Ranking, Feed, profile, matches, etc.) flows
+  // through this function, so Bearer auth cannot drift between feature clients.
+  if (!headers.has('Authorization')) {
+    const accessToken = await getAccessToken();
+    if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+
   let response: Response;
   try {
     response = await fetch(resolveRequestUrl(path), {
       ...init,
       headers,
-      credentials: 'include',
+      credentials: 'omit',
       cache: 'no-store',
     });
   } catch (error) {
