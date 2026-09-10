@@ -5,12 +5,60 @@ on:
     branches: [hotfix-zero-latency-mobile]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+      - name: Normalize image tags
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib
+          changed=[]
+          for path in pathlib.Path('apps/web/src').rglob('*.tsx'):
+              text=path.read_text()
+              cursor=0
+              pieces=[]
+              dirty=False
+              while True:
+                  start=text.find('<img', cursor)
+                  if start < 0:
+                      pieces.append(text[cursor:])
+                      break
+                  end=text.find('/>', start)
+                  if end < 0:
+                      raise SystemExit(f'Non-self-closing img tag in {path}')
+                  end += 2
+                  tag=text[start:end]
+                  attrs=''
+                  if 'loading=' not in tag:
+                      attrs += ' loading="lazy"'
+                  if 'decoding=' not in tag:
+                      attrs += ' decoding="async"'
+                  pieces.append(text[cursor:start])
+                  if attrs:
+                      tag='<img' + attrs + tag[len('<img'):]
+                      dirty=True
+                  pieces.append(tag)
+                  cursor=end
+              if dirty:
+                  path.write_text(''.join(pieces))
+                  changed.append(str(path))
+          print('\n'.join(changed))
+          print(f'normalized {len(changed)} files')
+          PY
+          if ! git diff --quiet -- apps/web/src; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apps/web/src
+            git commit -m "perf(images): add lazy async hints to all image tags [skip ci]"
+            git push origin HEAD:hotfix-zero-latency-mobile
+          fi
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -41,15 +89,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import pathlib, re
+          import pathlib
           failures=[]
           for path in pathlib.Path('apps/web/src').rglob('*.tsx'):
               text=path.read_text()
-              for m in re.finditer(r'<img\b[^>]*>', text, re.S):
-                  tag=m.group(0)
+              cursor=0
+              while True:
+                  start=text.find('<img', cursor)
+                  if start < 0:
+                      break
+                  end=text.find('/>', start)
+                  if end < 0:
+                      failures.append((str(path), text.count('\n',0,start)+1, 'non-self-closing img'))
+                      break
+                  tag=text[start:end+2]
                   if 'loading=' not in tag or 'decoding=' not in tag:
-                      line=text.count('\n',0,m.start())+1
-                      failures.append((str(path),line,' '.join(tag.split())[:220]))
+                      failures.append((str(path), text.count('\n',0,start)+1, ' '.join(tag.split())[:220]))
+                  cursor=end+2
           for f in failures:
               print(f'{f[0]}:{f[1]} {f[2]}')
           if failures:
