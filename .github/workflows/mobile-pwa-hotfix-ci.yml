@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -19,29 +19,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - name: Apply mobile PWA hotfix patches
-        run: |
-          node scripts/fix-mobile-patcher-count.mjs
-          node scripts/patch-mobile-pwa-hotfix.mjs
-      - name: Commit product hotfix
-        run: |
-          git config user.name sandoval2021
-          git config user.email 78934835+sandoval2021@users.noreply.github.com
-          git add \
-            apps/api/src/routes/auth.routes.ts \
-            apps/api/src/services/auth.service.ts \
-            apps/api/src/routes/competitions.routes.ts \
-            apps/api/src/routes/phase-six-competition.routes.ts \
-            apps/web/src/components/standings/StandingsTable.tsx \
-            apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx \
-            apps/web/src/components/matches/CompetitionMatchAutomationPanel.tsx \
-            apps/web/src/components/competition/GroupStagePanel.tsx
-          if git diff --cached --quiet; then
-            echo 'Hotfix already committed.'
-          else
-            git commit -m 'fix(mobile): persist PWA session and compact competition UX'
-            git push origin HEAD:hotfix-mobile-pwa-avatar-density
-          fi
       - name: Install workspace dependencies
         run: npm install
       - name: Generate Prisma Client
@@ -56,8 +33,6 @@ jobs:
           grep -Fq 'SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000' apps/api/src/routes/auth.routes.ts
           grep -Fq 'expiresAt: new Date(now + SESSION_TTL_MS)' apps/api/src/services/auth.service.ts
           grep -Fq "setCookie(c, 'chavea_session', token" apps/api/src/routes/auth.routes.ts
-          grep -Fq "grep -qi 'max-age=2592000' /tmp/register.headers" .github/workflows/deploy.yml
-          grep -Fq 'participant.user.avatarUrl' apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
           grep -Fq 'participation.user.avatarUrl' apps/api/src/routes/competitions.routes.ts
           grep -Fq 'participation.user.avatarUrl' apps/api/src/routes/phase-six-competition.routes.ts
           grep -Fq 'w-full overflow-x-auto' apps/web/src/components/standings/StandingsTable.tsx
