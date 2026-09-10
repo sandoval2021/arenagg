@@ -20,11 +20,12 @@ function refreshServiceWorker() {
 // Never make an update check part of the first-paint dependency graph. Trigger
 // it after the browser gets an idle slot and whenever connectivity returns.
 const scheduleWorkerRefresh = () => {
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(refreshServiceWorker, { timeout: 2_000 });
-  } else {
-    window.setTimeout(refreshServiceWorker, 250);
+  const idle = window.requestIdleCallback;
+  if (typeof idle === 'function') {
+    idle(refreshServiceWorker, { timeout: 2_000 });
+    return;
   }
+  globalThis.setTimeout(refreshServiceWorker, 250);
 };
 scheduleWorkerRefresh();
 window.addEventListener('online', refreshServiceWorker, { passive: true });
