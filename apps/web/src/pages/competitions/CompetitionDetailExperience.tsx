@@ -52,7 +52,7 @@ function DeferredSection({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (ready) return;
 
-    if (!('IntersectionObserver' in window)) {
+    if (typeof IntersectionObserver === 'undefined') {
       const timer = window.setTimeout(() => setReady(true), 800);
       return () => window.clearTimeout(timer);
     }
