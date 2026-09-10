@@ -1,11 +1,11 @@
 import { Suspense, lazy, type PropsWithChildren, type ReactNode } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
-import { LandingPageLight } from '../pages/LandingPageLight';
-import { LoginPage } from '../pages/auth/LoginPage';
-import { RegisterPage } from '../pages/auth/RegisterPage';
-import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 
+const LandingPageLight = lazy(() => import('../pages/LandingPageLight').then((module) => ({ default: module.LandingPageLight })));
+const LoginPage = lazy(() => import('../pages/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
+const RegisterPage = lazy(() => import('../pages/auth/RegisterPage').then((module) => ({ default: module.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('../pages/auth/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
 const InvitePage = lazy(() => import('../pages/InvitePage').then((module) => ({ default: module.InvitePage })));
 const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const JogarAgoraPage = lazy(() => import('../pages/JogarAgoraPage').then((module) => ({ default: module.JogarAgoraPage })));
@@ -49,10 +49,10 @@ const Placeholder = ({ title }: { title: string }) => (
 );
 
 export const router = createBrowserRouter([
-  { path: '/', element: <LandingPageLight /> },
-  { path: '/login', element: <LoginPage /> },
-  { path: '/register', element: <RegisterPage /> },
-  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/', element: lazyElement(<LandingPageLight />) },
+  { path: '/login', element: lazyElement(<LoginPage />) },
+  { path: '/register', element: lazyElement(<RegisterPage />) },
+  { path: '/forgot-password', element: lazyElement(<ForgotPasswordPage />) },
   { path: '/invite/:id', element: lazyElement(<InvitePage />) },
   {
     element: <ProtectedRoute />,
