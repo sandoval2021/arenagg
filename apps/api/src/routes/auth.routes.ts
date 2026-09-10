@@ -206,9 +206,6 @@ auth.post('/logout', async (c) => {
   return c.body(null, 204);
 });
 
-// The browser Supabase client uses this strict same-origin bridge only for Auth
-// session maintenance. The server secret stays in `apikey`; Authorization is
-// reserved for the user's JWT, which also supports the new sb_secret_* format.
 auth.all('/supabase-proxy', async (c) => {
   const rawTarget = c.req.query('target');
   const serviceRoleKey = c.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -252,7 +249,7 @@ auth.all('/supabase-proxy', async (c) => {
   const upstream = await fetch(target.toString(), {
     method,
     headers,
-    body: method === 'GET' || method === 'HEAD' ? undefined : await c.req.arrayBuffer(),
+    body: method === 'GET' ? undefined : await c.req.arrayBuffer(),
     redirect: 'manual',
   });
 
