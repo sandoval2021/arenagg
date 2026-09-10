@@ -40,9 +40,18 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
+const SUPABASE_STORAGE_KEY = 'chavea-supabase-auth';
 
 function isAuthorizationError(error: unknown): error is ApiError {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function clearPersistedSession(): void {
+  try {
+    window.localStorage.removeItem(SUPABASE_STORAGE_KEY);
+  } catch {
+    // Private browsing / storage denial must not trap the UI in an auth loop.
+  }
 }
 
 async function persistServerSession(data: AuthSessionResponse): Promise<void> {
@@ -56,6 +65,7 @@ async function persistServerSession(data: AuthSessionResponse): Promise<void> {
   });
   if (error) {
     console.error('[auth] Supabase local session persistence failed', error.message);
+    clearPersistedSession();
     throw new ApiError(401, 'SESSION_PERSIST_FAILED', { message: error.message });
   }
 }
@@ -71,7 +81,7 @@ async function requestSession(): Promise<AuthSessionResponse> {
     return await apiRequest<AuthSessionResponse>('/api/auth/me');
   } catch (requestError) {
     if (isAuthorizationError(requestError)) {
-      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+      clearPersistedSession();
       return { user: null, rewards: { dailyPackGranted: false } };
     }
     throw requestError;
@@ -98,7 +108,8 @@ function useAuthState() {
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') {
-        queryClient.setQueryData(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
+        clearPersistedSession();
+        queryClient.setQueryData<AuthSessionResponse>(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
       }
       if (event === 'TOKEN_REFRESHED') {
         void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
@@ -116,7 +127,7 @@ function useAuthState() {
       await persistServerSession(response);
       return response;
     },
-    onSuccess: (data) => queryClient.setQueryData(AUTH_QUERY_KEY, data),
+    onSuccess: (data) => queryClient.setQueryData<AuthSessionResponse>(AUTH_QUERY_KEY, data),
   });
 
   const register = useMutation({
@@ -128,19 +139,18 @@ function useAuthState() {
       await persistServerSession(response);
       return response;
     },
-    onSuccess: (data) => queryClient.setQueryData(AUTH_QUERY_KEY, data),
+    onSuccess: (data) => queryClient.setQueryData<AuthSessionResponse>(AUTH_QUERY_KEY, data),
   });
 
   const logout = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('[auth] remote sign-out failed; clearing local session', error.message);
-        await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
-      }
+      if (error) console.error('[auth] remote sign-out failed; clearing local session', error.message);
+      clearPersistedSession();
     },
     onSettled: () => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
+      clearPersistedSession();
+      queryClient.setQueryData<AuthSessionResponse>(AUTH_QUERY_KEY, { user: null, rewards: { dailyPackGranted: false } });
       queryClient.removeQueries({ queryKey: ['competitions'] });
       queryClient.removeQueries({ queryKey: ['default-shields'] });
       queryClient.removeQueries({ queryKey: ['owner', 'default-shields'] });
