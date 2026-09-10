@@ -5,6 +5,25 @@ type PagesFunctionContext = {
   params: { path?: string | string[] };
 };
 
+function buildUpstreamRequest(request: Request, upstreamUrl: URL): Request {
+  // Build a fresh Request for the Worker and explicitly preserve the browser
+  // cookie. This avoids relying on runtime-specific Request cloning semantics
+  // when the target origin changes from chavea.pages.dev to workers.dev.
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('content-length');
+
+  const cookie = request.headers.get('cookie');
+  if (cookie) headers.set('cookie', cookie);
+
+  return new Request(upstreamUrl.toString(), {
+    method: request.method,
+    headers,
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+    redirect: 'manual',
+  });
+}
+
 export async function onRequest(context: PagesFunctionContext): Promise<Response> {
   const incoming = new URL(context.request.url);
   const rawPath = context.params.path;
@@ -13,14 +32,31 @@ export async function onRequest(context: PagesFunctionContext): Promise<Response
   upstreamUrl.search = incoming.search;
 
   // Browser -> chavea.pages.dev/api/* is first-party. The HttpOnly session
-  // cookie arrives here and is forwarded server-to-server to the Hono Worker.
-  // Set-Cookie coming back from the Worker is returned through this same-origin
-  // response, so Safari/iOS stores chavea_session for chavea.pages.dev instead
-  // of treating it as a third-party workers.dev cookie.
-  const upstreamRequest = new Request(upstreamUrl.toString(), context.request);
-  const upstreamResponse = await fetch(upstreamRequest);
+  // cookie arrives here and is forwarded explicitly server-to-server.
+  let upstreamResponse: Response;
+  try {
+    upstreamResponse = await fetch(buildUpstreamRequest(context.request, upstreamUrl));
+  } catch (error) {
+    console.error('[pages-api-proxy] upstream request failed', {
+      path: upstreamUrl.pathname,
+      method: context.request.method,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return Response.json(
+      {
+        error: 'UPSTREAM_UNAVAILABLE',
+        message: 'A API está temporariamente indisponível. Tente novamente.',
+      },
+      { status: 502, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  // Preserve every upstream response header, including Set-Cookie. Because the
+  // browser receives this response from chavea.pages.dev, the host-only
+  // chavea_session cookie is persisted for the PWA origin instead of workers.dev.
   const headers = new Headers(upstreamResponse.headers);
   headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  headers.set('X-Chavea-Api-Proxy', 'pages');
 
   return new Response(upstreamResponse.body, {
     status: upstreamResponse.status,
