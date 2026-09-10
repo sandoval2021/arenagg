@@ -11,6 +11,13 @@ import { installImagePerformanceDefaults } from './lib/image-performance';
 import { DEFAULT_STALE_TIME, QUERY_GC_TIME } from './lib/query-cache';
 import './styles/globals.css';
 
+// Stable entry-level deployment signature. Route code-splitting moves Landing
+// copy into async chunks, so production verification must not depend on an
+// eagerly imported page. These data attributes also make field diagnostics
+// possible without loading any additional module.
+document.documentElement.dataset.chaveaProduct = 'O melhor gerenciador de campeonatos de EA FC e e-Sports!';
+document.documentElement.dataset.chaveaApi = import.meta.env.VITE_API_URL?.trim() ?? '';
+
 // Network-free boot work only. Protected queries can attach the persisted
 // Bearer token on the first frame without waiting for Supabase getSession().
 hydrateSupabaseAccessTokenSync();
