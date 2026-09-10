@@ -1,0 +1,53 @@
+name: Critical QA Hotfix
+
+on:
+  push:
+    branches: [hotfix-qa-timeout-avatar-pwa]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: hotfix-qa-timeout-avatar-pwa
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Apply critical QA patches
+        run: node scripts/patch-critical-qa-hotfix.mjs
+      - name: Commit patched product files
+        run: |
+          git config user.name sandoval2021
+          git config user.email 78934835+sandoval2021@users.noreply.github.com
+          git add apps/api/src/routes/competition-start-v2.routes.ts apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx apps/web/src/pages/EditProfilePage.tsx apps/web/src/hooks/useAuth.tsx prisma/migrations/20260910090000_qa_avatar_bucket_public/migration.sql
+          if git diff --cached --quiet; then
+            echo 'Product patches already committed.'
+          else
+            git commit -m 'fix(qa): harden tournament start avatar and PWA session'
+            git push origin HEAD:hotfix-qa-timeout-avatar-pwa
+          fi
+      - name: Install workspace dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build web
+        env:
+          VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: npm run build --workspace=@chavea/web
+      - name: Assert QA invariants
+        run: |
+          grep -Fq '}, { maxWait: 15000, timeout: 30000 });' apps/api/src/routes/competition-start-v2.routes.ts
+          grep -Fq 'participant.team?.logoUrl ?? participant.user.avatarUrl ?? participant.teamLogoUrl' apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
+          grep -Fq "queryClient.invalidateQueries({ queryKey: ['competition'] })" apps/web/src/pages/EditProfilePage.tsx
+          grep -Fq "const delays = [250, 750, 1500, 2500] as const" apps/web/src/hooks/useAuth.tsx
+          grep -Fq "googleLoginUrl: '/api/auth/google'" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'SET public = true' prisma/migrations/20260910090000_qa_avatar_bucket_public/migration.sql
+          grep -Fq 'file_size_limit' prisma/migrations/20260910090000_qa_avatar_bucket_public/migration.sql
