@@ -21,6 +21,22 @@ self.addEventListener('activate', (event) => {
         .map((name) => caches.delete(name)),
     );
     await self.clients.claim();
+
+    // A worker can take control after the old JS bundle was already loaded.
+    // Reload each currently open Chavea window once on this new worker's
+    // activation so the first reopen after deployment receives the new shell.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.all(
+      windows.map(async (client) => {
+        if (!('navigate' in client)) return;
+        try {
+          await client.navigate(client.url);
+        } catch {
+          // Navigation can be rejected while a mobile PWA is backgrounding;
+          // the next foreground/navigation still uses the new controller.
+        }
+      }),
+    );
   })());
 });
 
