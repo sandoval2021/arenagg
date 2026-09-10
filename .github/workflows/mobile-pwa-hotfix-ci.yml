@@ -20,7 +20,9 @@ jobs:
         with:
           node-version: '22'
       - name: Apply mobile PWA hotfix patches
-        run: node scripts/patch-mobile-pwa-hotfix.mjs
+        run: |
+          sed -i '117s/  6,/  5,/' scripts/patch-mobile-pwa-hotfix.mjs
+          node scripts/patch-mobile-pwa-hotfix.mjs
       - name: Commit product hotfix
         run: |
           git config user.name sandoval2021
