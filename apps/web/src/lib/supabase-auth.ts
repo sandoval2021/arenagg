@@ -1,4 +1,4 @@
-import { createClient, type Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = 'https://uruwrztfbjbykgxwtgvg.supabase.co';
 const AUTH_PROXY_KEY = 'chavea-browser-auth-proxy';
@@ -7,6 +7,7 @@ const SUPABASE_STORAGE_KEY = 'sb-uruwrztfbjbykgxwtgvg-auth-token';
 
 let cachedAccessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+let clientPromise: Promise<SupabaseClient> | null = null;
 
 type StoredSessionShape = {
   access_token?: unknown;
@@ -27,7 +28,7 @@ function readStoredSessionSync(): StoredSessionShape | null {
 /**
  * Network-free bootstrap used before React mounts. Supabase remains the source
  * of truth, but the first API call can attach the already-persisted Bearer JWT
- * without waiting for getSession()/GoTrue round-trips.
+ * without waiting for the Supabase SDK or getSession().
  */
 export function hydrateSupabaseAccessTokenSync(): boolean {
   const stored = readStoredSessionSync();
@@ -51,9 +52,6 @@ async function proxiedAuthFetch(input: RequestInfo | URL, init?: RequestInit): P
   proxyUrl.searchParams.set('target', `${target.pathname}${target.search}`);
 
   const headers = new Headers(request.headers);
-  // The browser never receives the Worker service-role key. The restricted
-  // same-origin auth proxy injects the server-side key only for whitelisted
-  // GoTrue token/user/logout endpoints.
   headers.delete('apikey');
   headers.delete('x-client-info');
 
@@ -71,20 +69,25 @@ async function proxiedAuthFetch(input: RequestInfo | URL, init?: RequestInit): P
   });
 }
 
-// iOS PWA source of truth: Supabase Auth persists access + refresh tokens in
-// localStorage instead of relying on WebKit's standalone cookie lifecycle.
-export const supabase = createClient(SUPABASE_URL, AUTH_PROXY_KEY, {
-  auth: {
-    storage: window.localStorage,
-    storageKey: SUPABASE_STORAGE_KEY,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-  global: {
-    fetch: proxiedAuthFetch,
-  },
-});
+async function getSupabaseClient(): Promise<SupabaseClient> {
+  if (!clientPromise) {
+    clientPromise = import('@supabase/supabase-js').then(({ createClient }) =>
+      createClient(SUPABASE_URL, AUTH_PROXY_KEY, {
+        auth: {
+          storage: window.localStorage,
+          storageKey: SUPABASE_STORAGE_KEY,
+          autoRefreshToken: true,
+          persistSession: true,
+          detectSessionInUrl: true,
+        },
+        global: {
+          fetch: proxiedAuthFetch,
+        },
+      }),
+    );
+  }
+  return clientPromise;
+}
 
 export type BrowserSessionEnvelope = {
   accessToken: string;
@@ -103,14 +106,16 @@ export function getSupabaseAccessToken(): string | null {
 }
 
 export async function readPersistedSupabaseSession(): Promise<Session | null> {
-  const { data, error } = await supabase.auth.getSession();
+  const client = await getSupabaseClient();
+  const { data, error } = await client.auth.getSession();
   if (error) throw error;
   cachedAccessToken = data.session?.access_token ?? null;
   return data.session;
 }
 
 export async function persistSupabaseSession(session: BrowserSessionEnvelope): Promise<Session> {
-  const { data, error } = await supabase.auth.setSession({
+  const client = await getSupabaseClient();
+  const { data, error } = await client.auth.setSession({
     access_token: session.accessToken,
     refresh_token: session.refreshToken,
   });
@@ -127,7 +132,8 @@ export async function refreshSupabaseAccessToken(): Promise<string | null> {
 
   refreshInFlight = (async () => {
     try {
-      const { data, error } = await supabase.auth.refreshSession();
+      const client = await getSupabaseClient();
+      const { data, error } = await client.auth.refreshSession();
       if (error) throw error;
       if (!data.session) {
         cachedAccessToken = null;
@@ -143,27 +149,43 @@ export async function refreshSupabaseAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
+export function subscribeSupabaseAuthState(
+  listener: (event: AuthChangeEvent, session: Session | null) => void,
+): () => void {
+  let active = true;
+  let unsubscribe: (() => void) | null = null;
+
+  void getSupabaseClient().then((client) => {
+    if (!active) return;
+    const { data } = client.auth.onAuthStateChange(listener);
+    unsubscribe = () => data.subscription.unsubscribe();
+  }).catch((error) => {
+    console.warn('[auth] Supabase state listener unavailable', error);
+  });
+
+  return () => {
+    active = false;
+    unsubscribe?.();
+  };
+}
+
 export async function clearSupabaseSession(): Promise<void> {
   cachedAccessToken = null;
   try {
+    window.localStorage.removeItem(SUPABASE_STORAGE_KEY);
+  } catch {
+    // Storage may be restricted; in-memory auth is already cleared.
+  }
+
+  try {
+    const client = await getSupabaseClient();
     await Promise.race([
-      supabase.auth.signOut({ scope: 'local' }),
+      client.auth.signOut({ scope: 'local' }),
       new Promise<never>((_, reject) => {
         window.setTimeout(() => reject(new Error('AUTH_SIGNOUT_TIMEOUT')), 2_000);
       }),
     ]);
   } catch {
-    // Supabase uses a project-scoped localStorage key. Remove only Auth state;
-    // never clear unrelated Chavea preferences/settings from localStorage.
-    try {
-      for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-        const key = window.localStorage.key(index);
-        if (key?.startsWith('sb-') && key.endsWith('-auth-token')) {
-          window.localStorage.removeItem(key);
-        }
-      }
-    } catch {
-      // If storage is unavailable there is nothing else the browser can persist.
-    }
+    // Best-effort local sign-out; the persisted token key was removed above.
   }
 }
