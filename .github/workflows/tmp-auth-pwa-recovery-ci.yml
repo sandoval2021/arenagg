@@ -1,0 +1,47 @@
+name: Auth PWA Recovery CI
+
+on:
+  push:
+    branches: [hotfix-auth-pwa-recovery]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert auth escape hatch
+        run: |
+          set -euo pipefail
+          grep -Fq 'AUTH_BOOT_TIMEOUT_MS = 5_000' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "window.location.replace('/login')" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'window.localStorage.clear()' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'retry: false' apps/web/src/hooks/useAuth.tsx
+          if grep -Fq 'SessionRecoveryScreen' apps/web/src/hooks/useAuth.tsx; then
+            echo 'Dead-end recovery screen still exists.' >&2
+            exit 1
+          fi
+      - name: Assert silent PWA update
+        run: |
+          set -euo pipefail
+          grep -Fq "registerType: 'autoUpdate'" apps/web/vite.config.ts
+          grep -Fq 'clientsClaim: true' apps/web/vite.config.ts
+          grep -Fq 'skipWaiting: true' apps/web/vite.config.ts
+          grep -Fq 'registration.update()' apps/web/src/main.tsx
+          grep -Fq "window.addEventListener('online'" apps/web/src/main.tsx
+          grep -Fq "window.addEventListener('pageshow'" apps/web/src/main.tsx
+          grep -Fq 'await self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'await self.clients.claim()' apps/web/src/sw.js
+          grep -Fq 'v7-20260910-auth-recovery' apps/web/src/sw.js
