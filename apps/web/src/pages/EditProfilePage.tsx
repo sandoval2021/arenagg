@@ -102,10 +102,6 @@ export function EditProfilePage() {
     setAvatarUrl('');
   }
 
-  if (profile.isLoading && !hydrated) {
-    return <GlobalLoader mode="screen" label="Carregando seu perfil…" />;
-  }
-
   const visibleAvatar = preview || avatarUrl;
 
   return (
@@ -118,29 +114,29 @@ export function EditProfilePage() {
 
         <section className="mt-4 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/50">
           <div className="flex items-center gap-4">
-            <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-[1.6rem] border border-blue-200 bg-blue-50 shadow-sm">
-              {visibleAvatar ? <img src={visibleAvatar} alt="Preview do avatar" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
+            <div className="grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-[1.6rem] border border-blue-200 bg-slate-100 shadow-sm">
+              {visibleAvatar ? <img src={visibleAvatar} alt="Preview do avatar" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C]" />}
             </div>
-            <div className="min-w-0 flex-1"><p className="text-sm font-black">Preview instantâneo</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Fotos grandes do celular são otimizadas antes do envio.</p></div>
+            <div className="min-w-0 flex-1"><p className="text-sm font-black">Preview instantâneo</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-500">Fotos grandes do celular são reduzidas antes do envio.</p>{profile.isFetching && !hydrated && <p className="mt-1 text-[10px] font-bold text-slate-400">Sincronizando dados…</p>}</div>
           </div>
 
           <label className="mt-4 flex min-h-13 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-4 text-sm font-black text-[#073B8C]">
             <ImagePlus className="h-5 w-5" /><span className="truncate">{file ? file.name : 'Escolher foto da galeria'}</span>
             <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="sr-only" onChange={(event) => chooseAvatar(event.target.files?.[0] ?? null)} />
           </label>
-          <p className="mt-2 text-[11px] font-medium text-slate-400">JPG/JPEG, PNG ou WEBP · máximo 10 MB.</p>
+          <p className="mt-2 text-[11px] font-medium text-slate-400">JPG/JPEG, PNG ou WEBP · máximo 10 MB no arquivo original.</p>
           {fileError && <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600">{fileError}</p>}
 
           <div className="mt-5 flex items-center gap-2"><Sparkles className="h-4 w-4 text-[#073B8C]" /><p className="text-xs font-black uppercase tracking-wider text-slate-500">Ícones padrão</p></div>
           <div className="mt-3 grid grid-cols-3 gap-3">
             {BUILT_IN_AVATARS.map((avatar) => {
               const selected = !file && avatarUrl === avatar.url;
-              return <button key={avatar.url} type="button" onClick={() => { setFile(null); setFileError(null); setAvatarUrl(avatar.url); }} className={`relative aspect-square overflow-hidden rounded-2xl border bg-white p-2 shadow-sm ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}><img src={avatar.url} alt={avatar.name} className="h-full w-full rounded-xl object-cover" />{selected && <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3.5 w-3.5" /></span>}</button>;
+              return <button key={avatar.url} type="button" onClick={() => { setFile(null); setFileError(null); setAvatarUrl(avatar.url); }} className={`relative aspect-square overflow-hidden rounded-2xl border bg-slate-100 p-2 shadow-sm ${selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}><img src={avatar.url} alt={avatar.name} loading="lazy" decoding="async" className="h-full w-full rounded-xl object-cover" />{selected && <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-blue-600 text-white"><Check className="h-3.5 w-3.5" /></span>}</button>;
             })}
           </div>
 
           <label className="mt-6 block text-xs font-black uppercase tracking-wider text-slate-500">Nome de jogador</label>
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={40} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white" placeholder="Seu nome no Chavea" />
+          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={40} className="mt-2 min-h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold outline-none focus:border-blue-400 focus:bg-white" placeholder={profile.isFetching && !hydrated ? 'Carregando…' : 'Seu nome no Chavea'} />
 
           <p className="mt-6 text-xs font-black uppercase tracking-wider text-slate-500">Onde você joga?</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -168,8 +164,9 @@ export function EditProfilePage() {
             </label>
           </div>
 
+          {profile.isError && <button type="button" onClick={() => void profile.refetch()} className="mt-4 min-h-11 w-full rounded-xl border border-red-100 bg-red-50 px-3 text-xs font-black text-red-700">Tentar carregar os dados novamente</button>}
           {save.isError && <p className="mt-4 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{profileError(save.error)}</p>}
-          <button disabled={displayName.trim().length < 2 || save.isPending || profile.isLoading || Boolean(fileError)} onClick={() => save.mutate()} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-40">{save.isPending ? <GlobalLoader mode="inline" label="Salvando…" className="[&_*]:text-white" /> : <><Save className="h-5 w-5" />Salvar Perfil</>}</button>
+          <button disabled={displayName.trim().length < 2 || save.isPending || !hydrated || Boolean(fileError)} onClick={() => save.mutate()} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] font-black text-white shadow-md disabled:opacity-40">{save.isPending ? <GlobalLoader mode="inline" label="Salvando…" className="[&_*]:text-white" /> : <><Save className="h-5 w-5" />Salvar Perfil</>}</button>
         </section>
 
         <PushNotificationsCard surface="settings" />
@@ -185,7 +182,7 @@ function profileError(error: unknown): string {
   if (error.code === 'IMAGE_TOO_LARGE') return 'A foto deve ter no máximo 10 MB.';
   if (error.code === 'INVALID_IMAGE') return 'Use uma imagem JPG/JPEG, PNG ou WEBP válida.';
   if (error.code === 'STORAGE_NOT_CONFIGURED') return 'O upload de imagens ainda não está configurado no servidor.';
-  if (error.code === 'STORAGE_UPLOAD_FAILED') return 'A imagem não pôde ser gravada no Storage. O erro foi registrado no servidor.';
+  if (error.code === 'STORAGE_UPLOAD_FAILED') return 'A imagem não pôôde ser gravada no Storage. O erro foi registrado no servidor.';
   if (error.code === 'NETWORK_ERROR') return 'Sem comunicação com o servidor. Tente novamente.';
   return 'Não foi possível salvar seu perfil. O erro foi registrado no servidor.';
 }
