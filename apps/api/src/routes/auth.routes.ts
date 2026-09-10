@@ -1,21 +1,22 @@
 import { Hono } from 'hono';
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 import {
-  createSession,
-  getSessionUser,
   hashPassword,
   normalizeEmail,
   normalizePhone,
-  revokeSession,
   toPublicUser,
   verifyPassword,
 } from '../services/auth.service';
+import {
+  extractBearerToken,
+  getBearerUser,
+  issueSupabaseSession,
+  removeProvisionedSupabaseUser,
+} from '../services/supabase-auth.service';
 import { claimDailyLoginReward } from '../services/sticker-pack-rewards.service';
 
 const auth = new Hono<Env>();
-const SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000; // 30 days.
 const password = z.string().min(10).max(128);
 const registerSchema = z
   .object({
@@ -32,18 +33,6 @@ const loginSchema = z
     password,
   })
   .refine((value) => Boolean(value.email) !== Boolean(value.phone), 'Provide exactly one identifier');
-
-function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string) {
-  // Production requests use the same-origin Cloudflare Pages /api proxy, so
-  // SameSite=Lax is first-party and reliable in standalone iOS/Android PWAs.
-  // Keep the exact persistent security contract explicit instead of relying on
-  // serializer defaults or an Expires clock that can drift on mobile devices.
-  c.header(
-    'Set-Cookie',
-    `chavea_session=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_SECONDS}; Path=/`,
-    { append: true },
-  );
-}
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
   const result = schema.safeParse(body);
@@ -65,35 +54,18 @@ async function claimDailyRewardSafely(
       userId,
       error: error instanceof Error ? error.message : String(error),
     });
-    // Authentication must remain available. Because lastLoginReward is only
-    // advanced in the reward transaction, a later /me bootstrap can retry.
     return false;
   }
 }
 
-async function attachSession(
-  c: Parameters<typeof setCookie>[0],
-  prisma: Env['Variables']['prisma'],
-  userId: string,
-) {
-  const session = await createSession(prisma, userId);
-  setSessionCookie(c, session.token);
-}
-
-type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'create_session';
+type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'supabase_auth';
 
 auth.post('/register', async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
 
   if (!parsed.success) {
-    return c.json(
-      {
-        error: 'INVALID_INPUT',
-        issues: parsed.error.flatten(),
-      },
-      400,
-    );
+    return c.json({ error: 'INVALID_INPUT', issues: parsed.error.flatten() }, 400);
   }
 
   const input = parsed.data;
@@ -101,6 +73,7 @@ auth.post('/register', async (c) => {
   const phone = input.phone ? normalizePhone(input.phone) : null;
   const prisma = c.get('prisma');
   let stage: RegistrationStage = 'lookup';
+  let createdUser: Awaited<ReturnType<typeof prisma.user.create>> | null = null;
 
   try {
     const existing = await prisma.user.findFirst({
@@ -108,14 +81,13 @@ auth.post('/register', async (c) => {
         OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
       },
     });
-
     if (existing) return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
 
     stage = 'hash_password';
     const passwordHash = await hashPassword(input.password);
 
     stage = 'create_user';
-    const user = await prisma.user.create({
+    createdUser = await prisma.user.create({
       data: {
         name: input.name,
         email,
@@ -124,24 +96,29 @@ auth.post('/register', async (c) => {
       },
     });
 
-    stage = 'create_session';
-    await attachSession(c, prisma, user.id);
-    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
-    return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } }, 201);
+    stage = 'supabase_auth';
+    const session = await issueSupabaseSession(c.env, createdUser, input.password);
+    const dailyPackGranted = await claimDailyRewardSafely(prisma, createdUser.id);
+    return c.json(
+      { user: toPublicUser(createdUser), session, rewards: { dailyPackGranted } },
+      201,
+    );
   } catch (error) {
-    console.log('[auth.register] failed', {
+    console.error('[auth.register] failed', {
       stage,
-      nameLength: input.name.length,
       hasEmail: Boolean(email),
       hasPhone: Boolean(phone),
       errorName: error instanceof Error ? error.name : 'UnknownError',
       errorMessage: error instanceof Error ? error.message : String(error),
     });
 
-    if (isPrismaUniqueConstraintError(error)) {
-      return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
+    if (createdUser && stage === 'supabase_auth') {
+      await removeProvisionedSupabaseUser(c.env, createdUser).catch(() => undefined);
+      await prisma.user.delete({ where: { id: createdUser.id } }).catch(() => undefined);
     }
 
+    if (isPrismaUniqueConstraintError(error)) return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
+    if (stage === 'supabase_auth') return c.json({ error: 'AUTH_PROVIDER_UNAVAILABLE' }, 503);
     return c.json({ error: 'REGISTRATION_FAILED', stage }, 500);
   }
 });
@@ -159,132 +136,47 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'INVALID_CREDENTIALS' }, 401);
   }
 
-  await attachSession(c, prisma, user.id);
-  const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
-  return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } });
+  try {
+    // Legacy Prisma credentials remain valid during the migration. Once they
+    // pass verification, issueSupabaseSession JIT-provisions/synchronizes the
+    // corresponding Supabase Auth account and returns mobile-persistent tokens.
+    const session = await issueSupabaseSession(c.env, user, input.password);
+    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+    return c.json({ user: toPublicUser(user), session, rewards: { dailyPackGranted } });
+  } catch (error) {
+    console.error('[auth.login] Supabase session issue failed', {
+      userId: user.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: 'AUTH_PROVIDER_UNAVAILABLE' }, 503);
+  }
 });
 
 auth.get('/me', async (c) => {
-  const token = getCookie(c, 'chavea_session');
-  if (!token) return c.json({ user: null, rewards: { dailyPackGranted: false } });
+  const token = extractBearerToken(c.req.header('authorization'));
+  if (!token) return c.json({ error: 'UNAUTHORIZED' }, 401);
 
   const prisma = c.get('prisma');
-  const user = await getSessionUser(prisma, token);
-  if (!user) return c.json({ user: null, rewards: { dailyPackGranted: false } });
-
-  // Sliding 30-day browser lifetime on every successful PWA bootstrap.
-  setSessionCookie(c, token);
+  const user = await getBearerUser(prisma, c.env, token).catch((error) => {
+    console.error('[auth.me] bearer validation failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+  if (!user) return c.json({ error: 'UNAUTHORIZED' }, 401);
 
   const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
   return c.json({ user, rewards: { dailyPackGranted } });
 });
 
-auth.post('/logout', async (c) => {
-  const token = getCookie(c, 'chavea_session');
-  if (token) await revokeSession(c.get('prisma'), token);
-  deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
-  return c.body(null, 204);
-});
+// Session revocation is handled by the Supabase Auth client through the
+// restricted /api/supabase/auth/v1/logout proxy. Keep this endpoint harmless
+// for stale clients, but never create/read a browser cookie again.
+auth.post('/logout', (c) => c.body(null, 204));
 
-auth.get('/google', (c) => {
-  const state = crypto.randomUUID();
-  setCookie(c, 'chavea_oauth_state', state, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: 600,
-  });
-
-  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  url.searchParams.set('client_id', c.env.GOOGLE_CLIENT_ID ?? '');
-  url.searchParams.set('redirect_uri', c.env.GOOGLE_REDIRECT_URI ?? '');
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'openid email profile');
-  url.searchParams.set('state', state);
-  url.searchParams.set('prompt', 'select_account');
-  return c.redirect(url.toString());
-});
-
-auth.get('/google/callback', async (c) => {
-  const code = c.req.query('code');
-  const state = c.req.query('state');
-  const expected = getCookie(c, 'chavea_oauth_state');
-
-  if (!code || !state || !expected || state !== expected) {
-    return c.json({ error: 'INVALID_OAUTH_STATE' }, 400);
-  }
-
-  const clientId = c.env.GOOGLE_CLIENT_ID;
-  const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = c.env.GOOGLE_REDIRECT_URI;
-  if (!clientId || !clientSecret || !redirectUri) {
-    return c.json({ error: 'GOOGLE_OAUTH_NOT_CONFIGURED' }, 503);
-  }
-
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
-    }),
-  });
-  if (!tokenResponse.ok) return c.json({ error: 'OAUTH_TOKEN_EXCHANGE_FAILED' }, 401);
-
-  const tokens = (await tokenResponse.json()) as { access_token: string };
-  const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
-  });
-  if (!profileResponse.ok) return c.json({ error: 'OAUTH_PROFILE_FAILED' }, 401);
-
-  const profile = (await profileResponse.json()) as {
-    sub: string;
-    email: string;
-    email_verified?: boolean;
-    name?: string;
-    picture?: string;
-  };
-  if (!profile.email || !profile.email_verified) {
-    return c.json({ error: 'GOOGLE_EMAIL_NOT_VERIFIED' }, 401);
-  }
-
-  const prisma = c.get('prisma');
-  const email = normalizeEmail(profile.email);
-  let user = await prisma.user.findUnique({ where: { email } });
-
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        name: profile.name ?? email.split('@')[0],
-        email,
-        emailVerified: new Date(),
-        avatarUrl: profile.picture,
-      },
-    });
-  }
-
-  await prisma.authAccount.upsert({
-    where: {
-      provider_providerAccountId: {
-        provider: 'google',
-        providerAccountId: profile.sub,
-      },
-    },
-    create: {
-      userId: user.id,
-      provider: 'google',
-      providerAccountId: profile.sub,
-    },
-    update: { userId: user.id },
-  });
-
-  await attachSession(c, prisma, user.id);
-  deleteCookie(c, 'chavea_oauth_state', { path: '/' });
-  return c.redirect(c.env.WEB_APP_URL);
-});
+// The old Google callback created a cookie-only session and is deliberately
+// disabled until it is migrated to the same bearer-token contract.
+auth.get('/google', (c) => c.json({ error: 'GOOGLE_LOGIN_TEMPORARILY_DISABLED' }, 410));
+auth.get('/google/callback', (c) => c.json({ error: 'GOOGLE_LOGIN_TEMPORARILY_DISABLED' }, 410));
 
 export { auth };
