@@ -52,6 +52,10 @@ const AUTH_QUERY_KEY = ['auth', 'me'] as const;
 const AUTH_BOOT_TIMEOUT_MS = 5_000;
 const AUTH_ME_TIMEOUT_MS = 4_500;
 
+function isPublicAuthPath(pathname: string): boolean {
+  return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+}
+
 function hardClearBrowserAuth() {
   // Freeze GoTrue persistence before clearing storage. This prevents a stale
   // refresh promise from re-populating localStorage after the recovery redirect.
@@ -61,6 +65,11 @@ function hardClearBrowserAuth() {
   } catch {
     // Safari private/managed modes can reject storage access. The redirect to
     // /login still provides a deterministic escape route.
+  }
+  try {
+    window.sessionStorage.clear();
+  } catch {
+    // Best effort only. No credential is allowed to keep the recovery route blocked.
   }
 }
 
@@ -158,16 +167,18 @@ async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Pro
 
 function useAuthState() {
   const queryClient = useQueryClient();
+  const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
     queryFn: bootstrapPersistentSession,
+    enabled: !isPublicAuthRoute,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     retry: false,
-    refetchOnWindowFocus: true,
-    refetchOnMount: 'always',
-    refetchOnReconnect: true,
+    refetchOnWindowFocus: !isPublicAuthRoute,
+    refetchOnMount: isPublicAuthRoute ? false : 'always',
+    refetchOnReconnect: !isPublicAuthRoute,
   });
 
   useEffect(() => {
@@ -182,7 +193,9 @@ function useAuthState() {
         });
       }
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
+        if (!isPublicAuthPath(window.location.pathname)) {
+          void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
+        }
       }
     });
     return () => data.subscription.unsubscribe();
@@ -236,23 +249,17 @@ function useAuthState() {
 
   const forceLoginRecovery = useCallback(() => {
     hardClearBrowserAuth();
-    void queryClient.cancelQueries({ queryKey: AUTH_QUERY_KEY });
+    void queryClient.cancelQueries();
+    queryClient.clear();
 
     if (window.location.pathname !== '/login') {
-      queryClient.clear();
       window.location.replace('/login');
-      return;
     }
-
-    queryClient.setQueryData(AUTH_QUERY_KEY, {
-      user: null,
-      rewards: { dailyPackGranted: false },
-      bootstrapFailed: false,
-    });
   }, [queryClient]);
 
-  const isBootstrapping = me.data === undefined && me.isPending;
-  const bootstrapFailed = Boolean(me.data?.bootstrapFailed) || (me.data === undefined && me.isError);
+  const isBootstrapping = !isPublicAuthRoute && me.data === undefined && me.isPending;
+  const bootstrapFailed =
+    !isPublicAuthRoute && (Boolean(me.data?.bootstrapFailed) || (me.data === undefined && me.isError));
 
   return {
     user: me.data?.user ?? null,
@@ -298,22 +305,23 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
+  const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
 
   // Independent watchdog: even if GoTrue leaves a promise permanently pending
   // on iOS, React never gets to keep the user on a white/loading screen forever.
   useEffect(() => {
-    if (!value.isBootstrapping) return;
+    if (isPublicAuthRoute || !value.isBootstrapping) return;
     const watchdog = window.setTimeout(() => value.forceLoginRecovery(), AUTH_BOOT_TIMEOUT_MS);
     return () => window.clearTimeout(watchdog);
-  }, [value.isBootstrapping, value.forceLoginRecovery]);
+  }, [isPublicAuthRoute, value.isBootstrapping, value.forceLoginRecovery]);
 
   useEffect(() => {
-    if (value.bootstrapFailed) value.forceLoginRecovery();
-  }, [value.bootstrapFailed, value.forceLoginRecovery]);
+    if (!isPublicAuthRoute && value.bootstrapFailed) value.forceLoginRecovery();
+  }, [isPublicAuthRoute, value.bootstrapFailed, value.forceLoginRecovery]);
 
-  if (value.isBootstrapping) return <SessionBootScreen />;
+  if (!isPublicAuthRoute && value.isBootstrapping) return <SessionBootScreen />;
 
-  if (value.bootstrapFailed && window.location.pathname !== '/login') {
+  if (!isPublicAuthRoute && value.bootstrapFailed) {
     return <GlobalLoader mode="screen" label="Abrindo login…" />;
   }
 
