@@ -24,6 +24,45 @@ const queryClient = new QueryClient({
   },
 });
 
+function installSilentPwaUpdateChecks() {
+  if (!('serviceWorker' in navigator)) return;
+
+  let lastCheckAt = 0;
+  let inFlight = false;
+
+  const checkForUpdate = async () => {
+    if (!navigator.onLine || inFlight) return;
+
+    const now = Date.now();
+    if (now - lastCheckAt < 15_000) return;
+    lastCheckAt = now;
+    inFlight = true;
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.update();
+    } catch (error) {
+      console.warn('[pwa] silent update check failed', error);
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'visible') void checkForUpdate();
+  };
+
+  // Do not await any of these checks: rendering must never depend on SW update
+  // I/O. They only force the browser to ask for a newer sw.js when connectivity
+  // is available or the standalone PWA returns to the foreground.
+  void checkForUpdate();
+  window.addEventListener('online', checkForUpdate);
+  window.addEventListener('pageshow', checkForUpdate);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+}
+
+installSilentPwaUpdateChecks();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
