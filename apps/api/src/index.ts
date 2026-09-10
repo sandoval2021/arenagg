@@ -36,6 +36,7 @@ import { phaseThreeCompetitions } from './routes/phase-three-competition.routes'
 import { phaseThreeMatches } from './routes/phase-three-match.routes';
 import { phaseFourCompetitions } from './routes/phase-four-competition.routes';
 import { phaseSixCompetitions } from './routes/phase-six-competition.routes';
+import { hostActions } from './routes/host-actions.routes';
 import { matchMedia } from './routes/match-media.routes';
 import { push } from './routes/push.routes';
 
@@ -142,6 +143,7 @@ app.route('/api/feed', globalFeed);
 // format, so the legacy Phase 6/competitions start handlers are not reached.
 app.route('/api/competitions', phaseFourCompetitions);
 app.route('/api/competitions', competitionStartV2);
+app.route('/api/competitions', hostActions);
 app.route('/api/competitions', phaseSixCompetitions);
 app.route('/api/competitions', phaseThreeCompetitions);
 app.route('/api/competitions', competitionChat);
