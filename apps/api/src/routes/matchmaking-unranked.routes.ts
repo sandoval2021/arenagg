@@ -15,7 +15,7 @@ matchmakingUnranked.post('/rooms/:id/score/confirm', async (c) => {
   const roomId = c.req.param('id');
 
   const result = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`lfg-room:${roomId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lfg-room:${roomId}`}))`;
 
     const room = await tx.casualMatchRoom.findUnique({ where: { id: roomId } });
     if (!room) return { error: 'ROOM_NOT_FOUND' as const };
