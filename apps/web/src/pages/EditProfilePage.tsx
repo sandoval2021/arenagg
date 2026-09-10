@@ -70,7 +70,10 @@ export function EditProfilePage() {
       });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['gamer-profile'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['gamer-profile'] }),
+        queryClient.invalidateQueries({ queryKey: ['competition'] }),
+      ]);
       navigate('/profile', { replace: true });
     },
   });

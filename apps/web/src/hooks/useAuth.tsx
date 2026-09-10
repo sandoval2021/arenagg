@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { API_URL, apiRequest } from '../lib/api';
+import { apiRequest } from '../lib/api';
 import { Logo } from '../components/brand/Logo';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 
@@ -68,17 +68,17 @@ async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
   // during that window. No credential/token is ever stored in localStorage.
   if (!readKnownSession()) return first;
 
-  await sleep(250);
-  const second = await apiRequest<AuthSessionResponse>('/api/auth/me');
-  if (second.user) {
-    writeKnownSession(true);
-    return second;
+  const delays = [250, 750, 1500, 2500] as const;
+  let latest = first;
+  for (const delay of delays) {
+    await sleep(delay);
+    latest = await apiRequest<AuthSessionResponse>('/api/auth/me');
+    if (latest.user) {
+      writeKnownSession(true);
+      return latest;
+    }
   }
-
-  await sleep(500);
-  const third = await apiRequest<AuthSessionResponse>('/api/auth/me');
-  if (third.user) writeKnownSession(true);
-  return third;
+  return latest;
 }
 
 function useAuthState() {
@@ -147,7 +147,7 @@ function useAuthState() {
     register,
     logout,
     refresh: () => me.refetch(),
-    googleLoginUrl: `${API_URL}/api/auth/google`,
+    googleLoginUrl: '/api/auth/google',
   };
 }
 

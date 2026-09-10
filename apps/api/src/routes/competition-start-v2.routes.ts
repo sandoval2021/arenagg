@@ -388,7 +388,7 @@ competitionStartV2.post('/:id/start', async (c) => {
         repairedTeams,
         effectiveGroupCount: groupCount,
       };
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     if (!result.ok) {
       console.info('[competition.start.v2] rejected', {

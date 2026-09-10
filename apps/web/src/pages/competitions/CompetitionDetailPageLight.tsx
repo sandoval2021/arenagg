@@ -265,7 +265,7 @@ function Lobby({ competitionId, participants, hostId, maxParticipants, isHost }:
                 className="group flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-blue-200 hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[.99]"
                 aria-label={`Abrir perfil de ${participant.user.displayName ?? participant.user.name}`}
               >
-                <TeamAvatar name={participant.teamName} logoUrl={participant.teamLogoUrl ?? participant.team?.logoUrl ?? undefined} />
+                <TeamAvatar name={participant.teamName} logoUrl={participant.team?.logoUrl ?? participant.user.avatarUrl ?? participant.teamLogoUrl ?? undefined} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-black text-slate-900">{participant.teamName || participant.team?.name || 'Time pendente'}</p>
                   <p className="mt-0.5 truncate text-xs font-semibold text-slate-400">#{index + 1} · {participant.user.displayName ?? participant.user.name}</p>
