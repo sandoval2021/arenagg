@@ -10,6 +10,11 @@ export function PwaUpdatePrompt() {
     immediate: true,
     onRegisteredSW(_swUrl, registration) {
       registrationRef.current = registration ?? null;
+      if (registration && navigator.onLine) {
+        void registration.update().catch((error) => {
+          console.warn('[pwa] initial update check failed', error);
+        });
+      }
     },
     onRegisterError(error) {
       console.error('[pwa] service worker registration failed', error);
@@ -25,15 +30,18 @@ export function PwaUpdatePrompt() {
       });
     };
 
-    // Updates are discovered quietly. We intentionally do NOT call
-    // updateServiceWorker(true), location.reload(), or navigate the client.
-    // The active React tree stays mounted while the next worker takes control.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    };
+
     const timer = window.setInterval(checkForUpdate, SILENT_UPDATE_INTERVAL_MS);
     window.addEventListener('online', checkForUpdate, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('online', checkForUpdate);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, []);
 
