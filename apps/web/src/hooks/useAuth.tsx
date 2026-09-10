@@ -3,17 +3,20 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from '../lib/api';
+import { GlobalLoader } from '../components/brand/GlobalLoader';
 import {
   clearSupabaseSession,
+  clearSupabaseSessionStorage,
   persistSupabaseSession,
   readPersistedSupabaseSession,
-  refreshSupabaseAccessToken,
-  setSupabaseAccessToken,
+  signInWithSupabasePassword,
+  signUpWithSupabasePassword,
   subscribeSupabaseAuthState,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
@@ -47,52 +50,20 @@ type AuthSessionResponse = {
 type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const AUTH_QUERY_KEY = ['auth', 'me'] as const;
-const KNOWN_SESSION_KEY = 'chaveaHasSession';
+const AUTH_BOOT_TIMEOUT_MS = 5_000;
 const USER_SNAPSHOT_KEY = 'chaveaUserSnapshot';
+const KNOWN_SESSION_KEY = 'chaveaHasSession';
 
 function isPublicAuthPath(pathname: string): boolean {
   return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
 }
 
-function hasPersistedSessionSync(): boolean {
+function clearUserSnapshot(): void {
   try {
-    if (window.localStorage.getItem(KNOWN_SESSION_KEY) === 'true') return true;
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (key?.startsWith('sb-') && key.endsWith('-auth-token') && window.localStorage.getItem(key)) {
-        return true;
-      }
-    }
+    window.localStorage.removeItem(USER_SNAPSHOT_KEY);
+    window.localStorage.removeItem(KNOWN_SESSION_KEY);
   } catch {
-    return false;
-  }
-  return false;
-}
-
-function readUserSnapshot(): AuthUser | null {
-  try {
-    const raw = window.localStorage.getItem(USER_SNAPSHOT_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<AuthUser>;
-    if (
-      typeof value.id !== 'string' ||
-      typeof value.name !== 'string' ||
-      (value.role !== 'USER' && value.role !== 'ADMIN')
-    ) {
-      return null;
-    }
-    return {
-      id: value.id,
-      name: value.name,
-      displayName: typeof value.displayName === 'string' ? value.displayName : null,
-      avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
-      email: null,
-      phone: null,
-      role: value.role,
-    };
-  } catch {
-    return null;
+    // Supabase session storage is cleared separately.
   }
 }
 
@@ -110,168 +81,214 @@ function persistUserSnapshot(user: AuthUser): void {
       }),
     );
   } catch {
-    // The snapshot is only a paint optimization. Supabase remains auth source of truth.
+    // Optional paint cache only. It is never accepted as proof of authentication.
   }
 }
 
-function clearUserSnapshot(): void {
-  try {
-    window.localStorage.removeItem(KNOWN_SESSION_KEY);
-    window.localStorage.removeItem(USER_SNAPSHOT_KEY);
-  } catch {
-    // Ignore restricted storage modes.
+function withTimeout<T>(promise: Promise<T>, ms: number, code: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(code)), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function supabaseStatus(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null || !('status' in error)) return null;
+  return typeof error.status === 'number' ? error.status : null;
+}
+
+function supabaseMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? '');
+}
+
+function shouldTryLegacyBridge(error: unknown): boolean {
+  const status = supabaseStatus(error);
+  const message = supabaseMessage(error).toLowerCase();
+  return status === 400 || status === 401 || message.includes('invalid login credentials');
+}
+
+function loginApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  const status = supabaseStatus(error);
+  const message = supabaseMessage(error);
+  if (status === 400 || status === 401) {
+    return new ApiError(401, 'INVALID_CREDENTIALS', { message });
   }
+  return new ApiError(0, 'AUTH_PROVIDER_ERROR', { message });
 }
 
-function isAuthorizationError(error: unknown): error is ApiError {
-  return error instanceof ApiError && (error.status === 401 || error.status === 403);
-}
-
-function isClientAuthError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'status' in error &&
-    typeof error.status === 'number' && error.status >= 400 && error.status < 500;
-}
-
-async function requestSession(): Promise<AuthSessionResponse> {
-  return apiRequest<AuthSessionResponse>('/api/auth/me');
-}
-
-async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
-  let response: Response;
-  try {
-    response = await fetch('/api/auth/migrate-cookie', {
-      method: 'POST',
-      credentials: 'include',
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-  } catch {
-    return null;
+function registrationApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  const status = supabaseStatus(error);
+  const message = supabaseMessage(error);
+  const normalized = message.toLowerCase();
+  if (status === 422 || normalized.includes('already registered') || normalized.includes('already been registered')) {
+    return new ApiError(409, 'ACCOUNT_EXISTS', { message });
   }
-
-  if (response.status === 401) return null;
-  const body = (await response.json().catch(() => null)) as AuthSessionResponse | null;
-  if (!response.ok || !body?.session || !body.user) {
-    throw new ApiError(response.status, 'AUTH_MIGRATION_FAILED', body);
+  if (status && status >= 400 && status < 500) {
+    return new ApiError(status, 'INVALID_INPUT', { message });
   }
-
-  const session = await persistSupabaseSession(body.session);
-  setSupabaseAccessToken(session.access_token);
-  persistUserSnapshot(body.user);
-  return body;
+  return new ApiError(0, 'AUTH_PROVIDER_ERROR', { message });
 }
 
-async function loadPersistentSession(): Promise<AuthSessionResponse> {
-  const storedSession = await readPersistedSupabaseSession();
-
-  if (!storedSession) {
-    const migrated = await migrateLegacyCookie();
-    if (migrated) return migrated;
-    setSupabaseAccessToken(null);
-    return { user: null, rewards: { dailyPackGranted: false } };
-  }
-
-  try {
-    return await requestSession();
-  } catch (error) {
-    if (!isAuthorizationError(error)) throw error;
-
-    try {
-      const refreshed = await refreshSupabaseAccessToken();
-      if (refreshed) return await requestSession();
-    } catch (refreshError) {
-      if (!isClientAuthError(refreshError)) throw refreshError;
-    }
-
-    await clearSupabaseSession();
-    clearUserSnapshot();
-    return { user: null, rewards: { dailyPackGranted: false } };
-  }
+async function requestInternalSession(): Promise<AuthSessionResponse & { user: AuthUser }> {
+  const response = await apiRequest<AuthSessionResponse>('/api/auth/me');
+  if (!response.user) throw new ApiError(401, 'UNAUTHORIZED');
+  return response as AuthSessionResponse & { user: AuthUser };
 }
 
-async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
-  if (!data.session) throw new Error('AUTH_SESSION_MISSING');
-  const session = await persistSupabaseSession(data.session);
-  setSupabaseAccessToken(session.access_token);
-  if (data.user) persistUserSnapshot(data.user);
-  return data;
+async function legacyPasswordBridge(data: Credentials): Promise<AuthSessionResponse & { user: AuthUser }> {
+  const response = await apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  if (!response.session) throw new ApiError(503, 'AUTH_SESSION_ISSUE_FAILED');
+  await persistSupabaseSession(response.session);
+  // Prove that the newly persisted Supabase JWT is accepted by the Worker.
+  return requestInternalSession();
 }
 
 function useAuthState() {
   const queryClient = useQueryClient();
-  const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
-  const [hasPersistedSession, setHasPersistedSession] = useState(() => hasPersistedSessionSync());
-  const [cachedUser, setCachedUser] = useState<AuthUser | null>(() => readUserSnapshot());
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dailyRewardGranted, setDailyRewardGranted] = useState(false);
+  const redirectingRef = useRef(false);
 
-  const me = useQuery({
-    queryKey: AUTH_QUERY_KEY,
-    queryFn: loadPersistentSession,
-    enabled: !isPublicAuthRoute,
-    staleTime: 60_000,
-    gcTime: 30 * 60_000,
-    retry: false,
-    refetchOnWindowFocus: !isPublicAuthRoute,
-    refetchOnMount: isPublicAuthRoute ? false : 'always',
-    refetchOnReconnect: !isPublicAuthRoute,
-  });
+  const resetLocalAuth = useCallback(() => {
+    clearSupabaseSessionStorage();
+    clearUserSnapshot();
+    setUser(null);
+    setDailyRewardGranted(false);
+  }, []);
+
+  const redirectToLogin = useCallback(() => {
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    resetLocalAuth();
+    queryClient.clear();
+    setIsLoading(false);
+    if (!isPublicAuthPath(window.location.pathname)) {
+      window.location.replace('/login');
+    } else {
+      redirectingRef.current = false;
+    }
+  }, [queryClient, resetLocalAuth]);
+
+  const bootstrap = useCallback(async () => {
+    const publicRoute = isPublicAuthPath(window.location.pathname);
+    setIsLoading(true);
+    try {
+      const result = await withTimeout(
+        (async () => {
+          const session = await readPersistedSupabaseSession();
+          if (!session) return null;
+          return requestInternalSession();
+        })(),
+        AUTH_BOOT_TIMEOUT_MS,
+        'AUTH_BOOT_TIMEOUT',
+      );
+
+      if (!result) {
+        resetLocalAuth();
+        setIsLoading(false);
+        return;
+      }
+
+      persistUserSnapshot(result.user);
+      setUser(result.user);
+      setDailyRewardGranted(Boolean(result.rewards?.dailyPackGranted));
+      setIsLoading(false);
+    } catch (error) {
+      console.error('[auth] bootstrap failed; clearing local session', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      resetLocalAuth();
+      queryClient.clear();
+      setIsLoading(false);
+      if (!publicRoute) redirectToLogin();
+    }
+  }, [queryClient, redirectToLogin, resetLocalAuth]);
 
   useEffect(() => {
-    if (!me.data) return;
-    if (me.data.user) {
-      persistUserSnapshot(me.data.user);
-      setCachedUser(me.data.user);
-      setHasPersistedSession(true);
-      return;
-    }
-    clearUserSnapshot();
-    setCachedUser(null);
-    setHasPersistedSession(false);
-  }, [me.data]);
+    void bootstrap();
+  }, [bootstrap]);
 
-  useEffect(() => subscribeSupabaseAuthState((event, session) => {
-    setSupabaseAccessToken(session?.access_token ?? null);
-    if (session) setHasPersistedSession(true);
-
-    if (event === 'SIGNED_OUT') {
-      clearUserSnapshot();
-      setCachedUser(null);
-      setHasPersistedSession(false);
-      queryClient.setQueryData(AUTH_QUERY_KEY, {
-        user: null,
-        rewards: { dailyPackGranted: false },
+  useEffect(() => {
+    try {
+      return subscribeSupabaseAuthState((event) => {
+        if (event !== 'SIGNED_OUT') return;
+        resetLocalAuth();
+        queryClient.clear();
+        if (!isPublicAuthPath(window.location.pathname)) redirectToLogin();
       });
+    } catch (error) {
+      console.error('[auth] Supabase auth-state listener failed', error);
+      return undefined;
     }
-  }), [queryClient]);
+  }, [queryClient, redirectToLogin, resetLocalAuth]);
 
   const login = useMutation({
     mutationFn: async (data: Credentials) => {
-      const response = await apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-      return persistLoginResponse(response);
+      try {
+        await withTimeout(
+          signInWithSupabasePassword(data),
+          AUTH_BOOT_TIMEOUT_MS,
+          'AUTH_LOGIN_TIMEOUT',
+        );
+        return await withTimeout(requestInternalSession(), AUTH_BOOT_TIMEOUT_MS, 'AUTH_PROFILE_TIMEOUT');
+      } catch (error) {
+        if (!shouldTryLegacyBridge(error)) throw loginApiError(error);
+        try {
+          return await withTimeout(legacyPasswordBridge(data), AUTH_BOOT_TIMEOUT_MS, 'AUTH_LEGACY_BRIDGE_TIMEOUT');
+        } catch (legacyError) {
+          throw loginApiError(legacyError);
+        }
+      }
     },
     onSuccess: (data) => {
+      redirectingRef.current = false;
       persistUserSnapshot(data.user);
-      setCachedUser(data.user);
-      setHasPersistedSession(true);
-      queryClient.setQueryData(AUTH_QUERY_KEY, data);
+      setUser(data.user);
+      setDailyRewardGranted(Boolean(data.rewards?.dailyPackGranted));
+      queryClient.setQueryData(['auth', 'me'], data);
     },
   });
 
   const register = useMutation({
     mutationFn: async (data: Registration) => {
-      const response = await apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-      return persistLoginResponse(response);
+      try {
+        const result = await withTimeout(
+          signUpWithSupabasePassword(data),
+          AUTH_BOOT_TIMEOUT_MS,
+          'AUTH_REGISTER_TIMEOUT',
+        );
+        if (!result.session) {
+          throw new ApiError(202, 'EMAIL_CONFIRMATION_REQUIRED', {
+            message: 'Confirme seu e-mail ou telefone para concluir o cadastro.',
+          });
+        }
+        return await withTimeout(requestInternalSession(), AUTH_BOOT_TIMEOUT_MS, 'AUTH_PROFILE_TIMEOUT');
+      } catch (error) {
+        throw registrationApiError(error);
+      }
     },
     onSuccess: (data) => {
+      redirectingRef.current = false;
       persistUserSnapshot(data.user);
-      setCachedUser(data.user);
-      setHasPersistedSession(true);
-      queryClient.setQueryData(AUTH_QUERY_KEY, data);
+      setUser(data.user);
+      setDailyRewardGranted(Boolean(data.rewards?.dailyPackGranted));
+      queryClient.setQueryData(['auth', 'me'], data);
     },
   });
 
@@ -279,53 +296,33 @@ function useAuthState() {
     mutationFn: async () => {
       try {
         await apiRequest<void>('/api/auth/logout', { method: 'POST' });
+      } catch (error) {
+        console.warn('[auth] remote logout failed; local session will still be cleared', error);
       } finally {
         await clearSupabaseSession();
       }
     },
     onSettled: () => {
-      clearUserSnapshot();
-      setCachedUser(null);
-      setHasPersistedSession(false);
-      queryClient.setQueryData(AUTH_QUERY_KEY, {
-        user: null,
-        rewards: { dailyPackGranted: false },
-      });
-      queryClient.removeQueries({ queryKey: ['competitions'] });
-      queryClient.removeQueries({ queryKey: ['default-shields'] });
-      queryClient.removeQueries({ queryKey: ['owner', 'default-shields'] });
+      resetLocalAuth();
+      queryClient.clear();
+      if (window.location.pathname !== '/login') window.location.replace('/login');
     },
   });
 
-  const forceLoginRecovery = useCallback(() => {
-    void (async () => {
-      await clearSupabaseSession();
-      clearUserSnapshot();
-      queryClient.clear();
-      window.location.replace('/login');
-    })();
-  }, [queryClient]);
-
-  const liveUser = me.data?.user ?? null;
-  const user = liveUser ?? cachedUser;
-  const isBootstrapping = !isPublicAuthRoute && me.data === undefined && me.isPending;
-  const hasBootstrapError = !isPublicAuthRoute && me.data === undefined && me.isError;
-
   return {
     user,
-    // Network validation runs in the background and never blocks the first paint.
-    isLoading: false,
-    isBootstrapping,
-    hasPersistedSession,
-    hasBootstrapError,
-    bootstrapError: me.error,
+    isLoading,
+    isBootstrapping: isLoading,
+    hasPersistedSession: Boolean(user),
+    hasBootstrapError: false,
+    bootstrapError: null,
     isAuthenticated: Boolean(user),
-    dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
+    dailyRewardGranted,
     login,
     register,
     logout,
-    refresh: () => me.refetch(),
-    forceLoginRecovery,
+    refresh: bootstrap,
+    forceLoginRecovery: redirectToLogin,
     googleLoginUrl: '/api/auth/google',
   };
 }
@@ -355,8 +352,10 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
 
-  // Zero-latency bootstrap: Supabase/Bearer validation continues in background;
-  // never replace the whole application with a network-dependent auth screen.
+  if (value.isLoading && !isPublicAuthPath(window.location.pathname)) {
+    return <GlobalLoader mode="screen" label="Restaurando sua sessão…" />;
+  }
+
   return (
     <AuthContext.Provider value={value}>
       <DailyPackToast granted={value.dailyRewardGranted} />
