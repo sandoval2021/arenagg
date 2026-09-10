@@ -49,6 +49,7 @@ export type CompetitionDetail = {
   host: { id: string; name: string; displayName: string | null };
   isHost: boolean;
   hasJoined: boolean;
+  hasKnockoutStage?: boolean;
   participations: Array<{
     id: string;
     userId: string;

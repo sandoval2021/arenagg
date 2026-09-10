@@ -75,7 +75,6 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     select: {
       id: true,
       type: true,
-      format: true,
       status: true,
       legFormat: true,
       championshipProfileAppliedAt: true,
@@ -90,49 +89,19 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
   ) return;
 
   let championTeamId: string | null = null;
+  const knockoutStage = await tx.stage.findFirst({
+    where: { competitionId, type: 'KNOCKOUT' },
+    orderBy: { order: 'desc' },
+    select: { id: true },
+  });
 
-  if (competition.type === 'LEAGUE') {
-    const matches = await tx.match.findMany({
-      where: { competitionId },
-      select: {
-        status: true,
-        homeTeamId: true,
-        awayTeamId: true,
-        homeScore: true,
-        awayScore: true,
-      },
-    });
-    if (
-      matches.length === 0 ||
-      matches.some((match) =>
-        match.status !== 'FINISHED'
-        || !match.homeTeamId
-        || !match.awayTeamId
-        || match.homeScore == null
-        || match.awayScore == null)
-    ) return;
-
-    const teams = await tx.team.findMany({ where: { competitionId }, select: { id: true } });
-    championTeamId = calculateStandings(
-      teams.map((team) => team.id),
-      matches.map((match) => ({
-        homeTeamId: match.homeTeamId!,
-        awayTeamId: match.awayTeamId!,
-        homeScore: match.homeScore!,
-        awayScore: match.awayScore!,
-      })),
-    )[0]?.teamId ?? null;
-  }
-
-  if (competition.type === 'KNOCKOUT' || competition.type === 'GROUPS_KNOCKOUT') {
-    // Direct two-leg knockout still requires its existing aggregate progression
-    // implementation and must never crown a champion after only leg 1.
+  if (knockoutStage) {
+    // Preserve the legacy safety restriction for direct two-leg knockouts.
     if (competition.type === 'KNOCKOUT' && competition.legFormat !== 'SINGLE') return;
 
-    // GROUP_STAGE only becomes eligible after its dedicated KNOCKOUT Stage exists.
     const final = await tx.match.findFirst({
-      where: { competitionId, leg: 1, stage: { type: 'KNOCKOUT' } },
-      orderBy: [{ stage: { order: 'desc' } }, { round: { number: 'desc' } }, { bracketPosition: 'desc' }],
+      where: { competitionId, stageId: knockoutStage.id, leg: 1 },
+      orderBy: [{ round: { number: 'desc' } }, { bracketPosition: 'desc' }],
       select: {
         status: true,
         homeTeamId: true,
@@ -144,12 +113,12 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
       },
     });
     if (
-      !final
-      || final.status !== 'FINISHED'
-      || !final.homeTeamId
-      || !final.awayTeamId
-      || final.homeScore == null
-      || final.awayScore == null
+      !final ||
+      final.status !== 'FINISHED' ||
+      !final.homeTeamId ||
+      !final.awayTeamId ||
+      final.homeScore == null ||
+      final.awayScore == null
     ) return;
     try {
       championTeamId = resolveWinner({
@@ -163,6 +132,44 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     } catch {
       return;
     }
+  } else if (competition.type === 'LEAGUE') {
+    const matches = await tx.match.findMany({
+      where: { competitionId, stage: { type: 'LEAGUE' } },
+      select: {
+        status: true,
+        homeTeamId: true,
+        awayTeamId: true,
+        homeScore: true,
+        awayScore: true,
+      },
+    });
+    if (
+      matches.length === 0 ||
+      matches.some((match) => !['FINISHED', 'CANCELED'].includes(match.status))
+    ) return;
+
+    const finished = matches.filter((match) =>
+      match.status === 'FINISHED' &&
+      match.homeTeamId &&
+      match.awayTeamId &&
+      match.homeScore != null &&
+      match.awayScore != null
+    );
+    if (finished.length === 0) return;
+
+    const teams = await tx.team.findMany({ where: { competitionId }, select: { id: true } });
+    championTeamId = calculateStandings(
+      teams.map((team) => team.id),
+      finished.map((match) => ({
+        homeTeamId: match.homeTeamId!,
+        awayTeamId: match.awayTeamId!,
+        homeScore: match.homeScore!,
+        awayScore: match.awayScore!,
+      })),
+    )[0]?.teamId ?? null;
+  } else {
+    // GROUPS_KNOCKOUT can only finish after its KNOCKOUT Stage exists.
+    return;
   }
 
   if (!championTeamId) return;
@@ -186,9 +193,10 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
     },
   });
   if (claimed.count === 1) {
+    if (knockoutStage) {
+      await tx.stage.updateMany({ where: { id: knockoutStage.id }, data: { status: 'FINISHED' } });
+    }
     await awardChampionship(tx, champion.participation.userId);
-    // championshipProfileAppliedAt is the exactly-once audit/idempotency gate.
-    // The champion reward commits in the same transaction as competition close.
     await creditStickerPacks(tx, champion.participation.userId, 'PREMIUM', 3);
   }
 }

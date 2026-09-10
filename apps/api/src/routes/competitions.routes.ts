@@ -398,6 +398,10 @@ competitions.get('/:id', async (c) => {
   };
   const baseInclude = {
     host: { select: { id: true, name: true, displayName: true } },
+    stages: {
+      orderBy: { order: 'asc' as const },
+      select: { id: true, type: true, status: true, order: true },
+    },
     participations: {
       where: { status: 'ACTIVE' as const },
       orderBy: { joinedAt: 'asc' as const },
@@ -422,6 +426,7 @@ competitions.get('/:id', async (c) => {
       currentUserId: user.id,
       isHost: competition.hostId === user.id,
       hasJoined: competition.participations.some((participation) => participation.userId === user.id),
+      hasKnockoutStage: competition.stages.some((stage) => stage.type === 'KNOCKOUT'),
     });
   }
 
@@ -482,6 +487,7 @@ competitions.get('/:id', async (c) => {
     currentUserId: user.id,
     isHost: competition.hostId === user.id,
     hasJoined: competition.participations.some((participation) => participation.userId === user.id),
+    hasKnockoutStage: competition.stages.some((stage) => stage.type === 'KNOCKOUT'),
   });
 });
 
@@ -718,50 +724,51 @@ competitions.get('/:id/standings', async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
-  const [competition, matches] = await Promise.all([
-    db.competition.findFirst({
-      where: {
-        id,
-        OR: [
-          { hostId: user.id },
-          { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
-        ],
-      },
-      select: {
-        id: true,
-        teams: {
-          select: {
-            id: true,
-            name: true,
-            logoUrl: true,
-            participation: {
-              select: {
-                teamLogoUrl: true,
-                user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
-              },
+  const competition = await db.competition.findFirst({
+    where: {
+      id,
+      OR: [
+        { hostId: user.id },
+        { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
+      ],
+    },
+    select: {
+      id: true,
+      type: true,
+      teams: {
+        select: {
+          id: true,
+          name: true,
+          logoUrl: true,
+          participation: {
+            select: {
+              teamLogoUrl: true,
+              user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
             },
           },
         },
       },
-    }),
-    db.match.findMany({
-      where: {
-        competitionId: id,
-        status: 'FINISHED',
-        homeTeamId: { not: null },
-        awayTeamId: { not: null },
-        homeScore: { not: null },
-        awayScore: { not: null },
-      },
-      select: {
-        homeTeamId: true,
-        awayTeamId: true,
-        homeScore: true,
-        awayScore: true,
-      },
-    }),
-  ]);
+    },
+  });
   if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
+
+  const matches = await db.match.findMany({
+    where: {
+      competitionId: id,
+      status: 'FINISHED',
+      ...(competition.type === 'LEAGUE' ? { stage: { type: 'LEAGUE' as const } } : {}),
+      homeTeamId: { not: null },
+      awayTeamId: { not: null },
+      homeScore: { not: null },
+      awayScore: { not: null },
+    },
+    select: {
+      homeTeamId: true,
+      awayTeamId: true,
+      homeScore: true,
+      awayScore: true,
+    },
+  });
 
   const teamById = new Map(competition.teams.map((team) => [team.id, team]));
   return c.json(

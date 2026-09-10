@@ -9,6 +9,7 @@ import {
   Crown,
   Dices,
   Gamepad2,
+  GitBranch,
   Link2,
   LockKeyhole,
   Medal,
@@ -51,8 +52,9 @@ import {
 } from '../../components/matches/MatchScorersEditor';
 import { TopScorersPanel } from '../../components/scorers/TopScorersPanel';
 import { StandingsTable } from '../../components/standings/StandingsTable';
+import { CompetitionPlayoffTab } from '../../components/bracket/CompetitionPlayoffTab';
 
-type CompetitionTab = 'standings' | 'rounds' | 'scorers' | 'feed';
+type CompetitionTab = 'standings' | 'rounds' | 'scorers' | 'feed' | 'knockout';
 type Participation = CompetitionDetail['participations'][number];
 type CompetitionMatch = CompetitionDetail['matches'][number];
 
@@ -229,11 +231,12 @@ export function CompetitionDetailPageLight() {
         {isStarted && (
           <section className="mt-7">
             <div className="rounded-[2rem] border border-slate-200 bg-white p-2 shadow-sm">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <TabButton active={activeTab === 'standings'} onClick={() => setActiveTab('standings')} icon={Medal} label="Classificação" />
                 <TabButton active={activeTab === 'rounds'} onClick={() => setActiveTab('rounds')} icon={Swords} label="Rodadas" />
                 <TabButton active={activeTab === 'scorers'} onClick={() => setActiveTab('scorers')} icon={Target} label="Artilharia" />
                 <TabButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={MessageCircleMore} label="Feed" />
+                {data.hasKnockoutStage && <TabButton active={activeTab === 'knockout'} onClick={() => setActiveTab('knockout')} icon={GitBranch} label="Mata-Mata" />}
               </div>
             </div>
             <div className="mt-5">
@@ -260,6 +263,7 @@ export function CompetitionDetailPageLight() {
               </>}
               {activeTab === 'scorers' && <TopScorersPanel scorers={topScorers.data ?? []} loading={topScorers.isLoading} error={topScorers.isError} />}
               {activeTab === 'feed' && <CompetitionFeedPanel competitionId={data.id} />}
+              {activeTab === 'knockout' && <CompetitionPlayoffTab competitionId={data.id} />}
             </div>
           </section>
         )}

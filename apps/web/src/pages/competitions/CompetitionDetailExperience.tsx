@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 import { useParams } from 'react-router-dom';
 import { CompetitionDetailPageLight } from './CompetitionDetailPageLight';
 
+const CompetitionHostActionsPanel = lazy(() =>
+  import('../../components/competition/CompetitionHostActionsPanel').then((module) => ({ default: module.CompetitionHostActionsPanel })),
+);
 const CompetitionPhaseFiveCenter = lazy(() =>
   import('../../components/competition/CompetitionPhaseFiveCenter').then((module) => ({ default: module.CompetitionPhaseFiveCenter })),
 );
@@ -32,6 +35,7 @@ export function CompetitionDetailExperience() {
       <CompetitionDetailPageLight />
       {competitionId && (
         <div aria-label="Recursos adicionais da competição">
+          <DeferredSection><CompetitionHostActionsPanel /></DeferredSection>
           <DeferredSection><CompetitionPhaseFiveCenter /></DeferredSection>
           <DeferredSection><CompetitionPrizePanel /></DeferredSection>
           <DeferredSection><GroupStagePanel /></DeferredSection>

@@ -40,11 +40,11 @@ const walkoverSchema = z.object({
 });
 
 async function lockMatch(tx: Tx, matchId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${matchId}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${matchId}))`;
 }
 
 async function advance(tx: Tx, match: AdvanceableMatch): Promise<void> {
-  if (match.competition.type === 'LEAGUE' || !match.nextMatchId || !match.nextMatchSlot) return;
+  if (!match.nextMatchId || !match.nextMatchSlot) return;
   if (!match.homeTeamId || !match.awayTeamId || match.homeScore == null || match.awayScore == null) return;
   const winnerId = resolveWinner({
     homeTeamId: match.homeTeamId,
