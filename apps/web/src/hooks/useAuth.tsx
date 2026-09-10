@@ -7,16 +7,18 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '../lib/api';
+import { ApiError, apiRequest } from '../lib/api';
 import {
   clearSupabaseSession,
   persistSupabaseSession,
+  readPersistedSupabaseSession,
+  refreshSupabaseAccessToken,
   setSupabaseAccessToken,
   supabase,
-  suspendSupabasePersistence,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
+import { Logo } from '../components/brand/Logo';
 
 export type AuthUser = {
   id: string;
@@ -42,40 +44,22 @@ type AuthSessionResponse = {
   user: AuthUser | null;
   session?: BrowserSessionEnvelope;
   rewards?: { dailyPackGranted?: boolean };
-  bootstrapFailed?: boolean;
 };
 
 type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
-const AUTH_BOOT_TIMEOUT_MS = 5_000;
-const AUTH_ME_TIMEOUT_MS = 4_500;
+const AUTH_BOOT_TIMEOUT_MS = 8_000;
+const AUTH_ME_TIMEOUT_MS = 7_000;
 
 function isPublicAuthPath(pathname: string): boolean {
   return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
 }
 
-function hardClearBrowserAuth() {
-  // Freeze GoTrue persistence before clearing storage. This prevents a stale
-  // refresh promise from re-populating localStorage after the recovery redirect.
-  suspendSupabasePersistence();
-  try {
-    window.localStorage.clear();
-  } catch {
-    // Safari private/managed modes can reject storage access. The redirect to
-    // /login still provides a deterministic escape route.
-  }
-  try {
-    window.sessionStorage.clear();
-  } catch {
-    // Best effort only. No credential is allowed to keep the recovery route blocked.
-  }
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('AUTH_BOOT_TIMEOUT')), timeoutMs);
+    const timeout = window.setTimeout(() => reject(new ApiError(0, 'AUTH_BOOT_TIMEOUT')), timeoutMs);
     promise.then(
       (value) => {
         window.clearTimeout(timeout);
@@ -87,6 +71,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     );
   });
+}
+
+function isAuthorizationError(error: unknown): error is ApiError {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+function isClientAuthError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'status' in error &&
+    typeof error.status === 'number' && error.status >= 400 && error.status < 500;
 }
 
 async function requestSession(): Promise<AuthSessionResponse> {
@@ -114,48 +107,52 @@ async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
 
   if (response.status === 401) return null;
   const body = (await response.json().catch(() => null)) as AuthSessionResponse | null;
-  if (!response.ok || !body?.session || !body.user) throw new Error('AUTH_MIGRATION_FAILED');
+  if (!response.ok || !body?.session || !body.user) {
+    throw new ApiError(response.status, 'AUTH_MIGRATION_FAILED', body);
+  }
 
-  await persistSupabaseSession(body.session);
-  setSupabaseAccessToken(body.session.accessToken);
+  const session = await persistSupabaseSession(body.session);
+  setSupabaseAccessToken(session.access_token);
   return body;
 }
 
 async function loadPersistentSession(): Promise<AuthSessionResponse> {
-  // This is the only getSession() on the critical bootstrap path. It is bounded
-  // by AUTH_BOOT_TIMEOUT_MS, and every later API call reads the cached Bearer
-  // token instead of entering GoTrue's storage/Web Locks machinery again.
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  // Supabase Auth owns persistence. getSession() restores the access/refresh
+  // token pair from localStorage before the protected router is mounted.
+  const storedSession = await readPersistedSupabaseSession();
 
-  if (data.session) {
-    setSupabaseAccessToken(data.session.access_token);
-    return requestSession();
+  if (!storedSession) {
+    // One-time compatibility bridge for people who still have the legacy
+    // HttpOnly cookie from a previous Chavea release.
+    const migrated = await migrateLegacyCookie();
+    if (migrated) return migrated;
+    setSupabaseAccessToken(null);
+    return { user: null, rewards: { dailyPackGranted: false } };
   }
 
-  const migrated = await migrateLegacyCookie();
-  if (migrated) return migrated;
-  setSupabaseAccessToken(null);
-  return { user: null, rewards: { dailyPackGranted: false } };
+  try {
+    return await requestSession();
+  } catch (error) {
+    if (!isAuthorizationError(error)) throw error;
+
+    // A PWA can resume with an expired access token after being backgrounded.
+    // Refresh once from the persisted Supabase refresh token, then retry /me.
+    try {
+      const refreshed = await refreshSupabaseAccessToken();
+      if (refreshed) return await requestSession();
+    } catch (refreshError) {
+      // Network/auth-server failures must NOT erase a valid persisted session.
+      // Only a definite 4xx from Supabase means the refresh token is invalid.
+      if (!isClientAuthError(refreshError)) throw refreshError;
+    }
+
+    await clearSupabaseSession();
+    return { user: null, rewards: { dailyPackGranted: false } };
+  }
 }
 
 async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
-  try {
-    return await withTimeout(loadPersistentSession(), AUTH_BOOT_TIMEOUT_MS);
-  } catch (error) {
-    console.error('[auth] bootstrap failed; forcing clean login', {
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    hardClearBrowserAuth();
-    if (window.location.pathname !== '/login') {
-      window.location.replace('/login');
-    }
-    return {
-      user: null,
-      rewards: { dailyPackGranted: false },
-      bootstrapFailed: true,
-    };
-  }
+  return withTimeout(loadPersistentSession(), AUTH_BOOT_TIMEOUT_MS);
 }
 
 async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
@@ -173,7 +170,7 @@ function useAuthState() {
     queryKey: AUTH_QUERY_KEY,
     queryFn: bootstrapPersistentSession,
     enabled: !isPublicAuthRoute,
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,
     gcTime: 30 * 60_000,
     retry: false,
     refetchOnWindowFocus: !isPublicAuthRoute,
@@ -189,13 +186,7 @@ function useAuthState() {
         queryClient.setQueryData(AUTH_QUERY_KEY, {
           user: null,
           rewards: { dailyPackGranted: false },
-          bootstrapFailed: false,
         });
-      }
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (!isPublicAuthPath(window.location.pathname)) {
-          void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
-        }
       }
     });
     return () => data.subscription.unsubscribe();
@@ -210,7 +201,7 @@ function useAuthState() {
       return persistLoginResponse(response);
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, { ...data, bootstrapFailed: false });
+      queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
 
@@ -223,7 +214,7 @@ function useAuthState() {
       return persistLoginResponse(response);
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, { ...data, bootstrapFailed: false });
+      queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
 
@@ -239,7 +230,6 @@ function useAuthState() {
       queryClient.setQueryData(AUTH_QUERY_KEY, {
         user: null,
         rewards: { dailyPackGranted: false },
-        bootstrapFailed: false,
       });
       queryClient.removeQueries({ queryKey: ['competitions'] });
       queryClient.removeQueries({ queryKey: ['default-shields'] });
@@ -248,24 +238,22 @@ function useAuthState() {
   });
 
   const forceLoginRecovery = useCallback(() => {
-    hardClearBrowserAuth();
-    void queryClient.cancelQueries();
-    queryClient.clear();
-
-    if (window.location.pathname !== '/login') {
+    void (async () => {
+      await clearSupabaseSession();
+      queryClient.clear();
       window.location.replace('/login');
-    }
+    })();
   }, [queryClient]);
 
   const isBootstrapping = !isPublicAuthRoute && me.data === undefined && me.isPending;
-  const bootstrapFailed =
-    !isPublicAuthRoute && (Boolean(me.data?.bootstrapFailed) || (me.data === undefined && me.isError));
+  const hasBootstrapError = !isPublicAuthRoute && me.data === undefined && me.isError;
 
   return {
     user: me.data?.user ?? null,
     isLoading: isBootstrapping,
     isBootstrapping,
-    bootstrapFailed,
+    hasBootstrapError,
+    bootstrapError: me.error,
     isAuthenticated: Boolean(me.data?.user),
     dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
     login,
@@ -279,6 +267,45 @@ function useAuthState() {
 
 function SessionBootScreen() {
   return <GlobalLoader mode="screen" label="Restaurando sua sessão…" />;
+}
+
+function SessionRecoveryScreen({
+  error,
+  onRetry,
+  onSignInAgain,
+}: {
+  error: unknown;
+  onRetry: () => void;
+  onSignInAgain: () => void;
+}) {
+  const networkFailure = error instanceof ApiError && error.status === 0;
+  return (
+    <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
+      <div className="w-full max-w-sm text-center">
+        <div className="flex justify-center"><Logo size="md" /></div>
+        <h1 className="mt-7 text-xl font-black">
+          {networkFailure ? 'Não foi possível conectar ao Chavea.' : 'Não foi possível validar sua sessão.'}
+        </h1>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+          Sua sessão salva no aparelho foi preservada. Tente novamente quando a conexão estiver estável.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-5 min-h-12 w-full rounded-2xl bg-[#073B8C] px-4 text-sm font-black text-white shadow-md"
+        >
+          Tentar novamente
+        </button>
+        <button
+          type="button"
+          onClick={onSignInAgain}
+          className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600"
+        >
+          Sair desta sessão e entrar novamente
+        </button>
+      </div>
+    </main>
+  );
 }
 
 function DailyPackToast({ granted }: { granted: boolean }) {
@@ -307,22 +334,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
   const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
 
-  // Independent watchdog: even if GoTrue leaves a promise permanently pending
-  // on iOS, React never gets to keep the user on a white/loading screen forever.
-  useEffect(() => {
-    if (isPublicAuthRoute || !value.isBootstrapping) return;
-    const watchdog = window.setTimeout(() => value.forceLoginRecovery(), AUTH_BOOT_TIMEOUT_MS);
-    return () => window.clearTimeout(watchdog);
-  }, [isPublicAuthRoute, value.isBootstrapping, value.forceLoginRecovery]);
-
-  useEffect(() => {
-    if (!isPublicAuthRoute && value.bootstrapFailed) value.forceLoginRecovery();
-  }, [isPublicAuthRoute, value.bootstrapFailed, value.forceLoginRecovery]);
-
   if (!isPublicAuthRoute && value.isBootstrapping) return <SessionBootScreen />;
-
-  if (!isPublicAuthRoute && value.bootstrapFailed) {
-    return <GlobalLoader mode="screen" label="Abrindo login…" />;
+  if (!isPublicAuthRoute && value.hasBootstrapError) {
+    return (
+      <SessionRecoveryScreen
+        error={value.bootstrapError}
+        onRetry={() => void value.refresh()}
+        onSignInAgain={value.forceLoginRecovery}
+      />
+    );
   }
 
   return (
