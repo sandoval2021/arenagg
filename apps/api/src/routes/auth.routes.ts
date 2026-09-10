@@ -31,10 +31,13 @@ const loginSchema = z
   })
   .refine((value) => Boolean(value.email) !== Boolean(value.phone), 'Provide exactly one identifier');
 
+// /api is proxied by Cloudflare Pages in production, so this is a first-party
+// session cookie. Lax is more resilient in standalone PWAs than third-party-style
+// SameSite=None while keeping the session inaccessible to JavaScript.
 const cookieOptions = {
   httpOnly: true,
   secure: true,
-  sameSite: 'None' as const,
+  sameSite: 'Lax' as const,
   path: '/',
   maxAge: 60 * 60 * 24 * 30,
 };
@@ -54,7 +57,10 @@ async function attachSession(
   userId: string,
 ) {
   const session = await createSession(prisma, userId);
-  setCookie(c, 'chavea_session', session.token, cookieOptions);
+  setCookie(c, 'chavea_session', session.token, {
+    ...cookieOptions,
+    expires: session.expiresAt,
+  });
 }
 
 type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'create_session';
