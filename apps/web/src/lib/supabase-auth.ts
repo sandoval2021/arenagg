@@ -3,9 +3,40 @@ import { createClient, type Session } from '@supabase/supabase-js';
 const SUPABASE_URL = 'https://uruwrztfbjbykgxwtgvg.supabase.co';
 const AUTH_PROXY_KEY = 'chavea-browser-auth-proxy';
 const AUTH_PROXY_PATH = '/api/auth/supabase-proxy';
+const SUPABASE_STORAGE_KEY = 'sb-uruwrztfbjbykgxwtgvg-auth-token';
 
 let cachedAccessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+
+type StoredSessionShape = {
+  access_token?: unknown;
+  refresh_token?: unknown;
+};
+
+function readStoredSessionSync(): StoredSessionShape | null {
+  try {
+    const raw = window.localStorage.getItem(SUPABASE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredSessionShape;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Network-free bootstrap used before React mounts. Supabase remains the source
+ * of truth, but the first API call can attach the already-persisted Bearer JWT
+ * without waiting for getSession()/GoTrue round-trips.
+ */
+export function hydrateSupabaseAccessTokenSync(): boolean {
+  const stored = readStoredSessionSync();
+  cachedAccessToken = typeof stored?.access_token === 'string' ? stored.access_token : null;
+  return Boolean(
+    cachedAccessToken ||
+    (stored && typeof stored.refresh_token === 'string' && stored.refresh_token.length > 0),
+  );
+}
 
 async function proxiedAuthFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const request = new Request(input, init);
@@ -45,6 +76,7 @@ async function proxiedAuthFetch(input: RequestInfo | URL, init?: RequestInit): P
 export const supabase = createClient(SUPABASE_URL, AUTH_PROXY_KEY, {
   auth: {
     storage: window.localStorage,
+    storageKey: SUPABASE_STORAGE_KEY,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
