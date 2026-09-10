@@ -8,10 +8,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // Custom SW is required for native Web Push. Activation remains user-driven:
-      // updateServiceWorker(true) posts SKIP_WAITING only after the user confirms.
+      // The PWA must never remain pinned to a waiting worker on mobile.
+      // autoUpdate works with the custom injectManifest SW, which calls
+      // skipWaiting()/clients.claim() to promote the newest build immediately.
       strategies: 'injectManifest',
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       srcDir: 'src',
       filename: 'sw.js',
       manifest: false,
