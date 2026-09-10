@@ -1,0 +1,38 @@
+name: Phase 8 Admin CI
+
+on:
+  push:
+    branches: [phase8-admin-bulk-import]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install workspace dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build web
+        env:
+          VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: npm run build --workspace=@chavea/web
+      - name: Assert admin import invariants
+        run: |
+          grep -F 'enum UserRole {' prisma/schema.prisma
+          grep -F 'role                         UserRole' prisma/schema.prisma
+          grep -F "app.use('/api/admin/*', requireAdmin);" apps/api/src/index.ts
+          grep -F "adminCards.post('/bulk-upload'" apps/api/src/routes/admin-cards.routes.ts
+          grep -F 'skipDuplicates: true' apps/api/src/routes/admin-cards.routes.ts
+          grep -F "'/api/admin/cards/bulk-upload'" apps/web/src/lib/admin-cards-api.ts
+          grep -F "'cards-assets'" prisma/migrations/20260910055000_phase8_admin_card_import/migration.sql
