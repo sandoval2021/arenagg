@@ -1,0 +1,36 @@
+name: Phase 7 Unranked CI
+
+on:
+  push:
+    branches: [phase7-unranked-h2h]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install workspace dependencies
+        run: npm install
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+
+      - name: Build web
+        env:
+          VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: npm run build --workspace=@chavea/web
