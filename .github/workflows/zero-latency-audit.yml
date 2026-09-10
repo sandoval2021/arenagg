@@ -43,8 +43,13 @@ jobs:
       - name: Assert every image is lazy and async decoded
         run: |
           set -euo pipefail
-          python .tmp/zero_latency_images.py
-          git diff --exit-code
+          total=$(grep -R '<img' apps/web/src --include='*.tsx' | wc -l)
+          lazy=$(grep -R '<img' apps/web/src --include='*.tsx' | grep -c 'loading="lazy"')
+          async_decode=$(grep -R '<img' apps/web/src --include='*.tsx' | grep -c 'decoding="async"')
+          echo "IMG_TAG_LINES=$total LAZY=$lazy ASYNC=$async_decode"
+          test "$total" -gt 0
+          test "$total" -eq "$lazy"
+          test "$total" -eq "$async_decode"
       - name: Assert aggressive avatar optimization
         run: |
           set -euo pipefail
