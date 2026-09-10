@@ -6,8 +6,15 @@ import { router } from './app/router';
 import { AuthProvider } from './hooks/useAuth';
 import { GlobalActivityLoader } from './components/brand/GlobalActivityLoader';
 import { PwaUpdatePrompt } from './components/pwa/PwaUpdatePrompt';
+import { hydrateSupabaseAccessTokenSync } from './lib/supabase-auth';
+import { installImagePerformanceDefaults } from './lib/image-performance';
 import { DEFAULT_STALE_TIME, QUERY_GC_TIME } from './lib/query-cache';
 import './styles/globals.css';
+
+// Network-free boot work only. The first protected query can now attach its
+// Bearer token without waiting for GoTrue/getSession() or any Service Worker I/O.
+hydrateSupabaseAccessTokenSync();
+installImagePerformanceDefaults();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,19 +41,15 @@ function installSilentPwaUpdateChecks() {
   const getOrCreateRegistration = () =>
     navigator.serviceWorker.register('/sw.js', {
       scope: '/',
-      // Re-registering the same scope upgrades older installed PWAs to
-      // updateViaCache=none, forcing WebKit to revalidate sw.js on the network.
       updateViaCache: 'none',
     });
 
   const checkForUpdate = async () => {
     if (!navigator.onLine || inFlight) return;
-
     const now = Date.now();
     if (now - lastCheckAt < 5_000) return;
     lastCheckAt = now;
     inFlight = true;
-
     try {
       const registration = await getOrCreateRegistration();
       await registration.update();
@@ -61,29 +64,25 @@ function installSilentPwaUpdateChecks() {
     if (document.visibilityState === 'visible') void checkForUpdate();
   };
 
-  // When a newly installed worker takes control, reload exactly once so the
-  // current WebKit process also switches from the old JS bundle to the new one.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloadingForController) return;
     reloadingForController = true;
     window.location.reload();
   });
 
-  void checkForUpdate();
-  window.addEventListener('online', checkForUpdate);
-  window.addEventListener('pageshow', checkForUpdate);
-  window.addEventListener('focus', checkForUpdate);
+  window.addEventListener('online', checkForUpdate, { passive: true });
+  window.addEventListener('pageshow', checkForUpdate, { passive: true });
+  window.addEventListener('focus', checkForUpdate, { passive: true });
   document.addEventListener('visibilitychange', onVisibilityChange);
-
-  // A long-running installed PWA should discover a deployment without needing
-  // to be killed/reopened. Browsers throttle background timers, so only check
-  // while visible and online.
   window.setInterval(() => {
     if (document.visibilityState === 'visible' && navigator.onLine) void checkForUpdate();
   }, 30_000);
-}
 
-installSilentPwaUpdateChecks();
+  // The first update probe is explicitly off the critical rendering path.
+  const idle = window.requestIdleCallback;
+  if (typeof idle === 'function') idle(() => void checkForUpdate(), { timeout: 2_000 });
+  else globalThis.setTimeout(() => void checkForUpdate(), 250);
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -96,3 +95,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
+
+installSilentPwaUpdateChecks();
