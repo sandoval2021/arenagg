@@ -78,6 +78,16 @@ export type CasualMatchRoom = {
   challenged: CasualRoomPlayer;
 };
 
+export type CasualRoomChatMessage = {
+  id: string;
+  roomId: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
 export const platformLabels: Record<MatchmakingPlatform, string> = {
   PS4: 'PS4',
   XBOX_ONE: 'Xbox One',
@@ -136,6 +146,19 @@ export function saveCasualRoomHandle(roomId: string, handle: string) {
     method: 'PATCH',
     body: JSON.stringify({ handle }),
   });
+}
+
+export function getCasualRoomChat(roomId: string) {
+  return apiRequest<{ messages: CasualRoomChatMessage[]; canSend: boolean }>(
+    `/api/matchmaking/rooms/${encodeURIComponent(roomId)}/chat`,
+  );
+}
+
+export function sendCasualRoomChatMessage(roomId: string, body: string) {
+  return apiRequest<{ id: string; roomId: string; userId: string; body: string; createdAt: string }>(
+    `/api/matchmaking/rooms/${encodeURIComponent(roomId)}/chat`,
+    { method: 'POST', body: JSON.stringify({ body }) },
+  );
 }
 
 export function submitCasualScore(roomId: string, myScore: number, opponentScore: number) {
