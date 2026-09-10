@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellOff, BellRing, CheckCircle2, Share2, Smartphone } from 'lucide-react';
+import { BellOff, BellRing, CheckCircle2, Share2, Smartphone, X } from 'lucide-react';
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -10,12 +10,26 @@ import {
 } from '../../lib/push-api';
 
 const INITIAL: PushCapability = { supported: true, permission: 'default', subscribed: false };
+const HIDE_NOTIFICATION_CARD_KEY = 'hideNotificationCard';
 
-export function PushNotificationsCard() {
+type Props = {
+  surface?: 'dashboard' | 'settings';
+};
+
+function wasDashboardCardDismissed() {
+  try {
+    return window.localStorage.getItem(HIDE_NOTIFICATION_CARD_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function PushNotificationsCard({ surface = 'dashboard' }: Props) {
   const [capability, setCapability] = useState<PushCapability>(INITIAL);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(() => surface === 'dashboard' && wasDashboardCardDismissed());
   const iosNeedsInstall = isIosDevice() && !isStandalonePwa();
 
   useEffect(() => {
@@ -54,17 +68,40 @@ export function PushNotificationsCard() {
     }
   }
 
+  function dismissDashboardCard() {
+    try {
+      window.localStorage.setItem(HIDE_NOTIFICATION_CARD_KEY, 'true');
+    } catch {
+      // Visual preference only; failure must not block the app.
+    }
+    setDismissed(true);
+  }
+
+  // Do not flash an invasive card while we are still checking an existing
+  // subscription. Settings always keeps the permanent management surface.
+  if (surface === 'dashboard' && (dismissed || loading || capability.subscribed)) return null;
+
   return (
-    <section className="mt-5 overflow-hidden rounded-[2rem] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 shadow-md shadow-blue-100/50">
+    <section className="relative mt-5 overflow-hidden rounded-[2rem] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 shadow-md shadow-blue-100/50">
+      {surface === 'dashboard' && (
+        <button
+          type="button"
+          onClick={dismissDashboardCard}
+          className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white/95 text-slate-400 shadow-sm transition hover:text-slate-700"
+          aria-label="Dispensar card de notificações"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
       <div className="p-5">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 pr-8">
           <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl shadow-sm ${capability.subscribed ? 'bg-emerald-600 text-white' : 'bg-[#073B8C] text-white'}`}>
             {capability.subscribed ? <CheckCircle2 className="h-6 w-6" /> : <BellRing className="h-6 w-6" />}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">Não perca a hora do jogo</p>
+            <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">{surface === 'settings' ? 'Configurações do aparelho' : 'Não perca a hora do jogo'}</p>
             <h2 className="mt-1 text-lg font-black text-slate-950">Notificações do Chavea</h2>
-            <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">Receba check-in do adversário, geração da chave e confirmação de W.O. mesmo com o site fechado.</p>
+            <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">Receba check-in do adversário, geração da chave, desafios e confirmações mesmo com o site fechado.</p>
           </div>
         </div>
 
