@@ -31,65 +31,16 @@ const queryClient = new QueryClient({
       retry: 1,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
+      // Background refetches and query-key transitions must never blank the
+      // current mobile screen. Keep the last successful payload interactive
+      // until the replacement payload arrives.
+      placeholderData: (previousData) => previousData,
     },
     mutations: {
       retry: 0,
     },
   },
 });
-
-function installSilentPwaUpdateChecks() {
-  if (!('serviceWorker' in navigator)) return;
-
-  let lastCheckAt = 0;
-  let inFlight = false;
-  let reloadingForController = false;
-
-  const getOrCreateRegistration = () =>
-    navigator.serviceWorker.register('/sw.js', {
-      scope: '/',
-      updateViaCache: 'none',
-    });
-
-  const checkForUpdate = async () => {
-    if (!navigator.onLine || inFlight) return;
-    const now = Date.now();
-    if (now - lastCheckAt < 5_000) return;
-    lastCheckAt = now;
-    inFlight = true;
-    try {
-      const registration = await getOrCreateRegistration();
-      await registration.update();
-    } catch (error) {
-      console.warn('[pwa] silent update check failed', error);
-    } finally {
-      inFlight = false;
-    }
-  };
-
-  const onVisibilityChange = () => {
-    if (document.visibilityState === 'visible') void checkForUpdate();
-  };
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloadingForController) return;
-    reloadingForController = true;
-    window.location.reload();
-  });
-
-  window.addEventListener('online', checkForUpdate, { passive: true });
-  window.addEventListener('pageshow', checkForUpdate, { passive: true });
-  window.addEventListener('focus', checkForUpdate, { passive: true });
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  window.setInterval(() => {
-    if (document.visibilityState === 'visible' && navigator.onLine) void checkForUpdate();
-  }, 30_000);
-
-  // Update discovery must never compete with the first mobile paint.
-  const idle = window.requestIdleCallback;
-  if (typeof idle === 'function') idle(() => void checkForUpdate(), { timeout: 2_000 });
-  else globalThis.setTimeout(() => void checkForUpdate(), 250);
-}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -102,5 +53,3 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
-
-installSilentPwaUpdateChecks();
