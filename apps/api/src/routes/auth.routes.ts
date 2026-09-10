@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Env } from '../types/env';
@@ -67,7 +67,7 @@ async function claimDailyRewardSafely(
   }
 }
 
-function authBridgeFailure(c: Parameters<typeof auth.post>[1] extends never ? never : any, error: unknown) {
+function authBridgeFailure(c: Context<Env>, error: unknown) {
   console.error('[auth.supabase] bridge failed', {
     error: error instanceof Error ? error.message : String(error),
     code: error instanceof SupabaseAuthBridgeError ? error.code : undefined,
@@ -158,9 +158,6 @@ auth.post('/login', async (c) => {
   }
 });
 
-// One-time bridge for devices that still have the legacy HttpOnly cookie after
-// this release. The browser exchanges it for a Supabase access/refresh session
-// and then persists that session in localStorage. No legacy cookie is renewed.
 auth.post('/migrate-cookie', async (c) => {
   const legacyToken = getCookie(c, 'chavea_session');
   if (!legacyToken) return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
@@ -209,10 +206,9 @@ auth.post('/logout', async (c) => {
   return c.body(null, 204);
 });
 
-// Browser Supabase client auth traffic is proxied so the publishable key does
-// not need to be added during this emergency migration. Only the minimum user
-// session endpoints are allowed; admin paths and arbitrary Supabase APIs are
-// rejected. The Worker injects the service-role key upstream and never returns it.
+// The browser Supabase client uses this strict same-origin bridge only for Auth
+// session maintenance. The server secret stays in `apikey`; Authorization is
+// reserved for the user's JWT, which also supports the new sb_secret_* format.
 auth.all('/supabase-proxy', async (c) => {
   const rawTarget = c.req.query('target');
   const serviceRoleKey = c.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -247,9 +243,7 @@ auth.all('/supabase-proxy', async (c) => {
   const apiVersion = c.req.header('X-Supabase-Api-Version');
   if (apiVersion) headers.set('X-Supabase-Api-Version', apiVersion);
 
-  if (target.pathname === '/auth/v1/token') {
-    headers.set('Authorization', `Bearer ${serviceRoleKey}`);
-  } else {
+  if (target.pathname !== '/auth/v1/token') {
     const authorization = c.req.header('Authorization');
     if (!readBearerToken(authorization)) return c.json({ error: 'UNAUTHORIZED' }, 401);
     headers.set('Authorization', authorization!);
