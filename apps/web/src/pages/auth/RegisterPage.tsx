@@ -16,6 +16,10 @@ function registrationErrorMessage(error: unknown): string {
       return 'Confira os dados. A senha precisa ter pelo menos 10 caracteres.';
     case 'ACCOUNT_EXISTS':
       return 'Já existe uma conta com esse e-mail ou telefone.';
+    case 'EMAIL_CONFIRMATION_REQUIRED':
+      return 'Conta criada. Confirme seu e-mail ou telefone para concluir o acesso.';
+    case 'AUTH_PROVIDER_ERROR':
+      return 'O serviço de autenticação não respondeu. Tente novamente.';
     case 'NETWORK_ERROR':
       return 'Não foi possível conectar ao servidor do Chavea.';
     case 'REGISTRATION_FAILED':

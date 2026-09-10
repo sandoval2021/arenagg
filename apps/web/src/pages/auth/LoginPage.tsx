@@ -22,6 +22,8 @@ function loginErrorMessage(error: unknown): string {
       return 'Confira seu e-mail, telefone e senha.';
     case 'INVALID_CREDENTIALS':
       return 'E-mail, telefone ou senha inválidos.';
+    case 'AUTH_PROVIDER_ERROR':
+      return 'O serviço de autenticação não respondeu. Tente novamente.';
     default:
       return 'Não foi possível entrar. Tente novamente.';
   }

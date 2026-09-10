@@ -3,7 +3,6 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 import {
-  getSessionUser,
   hashPassword,
   normalizeEmail,
   normalizePhone,
@@ -158,35 +157,6 @@ auth.post('/login', async (c) => {
   }
 });
 
-auth.post('/migrate-cookie', async (c) => {
-  const legacyToken = getCookie(c, 'chavea_session');
-  if (!legacyToken) return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
-
-  const prisma = c.get('prisma');
-  const legacyUser = await getSessionUser(prisma, legacyToken);
-  if (!legacyUser) {
-    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
-    return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
-  }
-
-  const user = await prisma.user.findUnique({ where: { id: legacyUser.id } });
-  if (!user || !user.isActive) return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
-
-  try {
-    const session = await provisionAndIssueSupabaseSession(
-      c.env,
-      prisma,
-      user,
-      createTemporaryMigrationPassword(),
-    );
-    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
-    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
-    return c.json({ user: toPublicUser(user), session, rewards: { dailyPackGranted }, migrated: true });
-  } catch (error) {
-    return authBridgeFailure(c, error);
-  }
-});
-
 auth.get('/me', async (c) => {
   const token = readBearerToken(c.req.header('Authorization'));
   if (!token) return c.json({ error: 'UNAUTHORIZED', message: 'Sessão ausente.' }, 401);
@@ -204,62 +174,6 @@ auth.post('/logout', async (c) => {
   if (token) await revokeSupabaseSession(c.env, token);
   deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
   return c.body(null, 204);
-});
-
-auth.all('/supabase-proxy', async (c) => {
-  const rawTarget = c.req.query('target');
-  const serviceRoleKey = c.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const supabaseUrl = c.env.SUPABASE_URL?.trim();
-  if (!rawTarget || !serviceRoleKey || !supabaseUrl) {
-    return c.json({ error: 'AUTH_SERVICE_NOT_CONFIGURED' }, 503);
-  }
-
-  let target: URL;
-  try {
-    target = new URL(rawTarget, supabaseUrl);
-  } catch {
-    return c.json({ error: 'INVALID_AUTH_PROXY_TARGET' }, 400);
-  }
-
-  const projectOrigin = new URL(supabaseUrl).origin;
-  const method = c.req.method.toUpperCase();
-  const grantType = target.searchParams.get('grant_type');
-  const allowed =
-    target.origin === projectOrigin &&
-    ((target.pathname === '/auth/v1/token' && method === 'POST' && ['password', 'refresh_token'].includes(grantType ?? '')) ||
-      (target.pathname === '/auth/v1/user' && method === 'GET') ||
-      (target.pathname === '/auth/v1/logout' && method === 'POST'));
-
-  if (!allowed) return c.json({ error: 'AUTH_PROXY_TARGET_NOT_ALLOWED' }, 403);
-
-  const headers = new Headers();
-  headers.set('apikey', serviceRoleKey);
-  headers.set('Accept', 'application/json');
-  const contentType = c.req.header('Content-Type');
-  if (contentType) headers.set('Content-Type', contentType);
-  const apiVersion = c.req.header('X-Supabase-Api-Version');
-  if (apiVersion) headers.set('X-Supabase-Api-Version', apiVersion);
-
-  if (target.pathname !== '/auth/v1/token') {
-    const authorization = c.req.header('Authorization');
-    if (!readBearerToken(authorization)) return c.json({ error: 'UNAUTHORIZED' }, 401);
-    headers.set('Authorization', authorization!);
-  }
-
-  const upstream = await fetch(target.toString(), {
-    method,
-    headers,
-    body: method === 'GET' ? undefined : await c.req.arrayBuffer(),
-    redirect: 'manual',
-  });
-
-  const responseHeaders = new Headers({
-    'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
-    'Cache-Control': 'no-store',
-  });
-  const requestId = upstream.headers.get('X-Request-Id');
-  if (requestId) responseHeaders.set('X-Request-Id', requestId);
-  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 });
 
 auth.get('/google', (c) => {

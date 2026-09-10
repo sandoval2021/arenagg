@@ -188,8 +188,10 @@ export class ApiError extends Error {
   }
 }
 
-function isSessionIssuingPath(path: string): boolean {
-  return path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/migrate-cookie';
+function isPublicApiPath(path: string): boolean {
+  return path === '/api/auth/login' ||
+    path === '/api/auth/register' ||
+    path === '/api/auth/reset-password-dev';
 }
 
 async function fetchApi(path: string, init: RequestInit, headers: Headers): Promise<Response> {
@@ -216,17 +218,27 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json');
   }
 
-  const accessToken = getSupabaseAccessToken();
-  if (accessToken && !headers.has('Authorization')) {
+  const requiresBearer = !isPublicApiPath(path);
+  let accessToken: string | null = null;
+  if (requiresBearer) {
+    try {
+      accessToken = await getSupabaseAccessToken();
+    } catch (error) {
+      console.warn('[api] unable to read persisted Supabase session', {
+        path,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw new ApiError(401, 'UNAUTHORIZED');
+    }
+    if (!accessToken) throw new ApiError(401, 'UNAUTHORIZED');
     headers.set('Authorization', `Bearer ${accessToken}`);
   }
 
   let response = await fetchApi(path, init, headers);
 
-  // iOS can resume the PWA after an access JWT expires. Supabase keeps the
-  // refresh token in localStorage; refresh once and replay the same protected
-  // request with a fresh Bearer token. This is bounded to one retry.
-  if (response.status === 401 && accessToken && !isSessionIssuingPath(path)) {
+  // One bounded refresh/replay handles a PWA resuming with an expired access
+  // token while its refresh token is still safely persisted in localStorage.
+  if (response.status === 401 && accessToken && requiresBearer) {
     try {
       const refreshedToken = await refreshSupabaseAccessToken();
       if (refreshedToken) {

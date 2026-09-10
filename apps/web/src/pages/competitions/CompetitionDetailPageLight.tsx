@@ -65,8 +65,8 @@ export function CompetitionDetailPageLight() {
     queryKey: ['competition', competitionId],
     queryFn: () => getCompetition(competitionId),
     enabled: Boolean(competitionId),
-    staleTime: 8_000,
-    refetchInterval: 12_000,
+    staleTime: 1_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
   });
 
@@ -77,8 +77,8 @@ export function CompetitionDetailPageLight() {
     queryKey: ['standings', competitionId],
     queryFn: () => getStandings(competitionId),
     enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'standings',
-    staleTime: 8_000,
-    refetchInterval: 12_000,
+    staleTime: 1_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
   });
 
@@ -93,8 +93,8 @@ export function CompetitionDetailPageLight() {
     queryKey: ['match-stats', competitionId],
     queryFn: () => getCompetitionMatchStats(competitionId),
     enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'rounds',
-    staleTime: 8_000,
-    refetchInterval: 12_000,
+    staleTime: 1_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
   });
 
