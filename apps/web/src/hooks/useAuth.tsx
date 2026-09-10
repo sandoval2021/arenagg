@@ -14,7 +14,7 @@ import {
   readPersistedSupabaseSession,
   refreshSupabaseAccessToken,
   setSupabaseAccessToken,
-  supabase,
+  subscribeSupabaseAuthState,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
 
@@ -228,23 +228,20 @@ function useAuthState() {
     setHasPersistedSession(false);
   }, [me.data]);
 
-  useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event, session) => {
-      setSupabaseAccessToken(session?.access_token ?? null);
-      if (session) setHasPersistedSession(true);
+  useEffect(() => subscribeSupabaseAuthState((event, session) => {
+    setSupabaseAccessToken(session?.access_token ?? null);
+    if (session) setHasPersistedSession(true);
 
-      if (event === 'SIGNED_OUT') {
-        clearUserSnapshot();
-        setCachedUser(null);
-        setHasPersistedSession(false);
-        queryClient.setQueryData(AUTH_QUERY_KEY, {
-          user: null,
-          rewards: { dailyPackGranted: false },
-        });
-      }
-    });
-    return () => data.subscription.unsubscribe();
-  }, [queryClient]);
+    if (event === 'SIGNED_OUT') {
+      clearUserSnapshot();
+      setCachedUser(null);
+      setHasPersistedSession(false);
+      queryClient.setQueryData(AUTH_QUERY_KEY, {
+        user: null,
+        rewards: { dailyPackGranted: false },
+      });
+    }
+  }), [queryClient]);
 
   const login = useMutation({
     mutationFn: async (data: Credentials) => {
