@@ -4,9 +4,11 @@ import type { Env } from './types/env';
 import { dbMiddleware } from './middleware/db';
 import { requireAuth } from './middleware/auth.middleware';
 import { requireOwner } from './middleware/owner.middleware';
+import { requireAdmin } from './middleware/admin.middleware';
 import { auth } from './routes/auth.routes';
 import { devAuth } from './routes/dev-auth.routes';
 import { album } from './routes/album.routes';
+import { adminCards } from './routes/admin-cards.routes';
 import { competitions } from './routes/competitions.routes';
 import { competitionJoin } from './routes/competition-join.routes';
 import { competitionChat } from './routes/competition-chat.routes';
@@ -98,6 +100,8 @@ app.use('/api/push', requireAuth);
 app.use('/api/push/*', requireAuth);
 app.use('/api/album', requireAuth);
 app.use('/api/album/*', requireAuth);
+app.use('/api/admin/*', requireAuth);
+app.use('/api/admin/*', requireAdmin);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
 
@@ -126,6 +130,7 @@ app.route('/api/push', push);
 app.route('/api/gamification', gamification);
 app.route('/api/reputation', reputation);
 app.route('/api/album', album);
+app.route('/api/admin/cards', adminCards);
 // Mounted before the general LFG router: casual chat and unranked score closure
 // remain isolated from the historical ranked handlers.
 app.route('/api/matchmaking', casualRoomChat);

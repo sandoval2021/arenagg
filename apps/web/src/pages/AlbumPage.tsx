@@ -192,7 +192,7 @@ function StickerSlot({ card }: { card: AlbumCard }) {
   );
 }
 
-function CardArtwork({ card }: { card: AlbumCard }) {
+function CardArtwork({ card }: { card: Pick<AlbumCard, 'imageUrl' | 'name'> }) {
   const [failed, setFailed] = useState(false);
   if (card.imageUrl && !failed) {
     return <img src={card.imageUrl} alt={card.name} onError={() => setFailed(true)} className="h-full w-full rounded-[1.1rem] object-cover" />;

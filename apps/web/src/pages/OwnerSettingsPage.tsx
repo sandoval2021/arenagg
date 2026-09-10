@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  FileSpreadsheet,
   ImagePlus,
   Settings2,
   ShieldCheck,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
+import { bulkImportCards, type CardBulkImportResult } from '../lib/admin-cards-api';
 import { useAuth } from '../hooks/useAuth';
 import {
   ApiError,
@@ -26,6 +28,8 @@ export function OwnerSettingsPage() {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [cardImportResult, setCardImportResult] = useState<CardBulkImportResult | null>(null);
   const isOwner = auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
 
   const shields = useQuery({
@@ -67,6 +71,17 @@ export function OwnerSettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['owner', 'default-shields'] }),
         queryClient.invalidateQueries({ queryKey: ['default-shields'] }),
       ]);
+    },
+  });
+
+  const cardImport = useMutation({
+    mutationFn: () => {
+      if (!csvFile) throw new Error('CSV_REQUIRED');
+      return bulkImportCards(csvFile);
+    },
+    onSuccess: (result) => {
+      setCardImportResult(result);
+      setCsvFile(null);
     },
   });
 
@@ -123,6 +138,37 @@ export function OwnerSettingsPage() {
           </button>
         </section>
 
+        <section className="mt-5 rounded-[2rem] border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-blue-50 p-5 shadow-md shadow-amber-100/40">
+          <div className="flex items-start gap-3">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-700"><FileSpreadsheet className="h-6 w-6" /></span>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-amber-700">Cartas · Importação em massa</p>
+              <h2 className="mt-1 text-xl font-black">Importar CSV</h2>
+              <p className="mt-1 text-sm font-medium leading-6 text-slate-500">Envie até 5.000 cartas por arquivo. Duplicatas de número são ignoradas automaticamente.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white/85 p-3 text-[11px] font-bold leading-5 text-slate-500">
+            <p className="font-black text-slate-700">Colunas obrigatórias</p>
+            <p className="mt-1 break-words">cardNumber, name, rarity, boostType, boostValue, imageUrl</p>
+            <p className="mt-1">Opcional: <span className="font-black">albumPage</span>. Sem ela, as cartas entram na página “Importadas”. imageUrl pode ficar vazia.</p>
+          </div>
+
+          <label className="mt-4 flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-300 bg-white px-4 text-sm font-black text-amber-800">
+            <FileSpreadsheet className="h-5 w-5" />
+            <span className="max-w-[75%] truncate">{csvFile ? csvFile.name : 'Escolher arquivo CSV'}</span>
+            <input type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => { setCsvFile(event.target.files?.[0] ?? null); setCardImportResult(null); }} />
+          </label>
+
+          {cardImport.isError && <p className="mt-3 rounded-2xl border border-red-100 bg-red-50 p-3 text-sm font-bold text-red-700">{cardImportError(cardImport.error)}</p>}
+          {cardImportResult && <p className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">Importação concluída: {cardImportResult.imported} novas, {cardImportResult.skippedDuplicates} duplicadas ignoradas, {cardImportResult.processed} processadas.</p>}
+
+          <button type="button" disabled={!csvFile || cardImport.isPending} onClick={() => cardImport.mutate()} className="mt-4 flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-500 px-4 font-black text-amber-950 shadow-md disabled:opacity-40">
+            {cardImport.isPending ? <GlobalLoader mode="inline" label="Importando…" /> : <><FileSpreadsheet className="h-5 w-5" />Importar CSV</>}
+          </button>
+          <p className="mt-3 text-center text-[11px] font-semibold text-slate-400">Artes podem ser enviadas no bucket público <span className="font-black">cards-assets</span> do Supabase e a URL pública colocada no CSV.</p>
+        </section>
+
         <section className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div><p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">Galeria global</p><h2 className="mt-1 text-xl font-black">Escudos disponíveis</h2></div>
@@ -154,6 +200,12 @@ export function OwnerSettingsPage() {
       </main>
     </div>
   );
+}
+
+function cardImportError(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'Não foi possível importar o CSV.';
+  const details = error.details as { message?: string } | undefined;
+  return details?.message ?? (error.code === 'ADMIN_ONLY' ? 'Esta ação é exclusiva de administradores.' : 'Falha ao importar o CSV.');
 }
 
 function ownerUploadError(error: unknown): string {

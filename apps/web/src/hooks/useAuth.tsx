@@ -11,6 +11,7 @@ export type AuthUser = {
   avatarUrl: string | null;
   email: string | null;
   phone: string | null;
+  role: 'USER' | 'ADMIN';
 };
 
 type Credentials = {

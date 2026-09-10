@@ -17,7 +17,7 @@ const encoder = new TextEncoder();
 
 export type PublicUser = Pick<
   User,
-  'id' | 'name' | 'displayName' | 'avatarUrl' | 'email' | 'phone'
+  'id' | 'name' | 'displayName' | 'avatarUrl' | 'email' | 'phone' | 'role'
 >;
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -111,6 +111,7 @@ export function toPublicUser(user: User): PublicUser {
     avatarUrl: user.avatarUrl,
     email: user.email,
     phone: user.phone,
+    role: user.role,
   };
 }
 
