@@ -1,4 +1,8 @@
-import { getSupabaseAccessToken, refreshSupabaseAccessToken } from './supabase-auth';
+import {
+  getSupabaseAccessTokenForRequest,
+  refreshSupabaseAccessToken,
+  SupabaseAuthRestoringError,
+} from './supabase-auth';
 
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
@@ -225,7 +229,20 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json');
   }
 
-  const accessToken = getSupabaseAccessToken();
+  let accessToken: string | null = null;
+  if (!isSessionIssuingPath(path)) {
+    try {
+      accessToken = await getSupabaseAccessTokenForRequest();
+    } catch (error) {
+      if (error instanceof SupabaseAuthRestoringError) {
+        // Do not poison polling/prefetch caches with an anonymous 401 while a
+        // persisted iOS session is still being hydrated/refreshed.
+        throw new ApiError(0, 'AUTH_RESTORING', { message: error.message });
+      }
+      throw error;
+    }
+  }
+
   if (accessToken && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${accessToken}`);
   }
