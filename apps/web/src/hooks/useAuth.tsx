@@ -1,8 +1,6 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from '../lib/api';
-import { Logo } from '../components/brand/Logo';
-import { GlobalLoader } from '../components/brand/GlobalLoader';
 
 export type AuthUser = {
   id: string;
@@ -48,12 +46,9 @@ function writeKnownSession(value: boolean) {
     if (value) window.localStorage.setItem(KNOWN_SESSION_KEY, 'true');
     else window.localStorage.removeItem(KNOWN_SESSION_KEY);
   } catch {
-    // Non-sensitive hint only; HttpOnly cookie remains the source of truth.
+    // This is only a non-sensitive fast-start hint. The server session remains
+    // the authority for every protected API operation.
   }
-}
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isAuthorizationError(error: unknown): error is ApiError {
@@ -64,8 +59,6 @@ async function requestSession(): Promise<AuthSessionResponse> {
   try {
     return await apiRequest<AuthSessionResponse>('/api/auth/me');
   } catch (error) {
-    // 401/403 are authorization outcomes, not connectivity failures. Clear only
-    // the non-sensitive session hint and let the router show the login flow.
     if (isAuthorizationError(error)) {
       writeKnownSession(false);
       return { user: null, rewards: { dailyPackGranted: false } };
@@ -74,47 +67,37 @@ async function requestSession(): Promise<AuthSessionResponse> {
   }
 }
 
-async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
-  const first = await requestSession();
-  if (first.user) {
-    writeKnownSession(true);
-    return first;
-  }
-
-  // iOS/Android standalone PWAs can resume before persisted cookie storage is
-  // fully hydrated. A tiny bounded retry avoids ejecting a known signed-in user
-  // during that window. No credential/token is ever stored in localStorage.
-  if (!readKnownSession()) return first;
-
-  const delays = [250, 750, 1500, 2500] as const;
-  let latest = first;
-  for (const delay of delays) {
-    await sleep(delay);
-    latest = await requestSession();
-    if (latest.user) {
-      writeKnownSession(true);
-      return latest;
-    }
-  }
-  return latest;
-}
-
 function useAuthState() {
   const queryClient = useQueryClient();
+  // Synchronous localStorage read is intentional: it lets the PWA paint its
+  // authenticated app shell immediately instead of waiting on a network round-trip.
+  const [knownSession, setKnownSession] = useState(readKnownSession);
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
-    // Source of truth after every hard refresh/PWA reopen: secure HttpOnly
-    // chavea_session cookie validated against the persistent Session table.
-    queryFn: loadSessionWithPwaGrace,
+    queryFn: requestSession,
+    enabled: knownSession,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    retry: (failureCount, error) => !isAuthorizationError(error) && failureCount < 2,
-    retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
+    retry: false,
     refetchOnWindowFocus: false,
     refetchOnMount: 'always',
     refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    if (me.data?.user) {
+      writeKnownSession(true);
+      setKnownSession(true);
+      return;
+    }
+    // A completed authenticated check with no user is authoritative. Network
+    // failures do not land here and therefore never blank the app shell.
+    if (me.data && !me.data.user) {
+      writeKnownSession(false);
+      setKnownSession(false);
+    }
+  }, [me.data]);
 
   const login = useMutation({
     mutationFn: (data: Credentials) =>
@@ -124,6 +107,7 @@ function useAuthState() {
       }),
     onSuccess: (data) => {
       writeKnownSession(true);
+      setKnownSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
@@ -136,14 +120,18 @@ function useAuthState() {
       }),
     onSuccess: (data) => {
       writeKnownSession(true);
+      setKnownSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
 
   const logout = useMutation({
     mutationFn: () => apiRequest<void>('/api/auth/logout', { method: 'POST' }),
-    onSuccess: () => {
+    onSettled: () => {
+      // Logging out is local-first: even if the network fails, never leave the UI
+      // pretending the user is still signed in.
       writeKnownSession(false);
+      setKnownSession(false);
       queryClient.setQueryData(AUTH_QUERY_KEY, { user: null });
       queryClient.removeQueries({ queryKey: ['competitions'] });
       queryClient.removeQueries({ queryKey: ['default-shields'] });
@@ -151,16 +139,20 @@ function useAuthState() {
     },
   });
 
-  const isBootstrapping = me.data === undefined && me.isPending;
-  const hasBootstrapError = me.data === undefined && me.isError;
+  const hasValidatedUser = Boolean(me.data?.user);
+  const validationFinishedWithoutUser = Boolean(me.data && !me.data.user);
+  const optimisticAuthenticated = knownSession && !validationFinishedWithoutUser;
 
   return {
     user: me.data?.user ?? null,
-    isLoading: isBootstrapping,
-    isBootstrapping,
-    hasBootstrapError,
+    // Never block the first paint on session I/O. Consumers can inspect
+    // isSessionRefreshing for subtle non-blocking status if ever needed.
+    isLoading: false,
+    isBootstrapping: false,
+    isSessionRefreshing: knownSession && me.isFetching,
+    hasBootstrapError: false,
     bootstrapError: me.error,
-    isAuthenticated: Boolean(me.data?.user),
+    isAuthenticated: hasValidatedUser || optimisticAuthenticated,
     dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
     login,
     register,
@@ -168,36 +160,6 @@ function useAuthState() {
     refresh: () => me.refetch(),
     googleLoginUrl: '/api/auth/google',
   };
-}
-
-function SessionBootScreen() {
-  return <GlobalLoader mode="screen" label="Validando sua sessão…" />;
-}
-
-function SessionRecoveryScreen({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const networkFailure = error instanceof ApiError && error.status === 0;
-  return (
-    <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
-      <div className="w-full max-w-sm text-center">
-        <div className="flex justify-center"><Logo size="md" /></div>
-        <h1 className="mt-7 text-xl font-black">
-          {networkFailure ? 'Não foi possível conectar ao Chavea.' : 'Não foi possível validar sua sessão.'}
-        </h1>
-        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-          {networkFailure
-            ? 'Verifique sua conexão e tente novamente.'
-            : 'O serviço de autenticação respondeu com erro. Sua conta não foi marcada como desconectada.'}
-        </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-5 min-h-12 w-full rounded-2xl bg-[#073B8C] px-4 text-sm font-black text-white shadow-md"
-        >
-          Tentar novamente
-        </button>
-      </div>
-    </main>
-  );
 }
 
 function DailyPackToast({ granted }: { granted: boolean }) {
@@ -224,13 +186,6 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
-
-  // Never mount the router until the initial persistent session check (including
-  // the bounded PWA hydration grace) has completed.
-  if (value.isBootstrapping) return <SessionBootScreen />;
-  if (value.hasBootstrapError) {
-    return <SessionRecoveryScreen error={value.bootstrapError} onRetry={() => void value.refresh()} />;
-  }
 
   return (
     <AuthContext.Provider value={value}>
