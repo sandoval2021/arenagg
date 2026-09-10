@@ -96,7 +96,8 @@ export async function refreshSupabaseAccessToken(): Promise<string | null> {
   refreshInFlight = (async () => {
     try {
       const { data, error } = await supabase.auth.refreshSession();
-      if (error || !data.session) {
+      if (error) throw error;
+      if (!data.session) {
         cachedAccessToken = null;
         return null;
       }
