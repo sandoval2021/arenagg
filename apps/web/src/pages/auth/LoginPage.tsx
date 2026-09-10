@@ -22,6 +22,9 @@ function loginErrorMessage(error: unknown): string {
       return 'Confira seu e-mail, telefone e senha.';
     case 'INVALID_CREDENTIALS':
       return 'E-mail, telefone ou senha inválidos.';
+    case 'AUTH_PROVIDER_UNAVAILABLE':
+    case 'SESSION_PERSIST_FAILED':
+      return 'Não foi possível iniciar uma sessão segura agora. Tente novamente.';
     default:
       return 'Não foi possível entrar. Tente novamente.';
   }
@@ -89,8 +92,6 @@ export function LoginPage() {
           <button disabled={auth.login.isPending} className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-[#073B8C] font-extrabold text-white shadow-md disabled:opacity-60">{auth.login.isPending ? <GlobalLoader mode="inline" label="Entrando…" className="[&_*]:text-white" /> : 'Entrar'}</button>
         </form>
 
-        <div className="my-6 flex items-center gap-3 text-xs font-bold text-slate-400"><span className="h-px flex-1 bg-slate-200" />OU<span className="h-px flex-1 bg-slate-200" /></div>
-        <a href={auth.googleLoginUrl} className="flex min-h-14 items-center justify-center rounded-2xl border border-slate-200 bg-white font-bold shadow-sm">Continuar com Google</a>
         <p className="mt-7 text-center text-sm text-slate-500">Ainda não tem conta? <Link to="/register" className="font-extrabold text-[#073B8C]">Criar conta</Link></p>
       </div>
     </main>
