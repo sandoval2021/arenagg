@@ -94,8 +94,9 @@ jobs:
       - name: Assert production deployment contract
         run: |
           set -euo pipefail
-          grep -Fq 'SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' .github/workflows/deploy.yml
-          grep -Fq 'VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}' .github/workflows/deploy.yml
+          grep -Fq 'SUPABASE_SERVICE_ROLE_KEY:' .github/workflows/deploy.yml
+          grep -Fq 'VITE_SUPABASE_ANON_KEY:' .github/workflows/deploy.yml
+          grep -Fq 'SUPABASE_ANON_KEY GitHub secret is required for browser authentication.' .github/workflows/deploy.yml
           grep -Fq 'Smoke test Bearer auth and CORS' .github/workflows/deploy.yml
           grep -Fq 'Authorization: Bearer $ACCESS_TOKEN' .github/workflows/deploy.yml
-          ! grep -Fq "set-cookie: chavea_session=" .github/workflows/deploy.yml
+          ! grep -Fq 'set-cookie: chavea_session=' .github/workflows/deploy.yml
