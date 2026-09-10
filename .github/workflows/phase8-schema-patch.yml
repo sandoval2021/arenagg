@@ -1,0 +1,34 @@
+name: Phase 8 Schema Patch
+
+on:
+  push:
+    branches: [phase8-album-engine]
+    paths:
+      - scripts/patch-phase8-schema.mjs
+      - .github/workflows/phase8-schema-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: phase8-album-engine
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: node scripts/patch-phase8-schema.mjs
+      - name: Commit schema
+        run: |
+          if git diff --quiet -- prisma/schema.prisma; then
+            echo "Schema already patched"
+            exit 0
+          fi
+          git config user.name "sandoval2021"
+          git config user.email "78934835+sandoval2021@users.noreply.github.com"
+          git add prisma/schema.prisma
+          git commit -m "feat(album): add Phase 8 Prisma models"
+          git push origin HEAD:phase8-album-engine
