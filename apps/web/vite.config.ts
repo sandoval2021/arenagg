@@ -8,14 +8,19 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // The PWA must never remain pinned to a waiting worker on mobile.
-      // autoUpdate works with the custom injectManifest SW, which calls
-      // skipWaiting()/clients.claim() to promote the newest build immediately.
+      // The standalone mobile PWA must never leave a newer worker waiting for
+      // every tab/window to close. autoUpdate is the primary registration mode;
+      // the custom injectManifest worker also calls skipWaiting/clients.claim.
       strategies: 'injectManifest',
       registerType: 'autoUpdate',
       srcDir: 'src',
       filename: 'sw.js',
       manifest: false,
+      workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
+      },
       includeAssets: [
         'manifest.webmanifest',
         'chavea-logo.svg',
