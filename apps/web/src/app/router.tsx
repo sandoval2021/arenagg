@@ -1,23 +1,45 @@
+import { Suspense, lazy, type PropsWithChildren } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { LandingPageLight } from '../pages/LandingPageLight';
-import { InvitePage } from '../pages/InvitePage';
-import { OwnerSettingsPage } from '../pages/OwnerSettingsPage';
-import { ProfilePage } from '../pages/ProfilePage';
-import { EditProfilePage } from '../pages/EditProfilePage';
-import { PublicProfilePage } from '../pages/PublicProfilePage';
-import { AlbumPage } from '../pages/AlbumPage';
-import { RankingPage } from '../pages/RankingPage';
-import { JogarAgoraPage } from '../pages/JogarAgoraPage';
-import { CasualMatchRoomPage } from '../pages/CasualMatchRoomPage';
 import { LoginPage } from '../pages/auth/LoginPage';
 import { RegisterPage } from '../pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
-import { CompetitionsPage } from '../pages/competitions/CompetitionsPage';
-import { CompetitionDetailExperience } from '../pages/competitions/CompetitionDetailExperience';
-import { CreateCompetitionPhaseThreePage } from '../pages/competitions/CreateCompetitionPhaseThreePage';
-import { StandingsPage } from '../pages/competitions/StandingsPage';
-import { DashboardPage } from '../pages/dashboard/DashboardPage';
+
+const InvitePage = lazy(() => import('../pages/InvitePage').then((module) => ({ default: module.InvitePage })));
+const DashboardPage = lazy(() => import('../pages/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const JogarAgoraPage = lazy(() => import('../pages/JogarAgoraPage').then((module) => ({ default: module.JogarAgoraPage })));
+const CasualMatchRoomPage = lazy(() => import('../pages/CasualMatchRoomPage').then((module) => ({ default: module.CasualMatchRoomPage })));
+const CompetitionsPage = lazy(() => import('../pages/competitions/CompetitionsPage').then((module) => ({ default: module.CompetitionsPage })));
+const CompetitionDetailExperience = lazy(() => import('../pages/competitions/CompetitionDetailExperience').then((module) => ({ default: module.CompetitionDetailExperience })));
+const CreateCompetitionPhaseThreePage = lazy(() => import('../pages/competitions/CreateCompetitionPhaseThreePage').then((module) => ({ default: module.CreateCompetitionPhaseThreePage })));
+const StandingsPage = lazy(() => import('../pages/competitions/StandingsPage').then((module) => ({ default: module.StandingsPage })));
+const RankingPage = lazy(() => import('../pages/RankingPage').then((module) => ({ default: module.RankingPage })));
+const ProfilePage = lazy(() => import('../pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const EditProfilePage = lazy(() => import('../pages/EditProfilePage').then((module) => ({ default: module.EditProfilePage })));
+const AlbumPage = lazy(() => import('../pages/AlbumPage').then((module) => ({ default: module.AlbumPage })));
+const PublicProfilePage = lazy(() => import('../pages/PublicProfilePage').then((module) => ({ default: module.PublicProfilePage })));
+const OwnerSettingsPage = lazy(() => import('../pages/OwnerSettingsPage').then((module) => ({ default: module.OwnerSettingsPage })));
+
+function RouteChunk({ children }: PropsWithChildren) {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-dvh bg-white px-4 pt-[max(1rem,env(safe-area-inset-top))] text-slate-900">
+          <div className="mx-auto max-w-lg animate-pulse space-y-3 py-4" aria-label="Abrindo tela">
+            <div className="h-5 w-32 rounded-full bg-slate-100" />
+            <div className="h-24 rounded-3xl bg-slate-100" />
+            <div className="h-16 rounded-2xl bg-slate-50" />
+          </div>
+        </main>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
+
+const lazyElement = (element: React.ReactNode) => <RouteChunk>{element}</RouteChunk>;
 
 const Placeholder = ({ title }: { title: string }) => (
   <main className="mx-auto max-w-lg bg-white p-6 text-slate-900">
@@ -31,24 +53,24 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
-  { path: '/invite/:id', element: <InvitePage /> },
+  { path: '/invite/:id', element: lazyElement(<InvitePage />) },
   {
     element: <ProtectedRoute />,
     children: [
-      { path: '/dashboard', element: <DashboardPage /> },
-      { path: '/play', element: <JogarAgoraPage /> },
-      { path: '/play/rooms/:roomId', element: <CasualMatchRoomPage /> },
-      { path: '/competitions', element: <CompetitionsPage /> },
-      { path: '/competitions/new', element: <CreateCompetitionPhaseThreePage /> },
-      { path: '/competitions/:competitionId', element: <CompetitionDetailExperience /> },
-      { path: '/competitions/:competitionId/standings', element: <StandingsPage /> },
+      { path: '/dashboard', element: lazyElement(<DashboardPage />) },
+      { path: '/play', element: lazyElement(<JogarAgoraPage />) },
+      { path: '/play/rooms/:roomId', element: lazyElement(<CasualMatchRoomPage />) },
+      { path: '/competitions', element: lazyElement(<CompetitionsPage />) },
+      { path: '/competitions/new', element: lazyElement(<CreateCompetitionPhaseThreePage />) },
+      { path: '/competitions/:competitionId', element: lazyElement(<CompetitionDetailExperience />) },
+      { path: '/competitions/:competitionId/standings', element: lazyElement(<StandingsPage />) },
       { path: '/matches', element: <Placeholder title="Jogos" /> },
-      { path: '/ranking', element: <RankingPage /> },
-      { path: '/profile', element: <ProfilePage /> },
-      { path: '/profile/edit', element: <EditProfilePage /> },
-      { path: '/profile/album', element: <AlbumPage /> },
-      { path: '/profile/:userId', element: <PublicProfilePage /> },
-      { path: '/owner/settings', element: <OwnerSettingsPage /> },
+      { path: '/ranking', element: lazyElement(<RankingPage />) },
+      { path: '/profile', element: lazyElement(<ProfilePage />) },
+      { path: '/profile/edit', element: lazyElement(<EditProfilePage />) },
+      { path: '/profile/album', element: lazyElement(<AlbumPage />) },
+      { path: '/profile/:userId', element: lazyElement(<PublicProfilePage />) },
+      { path: '/owner/settings', element: lazyElement(<OwnerSettingsPage />) },
     ],
   },
 ]);
