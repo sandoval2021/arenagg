@@ -34,7 +34,7 @@ const queryClient = new QueryClient({
       // Background refetches and query-key transitions must never blank the
       // current mobile screen. Keep the last successful payload interactive
       // until the replacement payload arrives.
-      placeholderData: (previousData) => previousData,
+      placeholderData: (previousData: unknown) => previousData,
     },
     mutations: {
       retry: 0,
