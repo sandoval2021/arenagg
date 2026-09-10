@@ -4,15 +4,25 @@ const SUPABASE_URL = 'https://uruwrztfbjbykgxwtgvg.supabase.co';
 const AUTH_PROXY_KEY = 'chavea-browser-auth-proxy';
 const AUTH_PROXY_PATH = '/api/auth/supabase-proxy';
 const SUPABASE_STORAGE_KEY = 'sb-uruwrztfbjbykgxwtgvg-auth-token';
+const AUTH_REQUEST_WAIT_MS = 4_500;
+const TOKEN_REFRESH_SKEW_MS = 30_000;
 
 let cachedAccessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
+let hydrationInFlight: Promise<string | null> | null = null;
 let clientPromise: Promise<SupabaseClient> | null = null;
 
 type StoredSessionShape = {
   access_token?: unknown;
   refresh_token?: unknown;
 };
+
+export class SupabaseAuthRestoringError extends Error {
+  constructor(message = 'A sessão ainda está sendo restaurada.') {
+    super(message);
+    this.name = 'SupabaseAuthRestoringError';
+  }
+}
 
 function readStoredSessionSync(): StoredSessionShape | null {
   try {
@@ -23,6 +33,50 @@ function readStoredSessionSync(): StoredSessionShape | null {
   } catch {
     return null;
   }
+}
+
+function storedRefreshToken(): string | null {
+  const stored = readStoredSessionSync();
+  return typeof stored?.refresh_token === 'string' && stored.refresh_token.length > 0
+    ? stored.refresh_token
+    : null;
+}
+
+function decodeJwtExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = JSON.parse(atob(padded)) as { exp?: unknown };
+    return typeof decoded.exp === 'number' ? decoded.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function tokenNeedsRefresh(token: string): boolean {
+  const expiry = decodeJwtExpiryMs(token);
+  return expiry !== null && expiry <= Date.now() + TOKEN_REFRESH_SKEW_MS;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new SupabaseAuthRestoringError()),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -147,6 +201,69 @@ export async function refreshSupabaseAccessToken(): Promise<string | null> {
   })();
 
   return refreshInFlight;
+}
+
+/**
+ * Central auth barrier for every protected API call.
+ *
+ * If a refresh is already running, all queries wait for the same promise.
+ * If the PWA has persisted auth material but the in-memory token is not ready,
+ * hydrate/refresh once instead of firing an anonymous request. A bounded wait
+ * prevents a WebKit storage stall from freezing the UI indefinitely.
+ */
+export async function getSupabaseAccessTokenForRequest(
+  timeoutMs = AUTH_REQUEST_WAIT_MS,
+): Promise<string | null> {
+  if (refreshInFlight) {
+    return withTimeout(refreshInFlight, timeoutMs);
+  }
+
+  if (cachedAccessToken && !tokenNeedsRefresh(cachedAccessToken)) {
+    return cachedAccessToken;
+  }
+
+  const stored = readStoredSessionSync();
+  const storedAccessToken = typeof stored?.access_token === 'string' ? stored.access_token : null;
+  const refreshToken = storedRefreshToken();
+
+  if (!cachedAccessToken && storedAccessToken) {
+    cachedAccessToken = storedAccessToken;
+  }
+
+  if (cachedAccessToken && !tokenNeedsRefresh(cachedAccessToken)) {
+    return cachedAccessToken;
+  }
+
+  if (!cachedAccessToken && !refreshToken) {
+    return null;
+  }
+
+  if (!hydrationInFlight) {
+    hydrationInFlight = (async () => {
+      const session = await readPersistedSupabaseSession();
+      if (session?.access_token && !tokenNeedsRefresh(session.access_token)) {
+        cachedAccessToken = session.access_token;
+        return cachedAccessToken;
+      }
+
+      if (session?.refresh_token || refreshToken) {
+        return refreshSupabaseAccessToken();
+      }
+
+      return session?.access_token ?? null;
+    })().finally(() => {
+      hydrationInFlight = null;
+    });
+  }
+
+  try {
+    return await withTimeout(hydrationInFlight, timeoutMs);
+  } catch (error) {
+    if (error instanceof SupabaseAuthRestoringError) throw error;
+    throw new SupabaseAuthRestoringError(
+      error instanceof Error ? error.message : 'Não foi possível restaurar a sessão a tempo.',
+    );
+  }
 }
 
 export function subscribeSupabaseAuthState(
