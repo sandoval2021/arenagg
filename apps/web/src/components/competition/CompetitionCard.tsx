@@ -21,12 +21,32 @@ const statusLabel: Record<CompetitionStatus, string> = {
 
 export function CompetitionCard({ competition }: { competition: CompetitionSummary }) {
   const queryClient = useQueryClient();
-  const prefetch = () => void queryClient.prefetchQuery({ queryKey: ['competition', competition.id], queryFn: () => getCompetition(competition.id), staleTime: 30_000 });
+  const queryKey = ['competition', competition.id] as const;
+
+  const prefetch = () => {
+    void queryClient.prefetchQuery({
+      queryKey,
+      queryFn: () => getCompetition(competition.id),
+      staleTime: 30_000,
+      retry: 1,
+    }).finally(() => {
+      const state = queryClient.getQueryState(queryKey);
+      if (state?.status === 'error' && state.data === undefined) {
+        queryClient.removeQueries({ queryKey, exact: true });
+      }
+    });
+  };
+
   const showRound = competition.status === 'IN_PROGRESS' || competition.status === 'FINISHED';
   const isFull = competition.participantCount >= competition.maxParticipants;
 
   return (
-    <Link to={`/competitions/${competition.id}`} onPointerEnter={prefetch} onPointerDown={prefetch} onFocus={prefetch} className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[.99]">
+    <Link
+      to={`/competitions/${competition.id}`}
+      onPointerEnter={prefetch}
+      onFocus={prefetch}
+      className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[.99]"
+    >
       <div className="flex items-start gap-3">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#073B8C] text-white shadow-md shadow-blue-950/10">
           <Trophy className="h-6 w-6" />
