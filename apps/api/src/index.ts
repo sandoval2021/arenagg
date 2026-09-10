@@ -26,6 +26,7 @@ import { ranking } from './routes/ranking.routes';
 import { gamification } from './routes/gamification.routes';
 import { reputation } from './routes/reputation.routes';
 import { matchmaking } from './routes/matchmaking.routes';
+import { matchmakingUnranked } from './routes/matchmaking-unranked.routes';
 import { phaseThreeCompetitions } from './routes/phase-three-competition.routes';
 import { phaseThreeMatches } from './routes/phase-three-match.routes';
 import { phaseFourCompetitions } from './routes/phase-four-competition.routes';
@@ -95,6 +96,19 @@ app.use('/api/push/*', requireAuth);
 app.use('/api/owner/*', requireAuth);
 app.use('/api/owner/*', requireOwner);
 
+// Ranked LFG was removed by product policy. Reject stale/custom clients before
+// the legacy challenge handler reaches Prisma; DB CHECK constraints enforce the
+// same invariant independently.
+app.use('/api/matchmaking/challenges', async (c, next) => {
+  if (c.req.method === 'POST') {
+    const body = await c.req.raw.clone().json().catch(() => null) as { mode?: unknown } | null;
+    if (body?.mode != null && body.mode !== 'CASUAL') {
+      return c.json({ error: 'RANKED_LFG_DISABLED' }, 409);
+    }
+  }
+  await next();
+});
+
 app.get('/health', (c) => c.json({ status: 'ok' }));
 app.get('/api/health/db', async (c) => {
   await c.get('prisma').$queryRaw`SELECT 1`;
@@ -106,6 +120,8 @@ app.route('/api/auth', devAuth);
 app.route('/api/push', push);
 app.route('/api/gamification', gamification);
 app.route('/api/reputation', reputation);
+// Mounted first so score confirmation always follows the unranked closure path.
+app.route('/api/matchmaking', matchmakingUnranked);
 app.route('/api/matchmaking', matchmaking);
 app.route('/api/feed', globalFeed);
 // phaseFour wraps /start with push; phaseSix intercepts only GROUP_STAGE;
