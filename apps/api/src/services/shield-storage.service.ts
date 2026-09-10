@@ -1,7 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Env } from '../types/env';
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const PROFILE_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MIME_TO_EXTENSION = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -94,12 +95,13 @@ function isWebp(bytes: Uint8Array): boolean {
   );
 }
 
-async function detectImageMime(file: UploadFile): Promise<AllowedMime> {
+async function detectImageMime(file: UploadFile, maxBytes: number): Promise<AllowedMime> {
   if (file.size <= 0) {
     throw new ShieldUploadError('INVALID_IMAGE', 'The image file is empty.');
   }
-  if (file.size > MAX_IMAGE_BYTES) {
-    throw new ShieldUploadError('IMAGE_TOO_LARGE', 'Images must be at most 5 MiB.');
+  if (file.size > maxBytes) {
+    const maxMiB = Math.round(maxBytes / (1024 * 1024));
+    throw new ShieldUploadError('IMAGE_TOO_LARGE', `Images must be at most ${maxMiB} MiB.`);
   }
 
   const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
@@ -134,7 +136,8 @@ export async function uploadShield(
 ): Promise<{ publicUrl: string; storagePath: string; requestId: string }> {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
-  const mime = await detectImageMime(file);
+  const maxBytes = scope === 'profiles' ? PROFILE_MAX_IMAGE_BYTES : DEFAULT_MAX_IMAGE_BYTES;
+  const mime = await detectImageMime(file, maxBytes);
   const extension = MIME_TO_EXTENSION[mime];
   const storagePath = `${scope}/${ownerSegment}/${crypto.randomUUID()}.${extension}`;
   const bucket = config.SUPABASE_SHIELDS_BUCKET || 'escudos';
@@ -146,6 +149,7 @@ export async function uploadShield(
     storagePath,
     fileName: safeFileName(file.name),
     fileSize: file.size,
+    maxBytes,
     declaredType: file.type || 'unknown',
     detectedType: mime,
   });
