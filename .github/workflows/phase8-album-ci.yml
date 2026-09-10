@@ -1,0 +1,40 @@
+name: Phase 8 Album CI
+
+on:
+  push:
+    branches: [phase8-album-engine]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install workspace dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build web
+        env:
+          VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: npm run build --workspace=@chavea/web
+      - name: Validate seed script syntax
+        run: node --check scripts/seed-chavea-cards.mjs
+      - name: Assert album invariants
+        run: |
+          grep -F 'model ChaveaCard {' prisma/schema.prisma
+          grep -F 'model UserStickerPack {' prisma/schema.prisma
+          grep -F 'COUNT(DISTINCT i."cardId")' apps/api/src/routes/album.routes.ts
+          grep -F 'if (roll < 0.80)' apps/api/src/routes/album.routes.ts
+          grep -F 'if (roll < 0.95)' apps/api/src/routes/album.routes.ts
+          grep -F 'if (roll < 0.99)' apps/api/src/routes/album.routes.ts
+          grep -F 'x{card.copyCount}' apps/web/src/pages/AlbumPage.tsx
