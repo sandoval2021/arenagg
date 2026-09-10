@@ -5,6 +5,7 @@ import { calculateElo, type EloOutcome } from '../domain/ranking/elo';
 import { calculateStandings } from '../domain/standings/calculate';
 import { awardBadgeCodes, evaluateMatchAchievementBatch } from './achievement-engine.service';
 import { syncGroupStandingsForMatch } from './group-stage.service';
+import { creditStickerPacks } from './sticker-pack-rewards.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -184,7 +185,12 @@ async function maybeFinalizeCompetition(tx: Tx, competitionId: string): Promise<
       championshipProfileAppliedAt: now,
     },
   });
-  if (claimed.count === 1) await awardChampionship(tx, champion.participation.userId);
+  if (claimed.count === 1) {
+    await awardChampionship(tx, champion.participation.userId);
+    // championshipProfileAppliedAt is the exactly-once audit/idempotency gate.
+    // The champion reward commits in the same transaction as competition close.
+    await creditStickerPacks(tx, champion.participation.userId, 'PREMIUM', 3);
+  }
 }
 
 /**

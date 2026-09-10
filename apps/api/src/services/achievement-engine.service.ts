@@ -7,6 +7,7 @@ import {
   streakBadges,
   type BadgeCode,
 } from '../domain/achievements/badges';
+import { creditStickerPacks } from './sticker-pack-rewards.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -29,17 +30,47 @@ function uniqueCodes(codes: readonly BadgeCode[]): BadgeCode[] {
   return [...new Set(codes)];
 }
 
-export async function awardBadgeCodes(
-  db: Pick<PrismaClient, 'userBadge'> | Pick<Tx, 'userBadge'>,
+async function persistBadgeCodesAndRewards(
+  tx: Tx,
   userId: string,
   codes: readonly BadgeCode[],
-): Promise<void> {
+): Promise<number> {
   const unique = uniqueCodes(codes);
-  if (unique.length === 0) return;
-  await db.userBadge.createMany({
+  if (unique.length === 0) return 0;
+
+  const inserted = await tx.userBadge.createMany({
     data: unique.map((badgeCode) => ({ userId, badgeCode })),
     skipDuplicates: true,
   });
+
+  // One COMMON pack per badge that was actually inserted. skipDuplicates +
+  // BatchPayload.count prevents retries/reconciliation from minting packs twice.
+  if (inserted.count > 0) {
+    await creditStickerPacks(tx, userId, 'COMMON', inserted.count);
+  }
+  return inserted.count;
+}
+
+function isRootPrismaClient(db: PrismaClient | Tx): db is PrismaClient {
+  return typeof (db as PrismaClient).$transaction === 'function';
+}
+
+export async function awardBadgeCodes(
+  db: PrismaClient | Tx,
+  userId: string,
+  codes: readonly BadgeCode[],
+): Promise<void> {
+  if (uniqueCodes(codes).length === 0) return;
+
+  if (isRootPrismaClient(db)) {
+    await db.$transaction(
+      (tx) => persistBadgeCodesAndRewards(tx, userId, codes),
+      { maxWait: 5_000, timeout: 10_000 },
+    );
+    return;
+  }
+
+  await persistBadgeCodesAndRewards(db, userId, codes);
 }
 
 /**
@@ -109,7 +140,18 @@ export async function evaluateMatchAchievementBatch(
   }
 
   if (grants.length > 0) {
-    await tx.userBadge.createMany({ data: grants, skipDuplicates: true });
+    const grantsByUser = new Map<string, BadgeCode[]>();
+    for (const grant of grants) {
+      const codes = grantsByUser.get(grant.userId) ?? [];
+      codes.push(grant.badgeCode);
+      grantsByUser.set(grant.userId, codes);
+    }
+
+    // P <= 2 on the match hot path. Keeping one createMany per player lets us
+    // attribute BatchPayload.count exactly and reward only genuinely new badges.
+    for (const [userId, codes] of grantsByUser) {
+      await persistBadgeCodesAndRewards(tx, userId, codes);
+    }
   }
 }
 

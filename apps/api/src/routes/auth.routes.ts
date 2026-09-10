@@ -12,6 +12,7 @@ import {
   toPublicUser,
   verifyPassword,
 } from '../services/auth.service';
+import { claimDailyLoginReward } from '../services/sticker-pack-rewards.service';
 
 const auth = new Hono<Env>();
 const password = z.string().min(10).max(128);
@@ -49,6 +50,23 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
 
 function isPrismaUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
+async function claimDailyRewardSafely(
+  prisma: Env['Variables']['prisma'],
+  userId: string,
+): Promise<boolean> {
+  try {
+    return await claimDailyLoginReward(prisma, userId);
+  } catch (error) {
+    console.error('[auth.daily-reward] failed', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // Authentication must remain available. Because lastLoginReward is only
+    // advanced in the reward transaction, a later /me bootstrap can retry.
+    return false;
+  }
 }
 
 async function attachSession(
@@ -109,7 +127,8 @@ auth.post('/register', async (c) => {
 
     stage = 'create_session';
     await attachSession(c, prisma, user.id);
-    return c.json({ user: toPublicUser(user) }, 201);
+    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+    return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } }, 201);
   } catch (error) {
     console.log('[auth.register] failed', {
       stage,
@@ -142,13 +161,20 @@ auth.post('/login', async (c) => {
   }
 
   await attachSession(c, prisma, user.id);
-  return c.json({ user: toPublicUser(user) });
+  const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+  return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } });
 });
 
 auth.get('/me', async (c) => {
   const token = getCookie(c, 'chavea_session');
-  if (!token) return c.json({ user: null });
-  return c.json({ user: await getSessionUser(c.get('prisma'), token) });
+  if (!token) return c.json({ user: null, rewards: { dailyPackGranted: false } });
+
+  const prisma = c.get('prisma');
+  const user = await getSessionUser(prisma, token);
+  if (!user) return c.json({ user: null, rewards: { dailyPackGranted: false } });
+
+  const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+  return c.json({ user, rewards: { dailyPackGranted } });
 });
 
 auth.post('/logout', async (c) => {

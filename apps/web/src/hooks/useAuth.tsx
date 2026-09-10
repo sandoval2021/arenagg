@@ -1,4 +1,4 @@
-import { createContext, useContext, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_URL, apiRequest } from '../lib/api';
 import { Logo } from '../components/brand/Logo';
@@ -22,6 +22,11 @@ type Credentials = {
 
 type Registration = Credentials & {
   name: string;
+};
+
+type AuthSessionResponse = {
+  user: AuthUser | null;
+  rewards?: { dailyPackGranted?: boolean };
 };
 
 type AuthContextValue = ReturnType<typeof useAuthState>;
@@ -51,8 +56,8 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function loadSessionWithPwaGrace(): Promise<{ user: AuthUser | null }> {
-  const first = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
+  const first = await apiRequest<AuthSessionResponse>('/api/auth/me');
   if (first.user) {
     writeKnownSession(true);
     return first;
@@ -64,14 +69,14 @@ async function loadSessionWithPwaGrace(): Promise<{ user: AuthUser | null }> {
   if (!readKnownSession()) return first;
 
   await sleep(250);
-  const second = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+  const second = await apiRequest<AuthSessionResponse>('/api/auth/me');
   if (second.user) {
     writeKnownSession(true);
     return second;
   }
 
   await sleep(500);
-  const third = await apiRequest<{ user: AuthUser | null }>('/api/auth/me');
+  const third = await apiRequest<AuthSessionResponse>('/api/auth/me');
   if (third.user) writeKnownSession(true);
   return third;
 }
@@ -95,7 +100,7 @@ function useAuthState() {
 
   const login = useMutation({
     mutationFn: (data: Credentials) =>
-      apiRequest<{ user: AuthUser }>('/api/auth/login', {
+      apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -107,7 +112,7 @@ function useAuthState() {
 
   const register = useMutation({
     mutationFn: (data: Registration) =>
-      apiRequest<{ user: AuthUser }>('/api/auth/register', {
+      apiRequest<AuthSessionResponse & { user: AuthUser }>('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -137,6 +142,7 @@ function useAuthState() {
     isBootstrapping,
     hasBootstrapError,
     isAuthenticated: Boolean(me.data?.user),
+    dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
     login,
     register,
     logout,
@@ -170,6 +176,28 @@ function SessionRecoveryScreen({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function DailyPackToast({ granted }: { granted: boolean }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!granted) return;
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [granted]);
+
+  if (!visible) return null;
+  return (
+    <div
+      className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[120] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-yellow-50 px-4 py-3 text-center text-sm font-black text-amber-950 shadow-2xl shadow-amber-200/60"
+      role="status"
+      aria-live="polite"
+    >
+      🎁 Você ganhou 1 Pacote Diário de Cartas!
+    </div>
+  );
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
 
@@ -178,7 +206,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   if (value.isBootstrapping) return <SessionBootScreen />;
   if (value.hasBootstrapError) return <SessionRecoveryScreen onRetry={() => void value.refresh()} />;
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <DailyPackToast granted={value.dailyRewardGranted} />
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

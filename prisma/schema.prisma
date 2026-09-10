@@ -188,6 +188,7 @@ model UserProfile {
   championshipsWon     Int      @default(0)
   reputationAverage   Float    @default(0)
   reputationCount     Int      @default(0)
+  lastLoginReward      DateTime?
   consoles             String[] @default([])
   favoriteFormation    String?
   playstyle            String?
