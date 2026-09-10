@@ -325,7 +325,7 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
   const [totalMatches, unfinishedMatches] = groupStage
     ? await Promise.all([
         db.match.count({ where: { competitionId, stageId: groupStage.id } }),
-        db.match.count({ where: { competitionId, stageId: groupStage.id, status: { not: 'FINISHED' } } }),
+        db.match.count({ where: { competitionId, stageId: groupStage.id, status: { notIn: ['FINISHED', 'CANCELED'] } } }),
       ])
     : [0, 0];
 
@@ -400,7 +400,7 @@ phaseSixCompetitions.post('/:id/generate-knockout', async (c) => {
     if (!groupStage || groupStage.groups.length < 2) return { error: 'GROUP_STAGE_NOT_READY' as const };
     const totalMatches = await tx.match.count({ where: { competitionId, stageId: groupStage.id } });
     const unfinished = await tx.match.count({
-      where: { competitionId, stageId: groupStage.id, status: { not: 'FINISHED' } },
+      where: { competitionId, stageId: groupStage.id, status: { notIn: ['FINISHED', 'CANCELED'] } },
     });
     if (totalMatches === 0 || unfinished > 0) return { error: 'GROUP_MATCHES_PENDING' as const };
 

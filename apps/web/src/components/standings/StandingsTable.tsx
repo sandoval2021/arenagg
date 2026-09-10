@@ -84,7 +84,7 @@ export function StandingsTable({ standings, userIdByTeam = {} }: { standings: St
         </table>
       </div>
       {standings.length === 0 && <div className="grid min-h-40 place-items-center px-6 text-center"><div><Shield className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-500">A tabela aparece assim que os resultados forem finalizados.</p></div></div>}
-      <p className="border-t border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-slate-500 sm:px-5 sm:py-3">PTS, J, V, E, D e SG ficam sempre disponíveis. Arraste horizontalmente se necessário.</p>
+      <p className="border-t border-slate-200 bg-slate-50 px-3 py-2.5 text-[10px] font-semibold text-slate-500 sm:px-5 sm:py-3"></p>
     </div>
   );
 }

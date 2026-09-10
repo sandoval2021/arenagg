@@ -54,7 +54,7 @@ function handleTransitionError(c: Parameters<Parameters<typeof matches.onError>[
 }
 
 async function advance(tx: Prisma.TransactionClient, match: AdvanceableMatch) {
-  if (match.competition.type === 'LEAGUE' || !match.nextMatchId) return;
+  if (!match.nextMatchId) return;
   if (
     !match.homeTeamId ||
     !match.awayTeamId ||
