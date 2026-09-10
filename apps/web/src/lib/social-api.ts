@@ -16,8 +16,9 @@ export type FormationOption = (typeof FORMATION_OPTIONS)[number];
 export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
 export type BadgeCode = AchievementCode;
 
-const AVATAR_OPTIMIZE_THRESHOLD = 2 * 1024 * 1024;
-const AVATAR_MAX_DIMENSION = 1600;
+const AVATAR_OPTIMIZE_THRESHOLD = 256 * 1024;
+const AVATAR_MAX_DIMENSION = 512;
+const AVATAR_WEBP_QUALITY = 0.8;
 
 export type GamerProfile = {
   id: string;
@@ -83,34 +84,72 @@ export function updateMyGamerProfile(input: {
   });
 }
 
-async function optimizeAvatar(file: File): Promise<File> {
-  if (file.size < AVATAR_OPTIMIZE_THRESHOLD || typeof createImageBitmap !== 'function') return file;
+type DecodedAvatar = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release: () => void;
+};
 
-  try {
+async function decodeAvatar(file: File): Promise<DecodedAvatar> {
+  if (typeof createImageBitmap === 'function') {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, AVATAR_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    return {
+      source: bitmap,
+      width: bitmap.width,
+      height: bitmap.height,
+      release: () => bitmap.close(),
+    };
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.decoding = 'async';
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('AVATAR_DECODE_FAILED'));
+      element.src = objectUrl;
+    });
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      release: () => URL.revokeObjectURL(objectUrl),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+}
+
+async function optimizeAvatar(file: File): Promise<File> {
+  if (file.size < AVATAR_OPTIMIZE_THRESHOLD) return file;
+
+  let decoded: DecodedAvatar | null = null;
+  try {
+    decoded = await decodeAvatar(file);
+    const scale = Math.min(1, AVATAR_MAX_DIMENSION / Math.max(decoded.width, decoded.height));
+    const width = Math.max(1, Math.round(decoded.width * scale));
+    const height = Math.max(1, Math.round(decoded.height * scale));
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext('2d', { alpha: file.type !== 'image/jpeg' });
-    if (!context) {
-      bitmap.close();
-      return file;
-    }
+    const context = canvas.getContext('2d', { alpha: true });
+    if (!context) return file;
 
-    context.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-    const outputType = file.type === 'image/png' ? 'image/png' : file.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, 0.86));
+    context.drawImage(decoded.source, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', AVATAR_WEBP_QUALITY));
     if (!blob || blob.size >= file.size) return file;
 
-    return new File([blob], file.name, { type: outputType, lastModified: Date.now() });
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'avatar';
+    return new File([blob], `${baseName}.webp`, { type: 'image/webp', lastModified: Date.now() });
   } catch {
-    // Some older PWA/WebKit builds cannot decode through createImageBitmap.
-    // The original <=10 MiB file can still be validated and uploaded safely.
+    // Decoding failure must never block a valid <=10 MiB photo. The server still
+    // validates the original MIME type and size before writing to Storage.
     return file;
+  } finally {
+    decoded?.release();
   }
 }
 
