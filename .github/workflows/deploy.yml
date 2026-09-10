@@ -14,6 +14,7 @@ permissions:
 
 env:
   NODE_VERSION: '22'
+  SUPABASE_URL: 'https://uruwrztfbjbykgxwtgvg.supabase.co'
 
 jobs:
   database:
@@ -73,13 +74,25 @@ jobs:
       - name: Typecheck ArenaGG API
         run: npm run typecheck --workspace=@chavea/api
 
-      - name: Configure Supabase runtime secret
+      - name: Configure database and Supabase Auth secrets
         working-directory: apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
-        run: printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DATABASE_URL" ]; then
+            echo 'DATABASE_URL_DIRECT is not configured.' >&2
+            exit 1
+          fi
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo 'SUPABASE_SERVICE_ROLE_KEY is required for Worker-side JWT validation and identity mapping.' >&2
+            exit 1
+          fi
+          printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 
       - name: Configure optional dev password reset secret
         working-directory: apps/api
@@ -127,7 +140,7 @@ jobs:
           npx wrangler deploy 2>&1 | tee /tmp/arenagg-worker-deploy.log
           API_URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' /tmp/arenagg-worker-deploy.log | tail -n 1)"
           if [ -z "$API_URL" ]; then
-            echo "Unable to determine deployed Worker URL" >&2
+            echo 'Unable to determine deployed Worker URL' >&2
             exit 1
           fi
           echo "ArenaGG Worker URL: $API_URL"
@@ -144,11 +157,12 @@ jobs:
           curl --fail --silent --show-error --retry 5 --retry-delay 2 "$API_URL/api/health/db"
           echo
 
-      - name: Smoke test registration and CORS
+      - name: Smoke test Bearer auth and CORS
         working-directory: apps/api
         env:
           API_URL: ${{ steps.deploy.outputs.api_url }}
           DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
@@ -158,19 +172,14 @@ jobs:
           curl --silent --show-error \
             -D /tmp/preflight.headers \
             -o /dev/null \
-            -X OPTIONS "$API_URL/api/auth/register" \
+            -X OPTIONS "$API_URL/api/competitions" \
             -H 'Origin: https://chavea.pages.dev' \
-            -H 'Access-Control-Request-Method: POST' \
-            -H 'Access-Control-Request-Headers: content-type'
+            -H 'Access-Control-Request-Method: GET' \
+            -H 'Access-Control-Request-Headers: authorization,content-type'
 
           grep -qi '^access-control-allow-origin: https://chavea.pages.dev' /tmp/preflight.headers
-          grep -qi '^access-control-allow-credentials: true' /tmp/preflight.headers
+          grep -qi 'access-control-allow-headers:.*Authorization' /tmp/preflight.headers
 
-          npx wrangler tail --format=json > /tmp/arenagg-tail.log 2>&1 &
-          TAIL_PID=$!
-          sleep 5
-
-          set +e
           STATUS="$(curl --silent --show-error \
             -D /tmp/register.headers \
             -o /tmp/register.body \
@@ -178,32 +187,47 @@ jobs:
             -X POST "$API_URL/api/auth/register" \
             -H 'Origin: https://chavea.pages.dev' \
             -H 'Content-Type: application/json' \
-            --data "{\"name\":\"San\",\"email\":\"$TEST_EMAIL\",\"password\":\"ArenaGG-CI-12345!\"}")"
-          CURL_EXIT=$?
-          set -e
-
-          sleep 3
-          kill "$TAIL_PID" 2>/dev/null || true
-          wait "$TAIL_PID" 2>/dev/null || true
+            --data "{\"name\":\"ArenaGG CI\",\"email\":\"$TEST_EMAIL\",\"password\":\"ArenaGG-CI-12345!\"}")"
 
           echo "Registration HTTP status: $STATUS"
-          cat /tmp/register.body || true
+          cat /tmp/register.body
           echo
+          test "$STATUS" = '201'
+          ACCESS_TOKEN="$(node -e "const fs=require('fs');const b=JSON.parse(fs.readFileSync('/tmp/register.body','utf8'));if(!b.session?.accessToken)process.exit(1);process.stdout.write(b.session.accessToken)")"
+          test -n "$ACCESS_TOKEN"
 
-          if [ "$CURL_EXIT" -ne 0 ] || [ "$STATUS" != '201' ]; then
-            echo '--- Worker tail diagnostics ---'
-            cat /tmp/arenagg-tail.log || true
-            exit 1
-          fi
+          ME_STATUS="$(curl --silent --show-error \
+            -o /tmp/me.body \
+            -w '%{http_code}' \
+            "$API_URL/api/auth/me" \
+            -H 'Origin: https://chavea.pages.dev' \
+            -H "Authorization: Bearer $ACCESS_TOKEN")"
+          cat /tmp/me.body
+          echo
+          test "$ME_STATUS" = '200'
 
-          grep -qi '^access-control-allow-origin: https://chavea.pages.dev' /tmp/register.headers
-          grep -qi '^access-control-allow-credentials: true' /tmp/register.headers
-          grep -qi '^set-cookie: chavea_session=' /tmp/register.headers
+          COMP_STATUS="$(curl --silent --show-error \
+            -o /tmp/competitions.body \
+            -w '%{http_code}' \
+            "$API_URL/api/competitions" \
+            -H 'Origin: https://chavea.pages.dev' \
+            -H "Authorization: Bearer $ACCESS_TOKEN")"
+          cat /tmp/competitions.body
+          echo
+          test "$COMP_STATUS" = '200'
 
           cd ../..
           node --input-type=module <<'NODE'
           import { PrismaClient } from '@prisma/client';
           import { PrismaPg } from '@prisma/adapter-pg';
+          import { createClient } from '@supabase/supabase-js';
+
+          const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+          const { data } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const authUser = data.users.find((row) => row.email?.toLowerCase() === process.env.TEST_EMAIL.toLowerCase());
+          if (authUser) await supabase.auth.admin.deleteUser(authUser.id);
 
           const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
           const prisma = new PrismaClient({ adapter });
@@ -231,21 +255,33 @@ jobs:
       - name: Install workspace dependencies
         run: npm install
 
-      - name: Validate frontend API binding
+      - name: Validate frontend API and Supabase binding
         env:
           VITE_API_URL: ${{ needs.worker.outputs.api_url }}
+          VITE_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
           if [[ ! "$VITE_API_URL" =~ ^https://[A-Za-z0-9.-]+\.workers\.dev$ ]]; then
             echo "Invalid or missing VITE_API_URL: $VITE_API_URL" >&2
             exit 1
           fi
-          echo "Building ArenaGG frontend against: $VITE_API_URL"
+          if [[ ! "$VITE_SUPABASE_URL" =~ ^https://[A-Za-z0-9-]+\.supabase\.co$ ]]; then
+            echo 'Invalid or missing VITE_SUPABASE_URL.' >&2
+            exit 1
+          fi
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo 'SUPABASE_ANON_KEY GitHub secret is required for browser authentication.' >&2
+            exit 1
+          fi
+          echo "Building ArenaGG frontend against Worker $VITE_API_URL and Supabase $VITE_SUPABASE_URL"
 
       - name: Build ArenaGG Vite app
         working-directory: apps/web
         env:
           VITE_API_URL: ${{ needs.worker.outputs.api_url }}
+          VITE_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Deploy ArenaGG to existing Cloudflare Pages project
@@ -258,6 +294,7 @@ jobs:
       - name: Verify production domain serves current ArenaGG build
         env:
           EXPECTED_API_URL: ${{ needs.worker.outputs.api_url }}
+          EXPECTED_SUPABASE_URL: ${{ env.SUPABASE_URL }}
         run: |
           set -euo pipefail
           sleep 15
@@ -266,8 +303,10 @@ jobs:
             if curl --fail --silent --show-error --max-time 15 'https://chavea.pages.dev' -o /tmp/arenagg-index.html; then
               ASSET="$(grep -Eo '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/arenagg-index.html | head -n 1 || true)"
               if [ -n "$ASSET" ] && curl --fail --silent --show-error --max-time 20 "https://chavea.pages.dev$ASSET" -o /tmp/arenagg-app.js; then
-                if grep -Fq 'O melhor gerenciador de campeonatos de EA FC e e-Sports!' /tmp/arenagg-app.js && grep -Fq "$EXPECTED_API_URL" /tmp/arenagg-app.js; then
-                  echo "Production domain is serving the current ArenaGG build with the correct API URL."
+                if grep -Fq 'O melhor gerenciador de campeonatos de EA FC e e-Sports!' /tmp/arenagg-app.js && \
+                  grep -Fq "$EXPECTED_API_URL" /tmp/arenagg-app.js && \
+                  grep -Fq "$EXPECTED_SUPABASE_URL" /tmp/arenagg-app.js; then
+                  echo 'Production domain is serving the current ArenaGG build with Worker and Supabase bindings.'
                   exit 0
                 fi
               fi
@@ -277,5 +316,4 @@ jobs:
           done
 
           echo 'chavea.pages.dev is not serving the build produced by this workflow.' >&2
-          echo 'This usually means a competing Cloudflare Pages automatic Git deployment is overwriting the direct-upload production deployment.' >&2
           exit 1
