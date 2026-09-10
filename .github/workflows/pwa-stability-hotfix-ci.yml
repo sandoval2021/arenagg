@@ -1,0 +1,47 @@
+name: PWA Stability Hotfix CI
+
+on:
+  push:
+    branches: [hotfix-pwa-stability-ghost-refresh]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert silent service worker lifecycle
+        run: |
+          set -euo pipefail
+          ! grep -Fq 'window.location.reload()' apps/web/src/main.tsx
+          ! grep -Fq 'updateServiceWorker(true)' apps/web/src/components/pwa/PwaUpdatePrompt.tsx
+          ! grep -Fq 'client.navigate(client.url)' apps/web/src/sw.js
+          grep -Fq 'await self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'await self.clients.claim()' apps/web/src/sw.js
+          grep -Fq 'v12-20260910-stability' apps/web/src/sw.js
+      - name: Assert ghost refresh UX
+        run: |
+          set -euo pipefail
+          grep -Fq 'placeholderData: (previousData) => previousData' apps/web/src/main.tsx
+          grep -Fq 'pointer-events-none' apps/web/src/components/brand/GlobalActivityLoader.tsx
+          grep -Fq 'cancelRefetch: false' apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq 'let inFlight = false' apps/web/src/hooks/useCompetitionLivePolling.ts
+      - name: Assert auth recovery grace
+        run: |
+          set -euo pipefail
+          grep -Fq 'AUTH_RECOVERY_DELAYS_MS' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'readStoredSessionWithGrace' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'validateBearerSessionWithGrace' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "event === 'SIGNED_OUT'" apps/web/src/hooks/useAuth.tsx
