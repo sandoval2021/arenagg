@@ -14,9 +14,6 @@ const CompetitionPrizePanel = lazy(() =>
 const GroupStagePanel = lazy(() =>
   import('../../components/competition/GroupStagePanel').then((module) => ({ default: module.GroupStagePanel })),
 );
-const CompetitionMatchAutomationPanel = lazy(() =>
-  import('../../components/matches/CompetitionMatchAutomationPanel').then((module) => ({ default: module.CompetitionMatchAutomationPanel })),
-);
 const CompetitionClipsPanel = lazy(() =>
   import('../../components/clips/CompetitionClipsPanel').then((module) => ({ default: module.CompetitionClipsPanel })),
 );
@@ -39,7 +36,6 @@ export function CompetitionDetailExperience() {
           <DeferredSection><CompetitionPhaseFiveCenter /></DeferredSection>
           <DeferredSection><CompetitionPrizePanel /></DeferredSection>
           <DeferredSection><GroupStagePanel /></DeferredSection>
-          <DeferredSection><CompetitionMatchAutomationPanel /></DeferredSection>
           <DeferredSection><CompetitionClipsPanel /></DeferredSection>
           <DeferredSection><KnockoutBracketDock /></DeferredSection>
           <DeferredSection><ReputationReviewPrompt /></DeferredSection>
