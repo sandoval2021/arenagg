@@ -1,4 +1,4 @@
-import { Suspense, lazy, type PropsWithChildren } from 'react';
+import { Suspense, lazy, type PropsWithChildren, type ReactNode } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { LandingPageLight } from '../pages/LandingPageLight';
@@ -39,7 +39,7 @@ function RouteChunk({ children }: PropsWithChildren) {
   );
 }
 
-const lazyElement = (element: React.ReactNode) => <RouteChunk>{element}</RouteChunk>;
+const lazyElement = (element: ReactNode) => <RouteChunk>{element}</RouteChunk>;
 
 const Placeholder = ({ title }: { title: string }) => (
   <main className="mx-auto max-w-lg bg-white p-6 text-slate-900">
