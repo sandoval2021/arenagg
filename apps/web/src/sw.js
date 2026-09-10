@@ -1,13 +1,14 @@
 const CACHE_PREFIX = 'chavea-shell-';
-const APP_CACHE = `${CACHE_PREFIX}v7-20260910-auth-recovery`;
+const APP_CACHE = `${CACHE_PREFIX}v8-20260910-auth-watchdog`;
 const PRECACHE = self.__WB_MANIFEST;
 const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
-    await Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)));
-    // Never leave a fresh mobile build stuck in the waiting state.
+    await Promise.allSettled(
+      PRECACHE_URLS.map((url) => cache.add(new Request(url, { cache: 'reload' }))),
+    );
     await self.skipWaiting();
   })());
 });
@@ -22,18 +23,15 @@ self.addEventListener('activate', (event) => {
     );
     await self.clients.claim();
 
-    // A worker can take control after the old JS bundle was already loaded.
-    // Reload each currently open Chavea window once on this new worker's
-    // activation so the first foreground after deployment receives the new shell.
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(
       windows.map(async (client) => {
-        if (!('navigate' in client)) return;
         try {
-          await client.navigate(client.url);
+          client.postMessage({ type: 'CHAVEA_SW_ACTIVATED', cache: APP_CACHE });
+          if ('navigate' in client) await client.navigate(client.url);
         } catch {
-          // Navigation may be rejected while a mobile PWA is backgrounding;
-          // the next foreground/navigation still uses the new controller.
+          // If iOS rejects navigation while backgrounding, controllerchange or
+          // the next visible navigation still moves the PWA to this worker.
         }
       }),
     );
@@ -62,12 +60,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first prevents an old JS/CSS asset from pinning a stale PWA.
-  // Cache is retained only as an offline fallback.
   event.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
     try {
-      const fresh = await fetch(request, { cache: 'no-cache' });
+      const fresh = await fetch(request, { cache: 'no-store' });
       if (fresh.ok) await cache.put(request, fresh.clone());
       return fresh;
     } catch {
