@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
+import { CHAT_SAFETY_MESSAGE, violatesChatSafetyPolicy } from '../services/chat-safety.service';
 
 export const competitionChat = new Hono<Env>();
 
@@ -70,6 +71,9 @@ competitionChat.post('/:id/chat', async (c) => {
   const competitionId = c.req.param('id');
   const parsed = messageSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'INVALID_MESSAGE' }, 400);
+  if (violatesChatSafetyPolicy(parsed.data.body)) {
+    return c.json({ error: 'CHAT_SAFETY_BLOCKED', message: CHAT_SAFETY_MESSAGE }, 400);
+  }
   if (!await canAccessCompetition(c, competitionId)) {
     return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
   }
