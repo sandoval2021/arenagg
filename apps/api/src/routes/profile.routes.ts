@@ -205,7 +205,6 @@ profile.get('/:userId', async (c) => {
   const userId = c.req.param('userId');
   if (!z.string().uuid().safeParse(userId).success) return c.json({ error: 'USER_NOT_FOUND' }, 404);
 
-  await reconcileRareAchievements(db, userId);
   const target = await db.user.findFirst({
     where: { id: userId, isActive: true },
     select: {

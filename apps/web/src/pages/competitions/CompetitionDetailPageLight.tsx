@@ -65,8 +65,9 @@ export function CompetitionDetailPageLight() {
     queryKey: ['competition', competitionId],
     queryFn: () => getCompetition(competitionId),
     enabled: Boolean(competitionId),
-    refetchInterval: 3_000,
-    refetchIntervalInBackground: true,
+    staleTime: 8_000,
+    refetchInterval: 12_000,
+    refetchIntervalInBackground: false,
   });
 
   const data = competition.data;
@@ -76,9 +77,9 @@ export function CompetitionDetailPageLight() {
     queryKey: ['standings', competitionId],
     queryFn: () => getStandings(competitionId),
     enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'standings',
-    staleTime: 1_000,
-    refetchInterval: 3_000,
-    refetchIntervalInBackground: true,
+    staleTime: 8_000,
+    refetchInterval: 12_000,
+    refetchIntervalInBackground: false,
   });
 
   const topScorers = useQuery({
@@ -91,9 +92,10 @@ export function CompetitionDetailPageLight() {
   const matchStats = useQuery({
     queryKey: ['match-stats', competitionId],
     queryFn: () => getCompetitionMatchStats(competitionId),
-    enabled: Boolean(competitionId) && Boolean(isStarted),
-    refetchInterval: 3_000,
-    refetchIntervalInBackground: true,
+    enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'rounds',
+    staleTime: 8_000,
+    refetchInterval: 12_000,
+    refetchIntervalInBackground: false,
   });
 
   const statsByMatch = useMemo(() => {

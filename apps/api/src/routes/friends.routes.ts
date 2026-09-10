@@ -7,6 +7,11 @@ export const friends = new Hono<Env>();
 
 const friendRequestSchema = z.object({ friendId: z.string().uuid() });
 
+type FriendRequestResult = {
+  state: 'ACCEPTED' | 'PENDING';
+  friendship: { id: string };
+};
+
 function orderedPair(a: string, b: string): [string, string] {
   return a < b ? [a, b] : [b, a];
 }
@@ -22,8 +27,11 @@ friends.post('/request', async (c) => {
   if (!friend?.isActive) return c.json({ error: 'USER_NOT_FOUND' }, 404);
 
   const [left, right] = orderedPair(user.id, parsed.data.friendId);
-  const result = await db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`friend:${left}:${right}`}))`;
+  const requestId = crypto.randomUUID();
+  let result: FriendRequestResult;
+  try {
+    result = await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`friend:${left}:${right}`}))`;
     const existing = await tx.friendship.findFirst({
       where: {
         OR: [
@@ -49,9 +57,33 @@ friends.post('/request', async (c) => {
       return { state: 'PENDING' as const, friendship };
     }
 
-    const friendship = await tx.friendship.create({ data: { requesterId: user.id, addresseeId: parsed.data.friendId } });
-    return { state: 'PENDING' as const, friendship };
-  });
+      const friendship = await tx.friendship.create({ data: { requesterId: user.id, addresseeId: parsed.data.friendId } });
+      return { state: 'PENDING' as const, friendship };
+    }, { maxWait: 5_000, timeout: 10_000 });
+  } catch (error) {
+    const prismaCode = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+    console.error('[friends.request] failed', {
+      requestId,
+      requesterId: user.id,
+      friendId: parsed.data.friendId,
+      prismaCode: prismaCode || undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    if (prismaCode === 'P2002') {
+      return c.json({
+        error: 'FRIEND_REQUEST_CONFLICT',
+        message: 'Este convite já existe ou acabou de ser processado.',
+        requestId,
+      }, 409);
+    }
+    return c.json({
+      error: 'FRIEND_REQUEST_FAILED',
+      message: 'Não foi possível enviar o convite agora. Tente novamente.',
+      requestId,
+    }, 500);
+  }
 
   if (result.state === 'ACCEPTED') {
     await Promise.all([

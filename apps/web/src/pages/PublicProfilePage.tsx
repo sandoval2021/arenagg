@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Medal, ShieldCheck, Swords, Trophy, UserPlus, UserRound, Zap } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
@@ -17,6 +18,12 @@ export function PublicProfilePage() {
   const { userId = '' } = useParams();
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const [friendToast, setFriendToast] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+
+  function showFriendToast(tone: 'success' | 'error', message: string) {
+    setFriendToast({ tone, message });
+    window.setTimeout(() => setFriendToast(null), 3_200);
+  }
   const profile = useQuery({
     queryKey: ['gamer-profile', userId],
     queryFn: () => getPublicGamerProfile(userId),
@@ -25,13 +32,15 @@ export function PublicProfilePage() {
   });
   const add = useMutation({
     mutationFn: () => requestFriend(userId),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      showFriendToast('success', result.status === 'ACCEPTED' ? 'Vocês já são amigos!' : 'Convite enviado!');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['gamer-profile', userId] }),
         queryClient.invalidateQueries({ queryKey: ['friends'] }),
         queryClient.invalidateQueries({ queryKey: ['friend-requests'] }),
       ]);
     },
+    onError: (error) => showFriendToast('error', friendError(error)),
   });
 
   if (profile.isLoading) return <GlobalLoader mode="screen" label="Carregando Card do Jogador…" />;
@@ -46,6 +55,7 @@ export function PublicProfilePage() {
 
   return (
     <div className="min-h-dvh bg-white text-slate-900">
+      {friendToast && <div role="status" aria-live="polite" className={`fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[140] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border px-4 py-3 text-center text-sm font-black shadow-2xl ${friendToast.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{friendToast.message}</div>}
       <main className="mx-auto max-w-lg px-4 pb-12 pt-[max(1rem,env(safe-area-inset-top))]">
         <header className="flex items-center gap-3 py-3">
           <button type="button" onClick={() => history.back()} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></button>
@@ -55,8 +65,9 @@ export function PublicProfilePage() {
         <section className="relative mt-4 overflow-hidden rounded-[2rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-amber-50 p-4 shadow-xl shadow-blue-100/50 sm:p-5">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <div className="relative shrink-0">
-              <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-[1.4rem] border border-blue-200 bg-white shadow-md sm:h-24 sm:w-24 sm:rounded-[1.6rem]">
-                {data.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
+              <div className="relative grid h-20 w-20 place-items-center overflow-hidden rounded-[1.4rem] border border-blue-200 bg-white shadow-md sm:h-24 sm:w-24 sm:rounded-[1.6rem]">
+                <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />
+                {data.avatarUrl && <img src={data.avatarUrl} alt={playerName} className="absolute inset-0 h-full w-full object-cover" loading="eager" decoding="async" referrerPolicy="no-referrer" onError={(event) => event.currentTarget.remove()} />}
               </div>
               <span className="absolute -bottom-2 -right-2"><RankEmblem rank={rank} /></span>
             </div>
@@ -81,7 +92,6 @@ export function PublicProfilePage() {
               {friendState?.status === 'ACCEPTED' && <div className="flex min-h-13 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 text-center text-sm font-black text-emerald-700"><Check className="h-4 w-4 shrink-0" />Vocês são amigos</div>}
               {friendState?.status === 'PENDING' && <div className="flex min-h-13 items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-3 text-center text-sm font-black text-amber-700">{friendState.direction === 'OUTGOING' ? 'Pedido de amizade enviado' : 'Este jogador enviou um pedido para você'}</div>}
               {friendState?.status === 'REJECTED' && <button disabled={add.isPending} onClick={() => add.mutate()} className="flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 text-center text-sm font-black text-[#073B8C]">{add.isPending ? <GlobalLoader mode="inline" label="Enviando…" /> : <><UserPlus className="h-4 w-4 shrink-0" />Enviar novo pedido</>}</button>}
-              {add.isError && <p className="mt-2 rounded-xl bg-red-50 p-2 text-center text-xs font-bold text-red-700">{friendError(add.error)}</p>}
             </div>
           )}
         </section>
