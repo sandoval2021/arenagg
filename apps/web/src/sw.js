@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'chavea-shell-';
-const APP_CACHE = `${CACHE_PREFIX}v10-20260910-auth-escape`;
+const APP_CACHE = `${CACHE_PREFIX}v11-20260910-supabase-bearer`;
 const PRECACHE = self.__WB_MANIFEST;
 const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
 
