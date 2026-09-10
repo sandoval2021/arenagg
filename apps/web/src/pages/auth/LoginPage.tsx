@@ -22,8 +22,18 @@ function loginErrorMessage(error: unknown): string {
       return 'Confira seu e-mail, telefone e senha.';
     case 'INVALID_CREDENTIALS':
       return 'E-mail, telefone ou senha inválidos.';
-    default:
-      return 'Não foi possível entrar. Tente novamente.';
+    case 'LOGIN_FAILED': {
+      const details = error.details as { message?: unknown } | undefined;
+      return typeof details?.message === 'string' && details.message.trim()
+        ? details.message.trim()
+        : 'Não foi possível concluir o login agora. Tente novamente.';
+    }
+    default: {
+      const details = error.details as { message?: unknown } | undefined;
+      return typeof details?.message === 'string' && details.message.trim()
+        ? details.message.trim()
+        : 'Não foi possível entrar. Tente novamente.';
+    }
   }
 }
 
@@ -47,7 +57,13 @@ export function LoginPage() {
       const fromQuery = safeNext(new URLSearchParams(location.search).get('next'));
       navigate(fromState ?? fromQuery ?? '/dashboard', { replace: true });
     } catch (error) {
-      console.error('[login] request failed', error);
+      console.error('[login] request failed', {
+        mode,
+        status: error instanceof ApiError ? error.status : undefined,
+        code: error instanceof ApiError ? error.code : undefined,
+        details: error instanceof ApiError ? error.details : undefined,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
