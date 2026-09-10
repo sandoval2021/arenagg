@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  BookOpen,
   Check,
   Crown,
   Goal,
@@ -103,6 +104,13 @@ export function ProfilePage() {
             <span className="grid h-14 w-14 place-items-center rounded-2xl bg-amber-100 text-amber-700"><Trophy className="h-7 w-7" /></span>
           </div>
         </section>
+
+        <Link to="/profile/album" className="relative mt-5 flex min-h-20 items-center gap-4 overflow-hidden rounded-[1.8rem] border border-amber-200 bg-gradient-to-r from-slate-950 via-slate-900 to-amber-950 p-4 text-white shadow-xl shadow-amber-100/60">
+          <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-amber-400/25 blur-2xl" />
+          <span className="relative grid h-13 w-13 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950 shadow-lg shadow-amber-900/30"><BookOpen className="h-6 w-6" /></span>
+          <span className="relative min-w-0 flex-1"><span className="block text-[9px] font-black uppercase tracking-[.18em] text-amber-300">Coleção Chavea</span><span className="mt-1 block text-lg font-black">Meu Álbum</span><span className="mt-0.5 block truncate text-xs font-semibold text-white/60">Abra pacotinhos e complete suas páginas.</span></span>
+          <Sparkles className="relative h-5 w-5 shrink-0 text-amber-300" />
+        </Link>
 
         {profile.isLoading && <div className="mt-5"><GlobalLoader mode="section" label="Carregando seu Card de Jogador…" /></div>}
         {profile.isError && <button type="button" onClick={() => void profile.refetch()} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700"><RotateCcw className="h-4 w-4" />Carregar perfil novamente</button>}
