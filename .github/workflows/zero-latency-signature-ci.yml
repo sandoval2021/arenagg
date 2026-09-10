@@ -1,0 +1,33 @@
+name: Zero Latency Signature CI
+
+on:
+  push:
+    branches: [fix-zero-latency-deploy-signature]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: Build PWA with production API binding
+        working-directory: apps/web
+        env:
+          VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: npm run build
+      - name: Assert deploy signature stays in core entry
+        run: |
+          set -euo pipefail
+          ENTRY=$(grep -Eo '/assets/index-[A-Za-z0-9_-]+\.js' apps/web/dist/index.html | head -n 1)
+          test -n "$ENTRY"
+          FILE="apps/web/dist${ENTRY}"
+          grep -Fq 'O melhor gerenciador de campeonatos de EA FC e e-Sports!' "$FILE"
+          grep -Fq 'https://arenagg-api.sandovaloliveira284.workers.dev' "$FILE"
+          GZIP=$(gzip -c "$FILE" | wc -c)
+          echo "entry_gzip_bytes=$GZIP"
+          test "$GZIP" -le 125000
