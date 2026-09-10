@@ -16,8 +16,11 @@ export type FormationOption = (typeof FORMATION_OPTIONS)[number];
 export type PlaystyleOption = (typeof PLAYSTYLE_OPTIONS)[number];
 export type BadgeCode = AchievementCode;
 
-const AVATAR_OPTIMIZE_THRESHOLD = 2 * 1024 * 1024;
-const AVATAR_MAX_DIMENSION = 1600;
+// Avatars are rendered mostly between 32 and 96 CSS px. Keeping multi-megabyte
+// camera originals for those surfaces wastes mobile radio, decode time and RAM.
+const AVATAR_OPTIMIZE_THRESHOLD = 256 * 1024;
+const AVATAR_MAX_DIMENSION = 640;
+const AVATAR_WEBP_QUALITY = 0.78;
 
 export type GamerProfile = {
   id: string;
@@ -94,7 +97,7 @@ async function optimizeAvatar(file: File): Promise<File> {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext('2d', { alpha: file.type !== 'image/jpeg' });
+    const context = canvas.getContext('2d', { alpha: true });
     if (!context) {
       bitmap.close();
       return file;
@@ -102,14 +105,18 @@ async function optimizeAvatar(file: File): Promise<File> {
 
     context.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
-    const outputType = file.type === 'image/png' ? 'image/png' : file.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outputType, 0.86));
+
+    // WebP gives a much smaller payload for profile photos while preserving
+    // transparency when the selected artwork needs it. If WebKit cannot encode
+    // WebP, toBlob returns null and we safely keep the original file.
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/webp', AVATAR_WEBP_QUALITY),
+    );
     if (!blob || blob.size >= file.size) return file;
 
-    return new File([blob], file.name, { type: outputType, lastModified: Date.now() });
+    const stem = file.name.replace(/\.[^.]+$/, '') || 'avatar';
+    return new File([blob], `${stem}.webp`, { type: 'image/webp', lastModified: Date.now() });
   } catch {
-    // Some older PWA/WebKit builds cannot decode through createImageBitmap.
-    // The original <=10 MiB file can still be validated and uploaded safely.
     return file;
   }
 }
