@@ -17,8 +17,6 @@ import {
   supabase,
   type BrowserSessionEnvelope,
 } from '../lib/supabase-auth';
-import { GlobalLoader } from '../components/brand/GlobalLoader';
-import { Logo } from '../components/brand/Logo';
 
 export type AuthUser = {
   id: string;
@@ -50,27 +48,79 @@ type AuthContextValue = ReturnType<typeof useAuthState>;
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_QUERY_KEY = ['auth', 'me'] as const;
-const AUTH_BOOT_TIMEOUT_MS = 8_000;
-const AUTH_ME_TIMEOUT_MS = 7_000;
+const KNOWN_SESSION_KEY = 'chaveaHasSession';
+const USER_SNAPSHOT_KEY = 'chaveaUserSnapshot';
 
 function isPublicAuthPath(pathname: string): boolean {
   return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new ApiError(0, 'AUTH_BOOT_TIMEOUT')), timeoutMs);
-    promise.then(
-      (value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      },
+function hasPersistedSessionSync(): boolean {
+  try {
+    if (window.localStorage.getItem(KNOWN_SESSION_KEY) === 'true') return true;
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith('sb-') && key.endsWith('-auth-token') && window.localStorage.getItem(key)) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function readUserSnapshot(): AuthUser | null {
+  try {
+    const raw = window.localStorage.getItem(USER_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<AuthUser>;
+    if (
+      typeof value.id !== 'string' ||
+      typeof value.name !== 'string' ||
+      (value.role !== 'USER' && value.role !== 'ADMIN')
+    ) {
+      return null;
+    }
+    return {
+      id: value.id,
+      name: value.name,
+      displayName: typeof value.displayName === 'string' ? value.displayName : null,
+      avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
+      email: null,
+      phone: null,
+      role: value.role,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistUserSnapshot(user: AuthUser): void {
+  try {
+    window.localStorage.setItem(KNOWN_SESSION_KEY, 'true');
+    window.localStorage.setItem(
+      USER_SNAPSHOT_KEY,
+      JSON.stringify({
+        id: user.id,
+        name: user.name,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+      }),
     );
-  });
+  } catch {
+    // The snapshot is only a paint optimization. Supabase remains auth source of truth.
+  }
+}
+
+function clearUserSnapshot(): void {
+  try {
+    window.localStorage.removeItem(KNOWN_SESSION_KEY);
+    window.localStorage.removeItem(USER_SNAPSHOT_KEY);
+  } catch {
+    // Ignore restricted storage modes.
+  }
 }
 
 function isAuthorizationError(error: unknown): error is ApiError {
@@ -83,13 +133,7 @@ function isClientAuthError(error: unknown): boolean {
 }
 
 async function requestSession(): Promise<AuthSessionResponse> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), AUTH_ME_TIMEOUT_MS);
-  try {
-    return await apiRequest<AuthSessionResponse>('/api/auth/me', { signal: controller.signal });
-  } finally {
-    window.clearTimeout(timeout);
-  }
+  return apiRequest<AuthSessionResponse>('/api/auth/me');
 }
 
 async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
@@ -113,17 +157,14 @@ async function migrateLegacyCookie(): Promise<AuthSessionResponse | null> {
 
   const session = await persistSupabaseSession(body.session);
   setSupabaseAccessToken(session.access_token);
+  persistUserSnapshot(body.user);
   return body;
 }
 
 async function loadPersistentSession(): Promise<AuthSessionResponse> {
-  // Supabase Auth owns persistence. getSession() restores the access/refresh
-  // token pair from localStorage before the protected router is mounted.
   const storedSession = await readPersistedSupabaseSession();
 
   if (!storedSession) {
-    // One-time compatibility bridge for people who still have the legacy
-    // HttpOnly cookie from a previous Chavea release.
     const migrated = await migrateLegacyCookie();
     if (migrated) return migrated;
     setSupabaseAccessToken(null);
@@ -135,40 +176,36 @@ async function loadPersistentSession(): Promise<AuthSessionResponse> {
   } catch (error) {
     if (!isAuthorizationError(error)) throw error;
 
-    // A PWA can resume with an expired access token after being backgrounded.
-    // Refresh once from the persisted Supabase refresh token, then retry /me.
     try {
       const refreshed = await refreshSupabaseAccessToken();
       if (refreshed) return await requestSession();
     } catch (refreshError) {
-      // Network/auth-server failures must NOT erase a valid persisted session.
-      // Only a definite 4xx from Supabase means the refresh token is invalid.
       if (!isClientAuthError(refreshError)) throw refreshError;
     }
 
     await clearSupabaseSession();
+    clearUserSnapshot();
     return { user: null, rewards: { dailyPackGranted: false } };
   }
-}
-
-async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
-  return withTimeout(loadPersistentSession(), AUTH_BOOT_TIMEOUT_MS);
 }
 
 async function persistLoginResponse<T extends AuthSessionResponse>(data: T): Promise<T> {
   if (!data.session) throw new Error('AUTH_SESSION_MISSING');
   const session = await persistSupabaseSession(data.session);
   setSupabaseAccessToken(session.access_token);
+  if (data.user) persistUserSnapshot(data.user);
   return data;
 }
 
 function useAuthState() {
   const queryClient = useQueryClient();
   const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
+  const [hasPersistedSession, setHasPersistedSession] = useState(() => hasPersistedSessionSync());
+  const [cachedUser, setCachedUser] = useState<AuthUser | null>(() => readUserSnapshot());
 
   const me = useQuery({
     queryKey: AUTH_QUERY_KEY,
-    queryFn: bootstrapPersistentSession,
+    queryFn: loadPersistentSession,
     enabled: !isPublicAuthRoute,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
@@ -179,10 +216,27 @@ function useAuthState() {
   });
 
   useEffect(() => {
+    if (!me.data) return;
+    if (me.data.user) {
+      persistUserSnapshot(me.data.user);
+      setCachedUser(me.data.user);
+      setHasPersistedSession(true);
+      return;
+    }
+    clearUserSnapshot();
+    setCachedUser(null);
+    setHasPersistedSession(false);
+  }, [me.data]);
+
+  useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       setSupabaseAccessToken(session?.access_token ?? null);
+      if (session) setHasPersistedSession(true);
 
       if (event === 'SIGNED_OUT') {
+        clearUserSnapshot();
+        setCachedUser(null);
+        setHasPersistedSession(false);
         queryClient.setQueryData(AUTH_QUERY_KEY, {
           user: null,
           rewards: { dailyPackGranted: false },
@@ -201,6 +255,9 @@ function useAuthState() {
       return persistLoginResponse(response);
     },
     onSuccess: (data) => {
+      persistUserSnapshot(data.user);
+      setCachedUser(data.user);
+      setHasPersistedSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
@@ -214,6 +271,9 @@ function useAuthState() {
       return persistLoginResponse(response);
     },
     onSuccess: (data) => {
+      persistUserSnapshot(data.user);
+      setCachedUser(data.user);
+      setHasPersistedSession(true);
       queryClient.setQueryData(AUTH_QUERY_KEY, data);
     },
   });
@@ -226,7 +286,10 @@ function useAuthState() {
         await clearSupabaseSession();
       }
     },
-    onSuccess: () => {
+    onSettled: () => {
+      clearUserSnapshot();
+      setCachedUser(null);
+      setHasPersistedSession(false);
       queryClient.setQueryData(AUTH_QUERY_KEY, {
         user: null,
         rewards: { dailyPackGranted: false },
@@ -240,21 +303,26 @@ function useAuthState() {
   const forceLoginRecovery = useCallback(() => {
     void (async () => {
       await clearSupabaseSession();
+      clearUserSnapshot();
       queryClient.clear();
       window.location.replace('/login');
     })();
   }, [queryClient]);
 
+  const liveUser = me.data?.user ?? null;
+  const user = liveUser ?? cachedUser;
   const isBootstrapping = !isPublicAuthRoute && me.data === undefined && me.isPending;
   const hasBootstrapError = !isPublicAuthRoute && me.data === undefined && me.isError;
 
   return {
-    user: me.data?.user ?? null,
-    isLoading: isBootstrapping,
+    user,
+    // Network validation runs in the background and never blocks the first paint.
+    isLoading: false,
     isBootstrapping,
+    hasPersistedSession,
     hasBootstrapError,
     bootstrapError: me.error,
-    isAuthenticated: Boolean(me.data?.user),
+    isAuthenticated: Boolean(user),
     dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
     login,
     register,
@@ -263,49 +331,6 @@ function useAuthState() {
     forceLoginRecovery,
     googleLoginUrl: '/api/auth/google',
   };
-}
-
-function SessionBootScreen() {
-  return <GlobalLoader mode="screen" label="Restaurando sua sessão…" />;
-}
-
-function SessionRecoveryScreen({
-  error,
-  onRetry,
-  onSignInAgain,
-}: {
-  error: unknown;
-  onRetry: () => void;
-  onSignInAgain: () => void;
-}) {
-  const networkFailure = error instanceof ApiError && error.status === 0;
-  return (
-    <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
-      <div className="w-full max-w-sm text-center">
-        <div className="flex justify-center"><Logo size="md" /></div>
-        <h1 className="mt-7 text-xl font-black">
-          {networkFailure ? 'Não foi possível conectar ao Chavea.' : 'Não foi possível validar sua sessão.'}
-        </h1>
-        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-          Sua sessão salva no aparelho foi preservada. Tente novamente quando a conexão estiver estável.
-        </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-5 min-h-12 w-full rounded-2xl bg-[#073B8C] px-4 text-sm font-black text-white shadow-md"
-        >
-          Tentar novamente
-        </button>
-        <button
-          type="button"
-          onClick={onSignInAgain}
-          className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-600"
-        >
-          Sair desta sessão e entrar novamente
-        </button>
-      </div>
-    </main>
-  );
 }
 
 function DailyPackToast({ granted }: { granted: boolean }) {
@@ -332,19 +357,9 @@ function DailyPackToast({ granted }: { granted: boolean }) {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const value = useAuthState();
-  const isPublicAuthRoute = isPublicAuthPath(window.location.pathname);
 
-  if (!isPublicAuthRoute && value.isBootstrapping) return <SessionBootScreen />;
-  if (!isPublicAuthRoute && value.hasBootstrapError) {
-    return (
-      <SessionRecoveryScreen
-        error={value.bootstrapError}
-        onRetry={() => void value.refresh()}
-        onSignInAgain={value.forceLoginRecovery}
-      />
-    );
-  }
-
+  // Zero-latency bootstrap: Supabase/Bearer validation continues in background;
+  // never replace the whole application with a network-dependent auth screen.
   return (
     <AuthContext.Provider value={value}>
       <DailyPackToast granted={value.dailyRewardGranted} />
