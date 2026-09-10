@@ -14,7 +14,7 @@ import {
   sendCompetitionChatMessage,
 } from '../../lib/phase-five-api';
 import { GlobalLoader } from '../brand/GlobalLoader';
-import { RankBadge, RankEmblem } from '../profile/RankBadge';
+import { RankEmblem } from '../profile/RankBadge';
 
 type Tab = 'CHAT' | 'INTEGRITY';
 
@@ -56,14 +56,28 @@ export function CompetitionPhaseFiveCenter() {
 
   return (
     <section className="mx-auto mt-5 max-w-5xl px-4 pb-4 sm:px-6">
-      <div className="overflow-hidden rounded-[2rem] border border-blue-200 bg-white shadow-lg shadow-blue-100/50">
-        <header className="bg-gradient-to-r from-[#073B8C] via-blue-700 to-cyan-600 p-5 text-white">
-          <div className="flex items-center gap-3"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/30"><Trophy className="h-6 w-6" /></span><div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[.2em] text-blue-100">Arena Social</p><h2 className="text-xl font-black">Patentes, Resenha e Integridade</h2></div></div>
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-[0_18px_55px_-32px_rgba(7,59,140,.45)]">
+        <header className="relative overflow-hidden bg-gradient-to-r from-[#052d6d] via-[#073B8C] to-blue-600 px-4 py-5 text-white sm:px-5">
+          <div className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-cyan-300/15 blur-3xl" />
+          <div className="relative flex items-center gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/10 shadow-inner backdrop-blur"><Trophy className="h-5 w-5" /></span>
+            <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[.24em] text-blue-100">Arena Social</p><h2 className="truncate text-lg font-black tracking-tight">Jogadores e Resenha</h2></div>
+          </div>
+
+          <div className="relative -mx-1 mt-4 flex gap-2.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {data.participations.map((participant) => {
               const entry = rankByUser.get(participant.userId);
               const name = participant.user.displayName ?? participant.user.name;
-              return <div key={participant.id} className="flex min-w-[148px] items-center gap-2 rounded-2xl bg-white/10 p-2 ring-1 ring-white/15"><div className="relative shrink-0"><PlayerAvatar src={participant.user.avatarUrl} name={name} /><span className="absolute -bottom-1 -right-1">{entry && <RankEmblem rank={entry.rank} compact />}</span></div><div className="min-w-0"><p className="truncate text-xs font-black">{name}</p><p className="mt-0.5 text-[9px] font-bold text-blue-100">{entry ? `${entry.rank.label} · ${entry.mmr}` : '1500 MMR'}</p></div></div>;
+              return (
+                <div key={participant.id} className="w-[104px] shrink-0 rounded-[1.45rem] border border-white/15 bg-white/[.08] px-2.5 py-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,.12)] backdrop-blur-sm">
+                  <div className="relative mx-auto w-fit">
+                    <PlayerAvatar src={participant.user.avatarUrl} name={name} featured rankCode={entry?.rank.code} />
+                    {entry && <span className="absolute -bottom-0.5 -right-0.5"><RankEmblem rank={entry.rank} compact /></span>}
+                  </div>
+                  <p className="mt-2 truncate text-[11px] font-black text-white">{name}</p>
+                  <p className="mt-0.5 truncate text-[9px] font-semibold tracking-wide text-blue-100/80">{entry ? `${entry.mmr} MMR` : '1500 MMR'}</p>
+                </div>
+              );
             })}
           </div>
         </header>
@@ -98,7 +112,40 @@ function ChatPanel({ competitionId, currentUserId, rankByUser }: { competitionId
   });
   const messages = chat.data ?? [];
 
-  return <div className="p-4 sm:p-5"><div className="max-h-[430px] space-y-2 overflow-y-auto rounded-3xl border border-slate-200 bg-slate-50 p-3">{chat.isLoading && <GlobalLoader mode="section" label="Abrindo a resenha…" />}{!chat.isLoading && messages.length === 0 && <div className="grid min-h-40 place-items-center text-center"><div><MessageCircleMore className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">A resenha começa aqui. Mande a primeira mensagem!</p></div></div>}{messages.map((message) => { const mine = message.userId === currentUserId; const rank = rankByUser.get(message.userId); return <div key={message.id} className={`flex items-end gap-2 ${mine ? 'justify-end' : ''}`}>{!mine && <PlayerAvatar src={message.avatarUrl} name={message.displayName ?? message.name} compact />}<div className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${mine ? 'rounded-br-md bg-[#073B8C] text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-900'}`}><div className="flex items-center gap-1.5"><p className={`truncate text-[9px] font-black uppercase tracking-wide ${mine ? 'text-blue-100' : 'text-slate-400'}`}>{mine ? 'Você' : message.displayName ?? message.name}</p>{rank && <RankBadge mmr={rank.mmr} compact />}</div><p className="mt-0.5 whitespace-pre-wrap break-words text-sm font-semibold leading-5">{message.body}</p><p className={`mt-1 text-right text-[8px] font-bold ${mine ? 'text-blue-200' : 'text-slate-300'}`}>{new Date(message.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p></div></div>; })}</div><form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); const body = text.trim(); if (body && !send.isPending) send.mutate(body); }}><input value={text} onChange={(event) => setText(event.target.value.slice(0, 500))} placeholder="Escreva na resenha…" className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none focus:border-blue-400" /><button disabled={!text.trim() || send.isPending} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md disabled:opacity-40" aria-label="Enviar mensagem"><Send className="h-5 w-5" /></button></form>{send.isError && <p className="mt-2 text-center text-xs font-bold text-rose-600">{phaseFiveError(send.error)}</p>}<p className="mt-2 text-center text-[9px] font-semibold text-slate-400">Atualização automática a cada 5 segundos · até 500 caracteres</p></div>;
+  return (
+    <div className="p-4 sm:p-5">
+      <div className="max-h-[430px] space-y-3 overflow-y-auto rounded-[1.65rem] border border-slate-200 bg-slate-50/80 p-3">
+        {chat.isLoading && <GlobalLoader mode="section" label="Abrindo a resenha…" />}
+        {!chat.isLoading && messages.length === 0 && <div className="grid min-h-40 place-items-center text-center"><div><MessageCircleMore className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">A resenha começa aqui. Mande a primeira mensagem!</p></div></div>}
+        {messages.map((message) => {
+          const mine = message.userId === currentUserId;
+          const rank = rankByUser.get(message.userId);
+          const name = message.displayName ?? message.name;
+          return (
+            <div key={message.id} className={`flex items-end gap-2 ${mine ? 'flex-row-reverse' : ''}`}>
+              <PlayerAvatar src={message.avatarUrl} name={name} compact />
+              <div className="min-w-0 max-w-[78%]">
+                <div className={`mb-1 flex min-w-0 items-center gap-1.5 px-1 ${mine ? 'justify-end' : ''}`}>
+                  <p className="truncate text-[10px] font-black text-slate-500">{mine ? 'Você' : name}</p>
+                  {rank && <RankEmblem rank={rank.rank} compact />}
+                </div>
+                <div className={`rounded-2xl px-3 py-2 shadow-sm ${mine ? 'rounded-br-md bg-[#073B8C] text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-900'}`}>
+                  <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-5">{message.body}</p>
+                  <p className={`mt-1 text-right text-[8px] font-bold ${mine ? 'text-blue-200' : 'text-slate-300'}`}>{new Date(message.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); const body = text.trim(); if (body && !send.isPending) send.mutate(body); }}>
+        <input value={text} onChange={(event) => setText(event.target.value.slice(0, 500))} placeholder="Escreva na resenha…" className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold outline-none focus:border-blue-400" />
+        <button disabled={!text.trim() || send.isPending} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md disabled:opacity-40" aria-label="Enviar mensagem"><Send className="h-5 w-5" /></button>
+      </form>
+      {send.isError && <p className="mt-2 text-center text-xs font-bold text-rose-600">{phaseFiveError(send.error)}</p>}
+      <p className="mt-2 text-center text-[9px] font-semibold text-slate-400">Atualização automática a cada 5 segundos · até 500 caracteres</p>
+    </div>
+  );
 }
 
 function IntegrityPanel({ competitionId, awaiting, disputed, myTeamId, isHost, selectedDisputeId, setSelectedDisputeId, onChanged }: { competitionId: string; awaiting: PhaseThreeMatch[]; disputed: PhaseThreeMatch[]; myTeamId?: string; isHost: boolean; selectedDisputeId: string | null; setSelectedDisputeId: (id: string | null) => void; onChanged: () => Promise<void> }) {
@@ -130,5 +177,26 @@ function HostJudgment({ matchId, onChanged }: { matchId: string; onChanged: () =
 function EvidenceCard({ title, score, image, note }: { title: string; score: string; image: string | null; note?: string | null }) { return <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="p-3"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{title}</p><p className="mt-1 text-2xl font-black text-slate-950">{score}</p>{note && <p className="mt-1 text-xs font-semibold text-slate-500">{note}</p>}</div>{image ? <img src={image} alt={`Evidência: ${title}`} className="max-h-64 w-full border-t border-slate-100 object-contain" /> : <div className="grid min-h-24 place-items-center border-t border-slate-100 bg-slate-50 text-xs font-bold text-slate-400">Sem imagem</div>}</div>; }
 function JudgeButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) { return <button type="button" disabled={disabled} onClick={() => { if (window.confirm(`Confirmar decisão: ${label}?`)) onClick(); }} className="min-h-11 rounded-xl bg-slate-950 px-2 text-xs font-black text-white disabled:opacity-50"><Gavel className="mr-1 inline h-4 w-4" />{label}</button>; }
 function ScoreField({ label, value, setValue }: { label: string; value: number; setValue: (value: number) => void }) { return <label className="text-[9px] font-black uppercase tracking-wider text-slate-500">{label}<input type="number" min={0} max={99} inputMode="numeric" value={value} onChange={(event) => setValue(Math.min(99, Math.max(0, Number(event.target.value) || 0)))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 text-center text-lg font-black text-slate-950 outline-none focus:border-rose-300" /></label>; }
-function PlayerAvatar({ src, name, compact = false }: { src: string | null; name: string; compact?: boolean }) { const size = compact ? 'h-8 w-8' : 'h-10 w-10'; return src ? <img src={src} alt="" className={`${size} rounded-xl border border-white/30 bg-white object-cover`} /> : <span className={`grid ${size} place-items-center rounded-xl bg-white/20 text-[10px] font-black`}>{name.slice(0, 2).toUpperCase()}</span>; }
+
+function rankRingClass(code?: string): string {
+  switch (code) {
+    case 'SILVER': return 'ring-slate-200';
+    case 'GOLD': return 'ring-amber-300';
+    case 'PLATINUM': return 'ring-cyan-200';
+    case 'DIAMOND': return 'ring-cyan-300';
+    case 'LEGEND': return 'ring-fuchsia-300';
+    case 'CHAVEA_PRO': return 'ring-yellow-300';
+    default: return 'ring-orange-300';
+  }
+}
+
+function PlayerAvatar({ src, name, compact = false, featured = false, rankCode }: { src: string | null; name: string; compact?: boolean; featured?: boolean; rankCode?: string }) {
+  const size = featured ? 'h-12 w-12' : compact ? 'h-8 w-8' : 'h-10 w-10';
+  const ring = featured ? `ring-2 ring-offset-2 ring-offset-[#073B8C] ${rankRingClass(rankCode)}` : 'ring-1 ring-slate-200';
+  const common = `${size} shrink-0 rounded-full border-2 border-white bg-white shadow-md ${ring}`;
+  return src
+    ? <img src={src} alt="" className={`${common} object-cover`} loading="lazy" referrerPolicy="no-referrer" />
+    : <span className={`grid ${common} place-items-center bg-gradient-to-br from-blue-50 to-white text-[10px] font-black text-[#073B8C]`}>{name.slice(0, 2).toUpperCase()}</span>;
+}
+
 function phaseFiveError(error: unknown): string { if (error instanceof ApiError) { if (error.code === 'CHAT_RATE_LIMIT') return 'Aguarde um instante antes de mandar outra mensagem.'; if (error.code === 'SELF_APPROVAL_FORBIDDEN') return 'Quem enviou o placar não pode homologar a própria prova.'; if (error.code === 'CANNOT_DISPUTE_OWN_SCORE') return 'Você não pode contestar o placar que você mesmo enviou.'; if (error.code === 'DISPUTE_REQUIRES_PRIZE') return 'Protestos formais ficam disponíveis em Copas com premiação.'; if (error.code === 'VERSION_CONFLICT') return 'A partida mudou em outra tela. Atualize e tente novamente.'; } if (error instanceof Error && error.message === 'EVIDENCE_REQUIRED') return 'Anexe a foto da prova.'; return 'Não foi possível concluir esta ação.'; }
