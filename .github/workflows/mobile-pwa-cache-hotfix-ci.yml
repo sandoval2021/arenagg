@@ -52,3 +52,6 @@ jobs:
             echo 'A standings column is conditionally hidden on mobile.' >&2
             exit 1
           fi
+          CSS_FILE="$(find apps/web/dist/assets -maxdepth 1 -type f -name '*.css' | head -n 1)"
+          test -n "$CSS_FILE"
+          grep -Fq 'overflow-x:auto' "$CSS_FILE"
