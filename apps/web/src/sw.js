@@ -1,13 +1,27 @@
 const CACHE_PREFIX = 'chavea-shell-';
-const APP_CACHE = `${CACHE_PREFIX}v6-20260910`;
+const APP_CACHE = `${CACHE_PREFIX}v7-zero-latency-20260910`;
 const PRECACHE = self.__WB_MANIFEST;
-const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
+const PRECACHE_URLS = PRECACHE
+  .map((entry) => typeof entry === 'string' ? entry : entry.url)
+  .filter((url) => {
+    const normalized = url.startsWith('/') ? url.slice(1) : url;
+    return (
+      normalized === 'index.html' ||
+      normalized === 'manifest.webmanifest' ||
+      normalized === 'chavea-logo.svg' ||
+      normalized === 'logo.svg' ||
+      normalized === 'apple-touch-icon.png' ||
+      normalized.startsWith('icons/') ||
+      /^assets\/index-[^/]+\.(js|css)$/.test(normalized)
+    );
+  });
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
+    // Only cache the critical shell. Lazy route chunks are fetched and cached
+    // on first visit instead of competing with avatars and first-screen data.
     await Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)));
-    // Never leave a fresh mobile build stuck in the waiting state.
     await self.skipWaiting();
   })());
 });
@@ -23,8 +37,8 @@ self.addEventListener('activate', (event) => {
     await self.clients.claim();
 
     // A worker can take control after the old JS bundle was already loaded.
-    // Reload each currently open Chavea window once on this new worker's
-    // activation so the first reopen after deployment receives the new shell.
+    // Reload each currently open Chavea window once so this release picks up
+    // the lean shell immediately; subsequent launches stay on the fast path.
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(
       windows.map(async (client) => {
@@ -32,8 +46,8 @@ self.addEventListener('activate', (event) => {
         try {
           await client.navigate(client.url);
         } catch {
-          // Navigation can be rejected while a mobile PWA is backgrounding;
-          // the next foreground/navigation still uses the new controller.
+          // Mobile PWAs can reject navigation while backgrounding. The next
+          // foreground/navigation is still controlled by this new worker.
         }
       }),
     );
@@ -62,8 +76,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first prevents a previously cached JS/CSS asset from pinning an
-  // outdated PWA. Cache remains only as an offline fallback.
+  // Network-first prevents a stale JS/CSS/image from pinning the PWA. Anything
+  // successfully visited is cached for offline fallback without eager download.
   event.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
     try {
