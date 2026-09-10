@@ -59,8 +59,8 @@ export type CompetitionDetail = {
     leg: number;
     version: number;
     round: { id: string; number: number; name: string | null } | null;
-    homeTeam: { id: string; name: string; logoUrl: string | null } | null;
-    awayTeam: { id: string; name: string; logoUrl: string | null } | null;
+    homeTeam: { id: string; name: string; logoUrl: string | null; user: { avatarUrl: string | null } } | null;
+    awayTeam: { id: string; name: string; logoUrl: string | null; user: { avatarUrl: string | null } } | null;
     homeTeamName?: string | null;
     awayTeamName?: string | null;
     homeScore: number | null;
@@ -72,6 +72,7 @@ export type Standing = {
   teamId: string;
   team: string;
   logoUrl?: string;
+  user: { id: string; avatarUrl: string | null } | null;
   playerName: string;
   points: number;
   played: number;

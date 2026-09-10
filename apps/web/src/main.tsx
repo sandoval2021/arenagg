@@ -31,18 +31,13 @@ function installSilentPwaUpdateChecks() {
   let inFlight = false;
   let reloadingForController = false;
 
-  const getOrCreateRegistration = async () => {
-    let registration = await navigator.serviceWorker.getRegistration('/');
-    if (!registration) {
-      registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/',
-        // iOS must not be allowed to satisfy the SW update algorithm from its
-        // HTTP cache. Every explicit update check goes back to the network.
-        updateViaCache: 'none',
-      });
-    }
-    return registration;
-  };
+  const getOrCreateRegistration = () =>
+    navigator.serviceWorker.register('/sw.js', {
+      scope: '/',
+      // Re-registering the same scope upgrades older installed PWAs to
+      // updateViaCache=none, forcing WebKit to revalidate sw.js on the network.
+      updateViaCache: 'none',
+    });
 
   const checkForUpdate = async () => {
     if (!navigator.onLine || inFlight) return;
@@ -85,7 +80,7 @@ function installSilentPwaUpdateChecks() {
   // while visible and online.
   window.setInterval(() => {
     if (document.visibilityState === 'visible' && navigator.onLine) void checkForUpdate();
-  }, 60_000);
+  }, 30_000);
 }
 
 installSilentPwaUpdateChecks();

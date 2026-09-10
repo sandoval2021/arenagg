@@ -29,12 +29,10 @@ export type GroupStandingRow = {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
+  user: { id: string; name: string; displayName: string | null; avatarUrl: string | null };
   team: {
     name: string;
     logoUrl: string | null;
-    participation: {
-      user: { id: string; name: string; displayName: string | null };
-    };
   };
 };
 

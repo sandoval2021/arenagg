@@ -336,12 +336,10 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
       ...group,
       standings: group.standings.map((row) => ({
         ...row,
+        user: row.team.participation.user,
         team: {
-          ...row.team,
-          logoUrl: row.team.logoUrl
-            ?? row.team.participation.user.avatarUrl
-            ?? row.team.participation.teamLogoUrl
-            ?? null,
+          name: row.team.name,
+          logoUrl: row.team.logoUrl ?? row.team.participation.teamLogoUrl ?? null,
         },
       })),
     })),

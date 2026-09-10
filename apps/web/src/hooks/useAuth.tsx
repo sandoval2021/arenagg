@@ -138,6 +138,9 @@ async function bootstrapPersistentSession(): Promise<AuthSessionResponse> {
       reason: error instanceof Error ? error.message : String(error),
     });
     hardClearBrowserAuth();
+    if (window.location.pathname !== '/login') {
+      window.location.replace('/login');
+    }
     return {
       user: null,
       rewards: { dailyPackGranted: false },

@@ -443,20 +443,16 @@ competitions.get('/:id', async (c) => {
         ? {
             id: match.homeTeam.id,
             name: match.homeTeam.name,
-            logoUrl: match.homeTeam.logoUrl
-              ?? match.homeTeam.participation.user.avatarUrl
-              ?? match.homeTeam.participation.teamLogoUrl
-              ?? null,
+            logoUrl: match.homeTeam.logoUrl ?? match.homeTeam.participation.teamLogoUrl ?? null,
+            user: { avatarUrl: match.homeTeam.participation.user.avatarUrl },
           }
         : null,
       awayTeam: match.awayTeam
         ? {
             id: match.awayTeam.id,
             name: match.awayTeam.name,
-            logoUrl: match.awayTeam.logoUrl
-              ?? match.awayTeam.participation.user.avatarUrl
-              ?? match.awayTeam.participation.teamLogoUrl
-              ?? null,
+            logoUrl: match.awayTeam.logoUrl ?? match.awayTeam.participation.teamLogoUrl ?? null,
+            user: { avatarUrl: match.awayTeam.participation.user.avatarUrl },
           }
         : null,
     })),
@@ -646,11 +642,10 @@ competitions.get('/:id/standings', async (c) => {
         ...row,
         position: index + 1,
         team: team?.name ?? 'Time',
-        logoUrl:
-          team?.logoUrl
-          ?? team?.participation.user.avatarUrl
-          ?? team?.participation.teamLogoUrl
-          ?? undefined,
+        logoUrl: team?.logoUrl ?? team?.participation.teamLogoUrl ?? undefined,
+        user: team
+          ? { id: team.participation.user.id, avatarUrl: team.participation.user.avatarUrl }
+          : null,
         playerName:
           team?.participation.user.displayName ?? team?.participation.user.name ?? 'Jogador',
       };
