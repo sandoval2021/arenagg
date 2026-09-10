@@ -95,39 +95,69 @@ enum ReputationTag {
   FAIR_PLAY
 }
 
+enum MatchmakingQueueStatus {
+  ACTIVE
+  IN_GAME
+}
+
+enum MatchmakingChallengeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELED
+}
+
+enum CasualMatchMode {
+  CASUAL
+  RANKED
+}
+
+enum CasualMatchRoomStatus {
+  OPEN
+  AWAITING_CONFIRMATION
+  FINISHED
+  CANCELED
+}
+
 model User {
-  id                    String                   @id @default(uuid()) @db.Uuid
-  name                  String
-  displayName           String?
-  avatarUrl             String?
-  email                 String?                  @unique
-  emailVerified         DateTime?
-  phone                 String?                  @unique
-  phoneVerified         DateTime?
-  passwordHash          String?
-  isActive              Boolean                  @default(true)
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  profile               UserProfile?
-  badges                UserBadge[]
-  pushSubscriptions     PushSubscription[]
-  matchMedia            MatchMedia[]              @relation("MatchMediaCreator")
-  accounts              AuthAccount[]
-  sessions              Session[]
-  hostedCompetitions    Competition[]            @relation("CompetitionHost")
-  participations        Participation[]
-  createdTeams          Team[]                   @relation("TeamCreator")
-  submittedMatches      Match[]                  @relation("MatchSubmittedBy")
-  disputedMatches       Match[]                  @relation("MatchDisputedBy")
-  resolvedMatches       Match[]                  @relation("MatchResolvedBy")
-  submittedMatchStats   MatchStats[]             @relation("MatchStatsSubmittedBy")
-  reviewedMatchStats    MatchStats[]             @relation("MatchStatsReviewedBy")
-  defaultShields        DefaultShield[]          @relation("DefaultShieldCreator")
-  sentFriendships       Friendship[]             @relation("FriendshipRequester")
-  receivedFriendships   Friendship[]             @relation("FriendshipAddressee")
-  chatMessages          CompetitionChatMessage[]
-  reviewsWritten        UserReview[]             @relation("ReviewAuthor")
-  reviewsReceived       UserReview[]             @relation("ReviewTarget")
+  id                           String                   @id @default(uuid()) @db.Uuid
+  name                         String
+  displayName                  String?
+  avatarUrl                    String?
+  email                        String?                  @unique
+  emailVerified                DateTime?
+  phone                        String?                  @unique
+  phoneVerified                DateTime?
+  passwordHash                 String?
+  isActive                     Boolean                  @default(true)
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+  profile                      UserProfile?
+  badges                       UserBadge[]
+  pushSubscriptions            PushSubscription[]
+  matchMedia                   MatchMedia[]             @relation("MatchMediaCreator")
+  accounts                     AuthAccount[]
+  sessions                     Session[]
+  hostedCompetitions           Competition[]            @relation("CompetitionHost")
+  participations               Participation[]
+  createdTeams                 Team[]                   @relation("TeamCreator")
+  submittedMatches             Match[]                  @relation("MatchSubmittedBy")
+  disputedMatches              Match[]                  @relation("MatchDisputedBy")
+  resolvedMatches              Match[]                  @relation("MatchResolvedBy")
+  submittedMatchStats          MatchStats[]             @relation("MatchStatsSubmittedBy")
+  reviewedMatchStats           MatchStats[]             @relation("MatchStatsReviewedBy")
+  defaultShields               DefaultShield[]          @relation("DefaultShieldCreator")
+  sentFriendships              Friendship[]             @relation("FriendshipRequester")
+  receivedFriendships          Friendship[]             @relation("FriendshipAddressee")
+  chatMessages                 CompetitionChatMessage[]
+  reviewsWritten               UserReview[]             @relation("ReviewAuthor")
+  reviewsReceived              UserReview[]             @relation("ReviewTarget")
+  matchmakingQueue             MatchmakingQueue?
+  sentMatchmakingChallenges    MatchmakingChallenge[]   @relation("MatchmakingChallengeChallenger")
+  receivedMatchmakingChallenges MatchmakingChallenge[]  @relation("MatchmakingChallengeTarget")
+  casualRoomsAsChallenger      CasualMatchRoom[]        @relation("CasualRoomChallenger")
+  casualRoomsAsChallenged      CasualMatchRoom[]        @relation("CasualRoomChallenged")
 }
 
 model UserProfile {
@@ -209,6 +239,70 @@ model UserReview {
   @@unique([matchId, reviewerId])
   @@index([reviewedId, createdAt(sort: Desc)])
   @@index([reviewedId, stars])
+}
+
+model MatchmakingQueue {
+  id        String                   @id @default(uuid()) @db.Uuid
+  userId    String                   @unique @db.Uuid
+  platform  String                   @db.VarChar(24)
+  status    MatchmakingQueueStatus   @default(ACTIVE)
+  expiresAt DateTime
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt(sort: Desc)])
+  @@index([platform, status, expiresAt(sort: Desc)])
+}
+
+model MatchmakingChallenge {
+  id                  String                       @id @default(uuid()) @db.Uuid
+  challengerId        String                       @db.Uuid
+  challengedId        String                       @db.Uuid
+  challengerPlatform  String                       @db.VarChar(24)
+  challengedPlatform  String                       @db.VarChar(24)
+  mode                CasualMatchMode              @default(CASUAL)
+  status              MatchmakingChallengeStatus   @default(PENDING)
+  expiresAt           DateTime
+  acceptedAt          DateTime?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  challenger          User                         @relation("MatchmakingChallengeChallenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  challenged          User                         @relation("MatchmakingChallengeTarget", fields: [challengedId], references: [id], onDelete: Cascade)
+  room                CasualMatchRoom?
+
+  @@index([challengedId, status, expiresAt(sort: Desc)])
+  @@index([challengerId, status, createdAt(sort: Desc)])
+}
+
+model CasualMatchRoom {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  challengeId           String                 @unique @db.Uuid
+  challengerId          String                 @db.Uuid
+  challengedId          String                 @db.Uuid
+  challengerPlatform    String                 @db.VarChar(24)
+  challengedPlatform    String                 @db.VarChar(24)
+  mode                  CasualMatchMode        @default(CASUAL)
+  status                CasualMatchRoomStatus  @default(OPEN)
+  challengerHandle      String?                @db.VarChar(40)
+  challengedHandle      String?                @db.VarChar(40)
+  challengerScore       Int?
+  challengedScore       Int?
+  scoreSubmittedById    String?                @db.Uuid
+  scoreConfirmedById    String?                @db.Uuid
+  challengerMmrDelta    Int?
+  challengedMmrDelta    Int?
+  mmrAppliedAt          DateTime?
+  finishedAt            DateTime?
+  version               Int                    @default(1)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  challenge             MatchmakingChallenge   @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  challenger            User                   @relation("CasualRoomChallenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  challenged            User                   @relation("CasualRoomChallenged", fields: [challengedId], references: [id], onDelete: Cascade)
+
+  @@index([challengerId, status, updatedAt(sort: Desc)])
+  @@index([challengedId, status, updatedAt(sort: Desc)])
 }
 
 model AuthAccount {
