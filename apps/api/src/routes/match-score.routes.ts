@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import type { Env } from '../types/env';
 import { scoreFields } from '../schemas/match.schema';
-import { resolveWinner } from '../domain/bracket/knockout';
+import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { BADGE_CODES } from '../domain/achievements/badges';
 import {
   transitionMatch,
@@ -23,17 +23,6 @@ type MatchAccess = {
   awayTeam: { participation: { userId: string } } | null;
 };
 
-type AdvanceableMatch = {
-  competition: { type: string };
-  nextMatchId: string | null;
-  nextMatchSlot: string | null;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeScore: number | null;
-  awayScore: number | null;
-  homePenaltyScore: number | null;
-  awayPenaltyScore: number | null;
-};
 
 function hasMatchAccess(match: MatchAccess, userId: string): boolean {
   return (
@@ -53,30 +42,6 @@ function prizeBacked(competition: {
     || Boolean(competition.firstPrize || competition.secondPrize || competition.thirdPrize);
 }
 
-async function advance(tx: Prisma.TransactionClient, match: AdvanceableMatch) {
-  if (!match.nextMatchId) return;
-  if (
-    !match.homeTeamId
-    || !match.awayTeamId
-    || match.homeScore == null
-    || match.awayScore == null
-    || !match.nextMatchSlot
-  ) return;
-
-  const winnerId = resolveWinner({
-    homeTeamId: match.homeTeamId,
-    awayTeamId: match.awayTeamId,
-    homeScore: match.homeScore,
-    awayScore: match.awayScore,
-    homePenaltyScore: match.homePenaltyScore,
-    awayPenaltyScore: match.awayPenaltyScore,
-  });
-
-  await tx.match.update({
-    where: { id: match.nextMatchId },
-    data: match.nextMatchSlot === 'HOME' ? { homeTeamId: winnerId } : { awayTeamId: winnerId },
-  });
-}
 
 const accessInclude = {
   competition: true,
@@ -164,7 +129,7 @@ matchScore.post('/:id/score', async (c) => {
       }
 
       if (next === 'FINISHED') {
-        await advance(tx, row);
+        await advanceKnockoutMatch(tx, row);
         await applyFinishedMatchToProfiles(tx, id);
       }
       return row;

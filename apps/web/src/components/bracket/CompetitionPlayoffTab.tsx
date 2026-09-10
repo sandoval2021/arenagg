@@ -38,7 +38,7 @@ export function CompetitionPlayoffTab({ competitionId }: { competitionId: string
             <section key={round.id} className="w-[220px] shrink-0 rounded-2xl border border-slate-200 bg-slate-50/60 p-2.5">
               <div className="mb-2 flex items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-slate-400">Fase {round.number}</p><h3 className="text-sm font-black text-slate-900">{round.name ?? `Rodada ${round.number}`}</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-slate-500 shadow-sm">{round.matches.length}</span></div>
               <div className="space-y-2">
-                {round.matches.map((match) => <PlayoffMatchCard key={match.id} match={match} />)}
+                {round.matches.map((match) => <PlayoffMatchCard key={match.id} match={match} showLeg={round.matches.filter((item) => item.bracketPosition === match.bracketPosition).length > 1} />)}
               </div>
             </section>
           ))}
@@ -48,8 +48,8 @@ export function CompetitionPlayoffTab({ competitionId }: { competitionId: string
   );
 }
 
-function PlayoffMatchCard({ match }: { match: PlayoffMatch }) {
-  return <article className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm"><TeamRow name={match.homeTeam?.name ?? 'A definir'} logoUrl={match.homeTeam?.logoUrl} score={match.homeScore} /><div className="my-2 h-px bg-slate-100" /><TeamRow name={match.awayTeam?.name ?? 'A definir'} logoUrl={match.awayTeam?.logoUrl} score={match.awayScore} /><p className="mt-2 border-t border-slate-100 pt-2 text-[9px] font-black uppercase tracking-[.12em] text-slate-400">{statusLabel(match.status)}</p></article>;
+function PlayoffMatchCard({ match, showLeg }: { match: PlayoffMatch; showLeg: boolean }) {
+  return <article className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">{showLeg && <p className="mb-2 text-[9px] font-black uppercase tracking-[.14em] text-[#073B8C]">Jogo {match.leg} · {match.leg === 1 ? 'Ida' : 'Volta'}</p>}<TeamRow name={match.homeTeam?.name ?? 'A definir'} logoUrl={match.homeTeam?.logoUrl} score={match.homeScore} /><div className="my-2 h-px bg-slate-100" /><TeamRow name={match.awayTeam?.name ?? 'A definir'} logoUrl={match.awayTeam?.logoUrl} score={match.awayScore} /><p className="mt-2 border-t border-slate-100 pt-2 text-[9px] font-black uppercase tracking-[.12em] text-slate-400">{statusLabel(match.status)}</p></article>;
 }
 
 function TeamRow({ name, logoUrl, score }: { name: string; logoUrl?: string | null; score: number | null }) {

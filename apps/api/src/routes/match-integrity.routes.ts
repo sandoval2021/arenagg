@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Env } from '../types/env';
-import { resolveWinner } from '../domain/bracket/knockout';
+import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { awardEpicComebackBadge } from '../services/achievement-engine.service';
 import { sendPushToUsers } from '../services/push.service';
@@ -50,7 +50,7 @@ function isPrizeBacked(match: { competition: { entryFee: number; firstPrize: str
 }
 
 async function lockMatch(tx: Tx, matchId: string): Promise<void> {
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`integrity:${matchId}`}))`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`integrity:${matchId}`}))`;
 }
 
 async function getDisputeMeta(db: Tx | Env['Variables']['prisma'], matchId: string): Promise<DisputeMeta> {
@@ -78,32 +78,6 @@ async function getDisputeMeta(db: Tx | Env['Variables']['prisma'], matchId: stri
   };
 }
 
-async function advance(tx: Tx, match: {
-  competition: { type: string };
-  nextMatchId: string | null;
-  nextMatchSlot: string | null;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeScore: number | null;
-  awayScore: number | null;
-  homePenaltyScore: number | null;
-  awayPenaltyScore: number | null;
-}) {
-  if (match.competition.type === 'LEAGUE' || !match.nextMatchId || !match.nextMatchSlot) return;
-  if (!match.homeTeamId || !match.awayTeamId || match.homeScore == null || match.awayScore == null) return;
-  const winnerId = resolveWinner({
-    homeTeamId: match.homeTeamId,
-    awayTeamId: match.awayTeamId,
-    homeScore: match.homeScore,
-    awayScore: match.awayScore,
-    homePenaltyScore: match.homePenaltyScore,
-    awayPenaltyScore: match.awayPenaltyScore,
-  });
-  await tx.match.update({
-    where: { id: match.nextMatchId },
-    data: match.nextMatchSlot === 'HOME' ? { homeTeamId: winnerId } : { awayTeamId: winnerId },
-  });
-}
 
 matchIntegrity.post('/:id/dispute', async (c) => {
   const db = c.get('prisma');
@@ -302,7 +276,7 @@ matchIntegrity.post('/:id/dispute/judge', async (c) => {
     if (changed !== 1) return { error: 'VERSION_CONFLICT' as const };
 
     const fresh = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { competition: { select: { type: true } } } });
-    await advance(tx, fresh);
+    await advanceKnockoutMatch(tx, fresh);
     await applyFinishedMatchToProfiles(tx, matchId);
     return {
       canceled: false as const,

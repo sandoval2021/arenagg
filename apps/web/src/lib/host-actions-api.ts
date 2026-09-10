@@ -1,5 +1,7 @@
 import { apiRequest } from './api';
 
+export type KnockoutFormat = 'SINGLE' | 'HOME_AWAY';
+
 export type HostCancelableMatch = {
   id: string;
   status: string;
@@ -16,7 +18,7 @@ export type HostActionsSnapshot = {
   leagueStage: { id: string; type: string; status: string; order: number; name: string } | null;
   knockoutStage: { id: string; type: string; status: string; order: number; name: string } | null;
   teamCount: number;
-  allowedPlayoffSizes: Array<4 | 8>;
+  allowedPlayoffSizes: Array<4>;
   extraTurnCount: number;
   cancelableMatches: HostCancelableMatch[];
 };
@@ -26,6 +28,7 @@ export type PlayoffMatch = {
   status: string;
   version: number;
   bracketPosition: number | null;
+  leg: number;
   homeScore: number | null;
   awayScore: number | null;
   homePenaltyScore: number | null;
@@ -64,17 +67,18 @@ export function cancelHostMatch(competitionId: string, matchId: string) {
   );
 }
 
-export function startHostPlayoffs(competitionId: string, size: 4 | 8) {
+export function startHostPlayoffs(competitionId: string, format: KnockoutFormat) {
   return apiRequest<{
     generated: true;
-    playoffSize: 4 | 8;
+    playoffSize: 4;
+    format: KnockoutFormat;
     canceledPendingMatches: number;
     qualifiedTeamIds: string[];
     stageId: string;
     bracketMatchCount: number;
   }>(`/api/competitions/${encodeURIComponent(competitionId)}/host-actions/playoffs`, {
     method: 'POST',
-    body: JSON.stringify({ size }),
+    body: JSON.stringify({ size: 4, format }),
   });
 }
 

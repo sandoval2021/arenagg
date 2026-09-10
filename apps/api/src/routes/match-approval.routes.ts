@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Env } from '../types/env';
-import { resolveWinner } from '../domain/bracket/knockout';
+import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { sendPushToUsers } from '../services/push.service';
 import { transitionMatch, type MatchState } from '@chavea/domain/match/states';
@@ -21,32 +21,6 @@ function prizeBacked(match: Prisma.MatchGetPayload<{ include: typeof include }>)
   return match.competition.entryFee > 0 || Boolean(match.competition.firstPrize || match.competition.secondPrize || match.competition.thirdPrize);
 }
 
-async function advance(tx: Prisma.TransactionClient, match: {
-  competition: { type: string };
-  nextMatchId: string | null;
-  nextMatchSlot: string | null;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeScore: number | null;
-  awayScore: number | null;
-  homePenaltyScore: number | null;
-  awayPenaltyScore: number | null;
-}) {
-  if (!match.nextMatchId || !match.nextMatchSlot) return;
-  if (!match.homeTeamId || !match.awayTeamId || match.homeScore == null || match.awayScore == null) return;
-  const winnerId = resolveWinner({
-    homeTeamId: match.homeTeamId,
-    awayTeamId: match.awayTeamId,
-    homeScore: match.homeScore,
-    awayScore: match.awayScore,
-    homePenaltyScore: match.homePenaltyScore,
-    awayPenaltyScore: match.awayPenaltyScore,
-  });
-  await tx.match.update({
-    where: { id: match.nextMatchId },
-    data: match.nextMatchSlot === 'HOME' ? { homeTeamId: winnerId } : { awayTeamId: winnerId },
-  });
-}
 
 matchApproval.post('/:id/approve', async (c) => {
   const parsed = approveSchema.safeParse(await c.req.json().catch(() => null));
@@ -77,7 +51,7 @@ matchApproval.post('/:id/approve', async (c) => {
     });
     if (changed.count !== 1) throw new Error('VERSION_CONFLICT');
     const row = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { competition: { select: { type: true } } } });
-    await advance(tx, row);
+    await advanceKnockoutMatch(tx, row);
     await applyFinishedMatchToProfiles(tx, matchId);
     return row;
   });

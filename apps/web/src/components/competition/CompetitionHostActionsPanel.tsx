@@ -8,6 +8,7 @@ import {
   generateExtraTurn,
   getHostActions,
   startHostPlayoffs,
+  type KnockoutFormat,
 } from '../../lib/host-actions-api';
 
 function messageFor(error: unknown): string {
@@ -35,6 +36,7 @@ export function CompetitionHostActionsPanel() {
   const queryClient = useQueryClient();
   const [selectedMatchId, setSelectedMatchId] = useState('');
   const [success, setSuccess] = useState<string | null>(null);
+  const [playoffModalOpen, setPlayoffModalOpen] = useState(false);
 
   const competition = useQuery({
     queryKey: ['competition', competitionId],
@@ -84,9 +86,10 @@ export function CompetitionHostActionsPanel() {
   });
 
   const playoffs = useMutation({
-    mutationFn: (size: 4 | 8) => startHostPlayoffs(competitionId, size),
+    mutationFn: (format: KnockoutFormat) => startHostPlayoffs(competitionId, format),
     onSuccess: async (result) => {
-      setSuccess(`Fase Final Top ${result.playoffSize} criada com ${result.bracketMatchCount} partidas.`);
+      setPlayoffModalOpen(false);
+      setSuccess(`Fase Final Top 4 criada em ${result.format === 'HOME_AWAY' ? 'ida e volta nas semifinais' : 'jogo único'} com ${result.bracketMatchCount} partidas.`);
       await refreshAll();
     },
   });
@@ -130,13 +133,15 @@ export function CompetitionHostActionsPanel() {
             <button disabled={!selected || pending} onClick={() => cancelMatch.mutate()} className="mt-2 min-h-10 w-full rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-black text-rose-700 disabled:opacity-40">Cancelar / Pular</button>
           </ActionCard>
 
-          <ActionCard icon={GitBranch} title="Fase Final" description="Congela a Liga e cria um novo Stage de mata-mata com os melhores colocados.">
-            <div className="grid grid-cols-2 gap-2">
-              {([4, 8] as const).map((size) => {
-                const allowed = actions.data?.allowedPlayoffSizes.includes(size) ?? false;
-                return <button key={size} disabled={!allowed || pending} onClick={() => playoffs.mutate(size)} className="min-h-10 rounded-xl bg-[#073B8C] px-3 text-xs font-black text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-400">Top {size}</button>;
-              })}
-            </div>
+          <ActionCard icon={GitBranch} title="Fase Final · Top 4" description="Congela a classificação e cruza obrigatoriamente 1º × 4º e 2º × 3º.">
+            <button
+              type="button"
+              disabled={!(actions.data?.allowedPlayoffSizes.includes(4) ?? false) || pending}
+              onClick={() => setPlayoffModalOpen(true)}
+              className="min-h-10 w-full rounded-xl bg-[#073B8C] px-3 text-xs font-black text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              Iniciar Fase Final
+            </button>
             {actions.data?.knockoutStage && <p className="mt-2 text-[10px] font-bold text-emerald-700">Mata-mata já criado: {actions.data.knockoutStage.name}</p>}
           </ActionCard>
 
@@ -149,10 +154,38 @@ export function CompetitionHostActionsPanel() {
         {success && <p className="mx-3 mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 md:mx-5 md:mb-5">{success}</p>}
         {mutationError && <p className="mx-3 mb-3 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 md:mx-5 md:mb-5"><ShieldAlert className="h-4 w-4 shrink-0" />{messageFor(mutationError)}</p>}
       </div>
+      {playoffModalOpen && (
+        <PlayoffFormatModal
+          pending={playoffs.isPending}
+          onClose={() => !playoffs.isPending && setPlayoffModalOpen(false)}
+          onSelect={(format) => playoffs.mutate(format)}
+        />
+      )}
     </section>
   );
 }
 
 function ActionCard({ icon: Icon, title, description, children }: { icon: typeof Ban; title: string; description: string; children: ReactNode }) {
   return <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"><div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 text-[#073B8C]"><Icon className="h-4 w-4" /></span><h3 className="text-sm font-black text-slate-900">{title}</h3></div><p className="my-2 min-h-10 text-[11px] font-medium leading-5 text-slate-500">{description}</p>{children}</article>;
+}
+
+
+function PlayoffFormatModal({ pending, onClose, onSelect }: { pending: boolean; onClose: () => void; onSelect: (format: KnockoutFormat) => void }) {
+  return (
+    <div className="fixed inset-0 z-[140] flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="playoff-format-title">
+      <button type="button" className="absolute inset-0" onClick={onClose} aria-label="Fechar escolha de formato" />
+      <section className="relative w-full max-w-md rounded-t-[2rem] border border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[2rem] sm:p-5">
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+        <p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Top 4 obrigatório</p>
+        <h3 id="playoff-format-title" className="mt-1 text-xl font-black text-slate-950">Qual o formato do Mata-Mata?</h3>
+        <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">O chaveamento será sempre 1º × 4º e 2º × 3º. A Final permanece em jogo único.</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button type="button" disabled={pending} onClick={() => onSelect('SINGLE')} className="min-h-14 rounded-2xl border border-blue-200 bg-blue-50 px-4 text-sm font-black text-[#073B8C] transition active:scale-[.98] disabled:opacity-50">Jogo Único</button>
+          <button type="button" disabled={pending} onClick={() => onSelect('HOME_AWAY')} className="min-h-14 rounded-2xl bg-[#073B8C] px-4 text-sm font-black text-white shadow-md transition active:scale-[.98] disabled:opacity-50">Ida e Volta</button>
+        </div>
+        <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-[10px] font-bold leading-4 text-slate-500">Ida e Volta: o 4º/3º recebe o Jogo 1, o 1º/2º decide o Jogo 2 em casa. Quem tiver mais gols no agregado avança.</p>
+        <button type="button" disabled={pending} onClick={onClose} className="mt-3 min-h-10 w-full rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-500 disabled:opacity-50">Cancelar</button>
+      </section>
+    </div>
+  );
 }

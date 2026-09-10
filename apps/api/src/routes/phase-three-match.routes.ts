@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Env } from '../types/env';
-import { resolveWinner } from '../domain/bracket/knockout';
+import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { awardCheckinBadge } from '../services/achievement-engine.service';
 import { sendPushToUsers } from '../services/push.service';
@@ -16,17 +16,6 @@ export const phaseThreeMatches = new Hono<Env>();
 
 type Tx = Prisma.TransactionClient;
 
-type AdvanceableMatch = {
-  competition: { type: string };
-  nextMatchId: string | null;
-  nextMatchSlot: string | null;
-  homeTeamId: string | null;
-  awayTeamId: string | null;
-  homeScore: number | null;
-  awayScore: number | null;
-  homePenaltyScore: number | null;
-  awayPenaltyScore: number | null;
-};
 
 const matchAccessInclude = {
   competition: { select: { hostId: true, type: true, name: true } },
@@ -43,22 +32,6 @@ async function lockMatch(tx: Tx, matchId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${matchId}))`;
 }
 
-async function advance(tx: Tx, match: AdvanceableMatch): Promise<void> {
-  if (!match.nextMatchId || !match.nextMatchSlot) return;
-  if (!match.homeTeamId || !match.awayTeamId || match.homeScore == null || match.awayScore == null) return;
-  const winnerId = resolveWinner({
-    homeTeamId: match.homeTeamId,
-    awayTeamId: match.awayTeamId,
-    homeScore: match.homeScore,
-    awayScore: match.awayScore,
-    homePenaltyScore: match.homePenaltyScore,
-    awayPenaltyScore: match.awayPenaltyScore,
-  });
-  await tx.match.update({
-    where: { id: match.nextMatchId },
-    data: match.nextMatchSlot === 'HOME' ? { homeTeamId: winnerId } : { awayTeamId: winnerId },
-  });
-}
 
 phaseThreeMatches.post('/:id/ready', async (c) => {
   const db = c.get('prisma');
@@ -173,7 +146,7 @@ phaseThreeMatches.post('/:id/walkover', async (c) => {
       ]);
 
       const fresh = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { competition: { select: { type: true } } } });
-      await advance(tx, fresh);
+      await advanceKnockoutMatch(tx, fresh);
       await applyFinishedMatchToProfiles(tx, matchId);
 
       return {

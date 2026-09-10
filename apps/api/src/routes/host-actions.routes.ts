@@ -9,7 +9,11 @@ import { calculateStandings } from '../domain/standings/calculate';
 export const hostActions = new Hono<Env>();
 type Tx = Prisma.TransactionClient;
 
-const playoffSchema = z.object({ size: z.union([z.literal(4), z.literal(8)]) });
+const playoffSchema = z.object({
+  size: z.literal(4).optional(),
+  format: z.enum(['SINGLE', 'HOME_AWAY']),
+});
+type KnockoutFormat = z.infer<typeof playoffSchema>['format'];
 const TERMINAL_MATCH_STATUSES = ['FINISHED', 'CANCELED'] as const;
 
 async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
@@ -17,11 +21,9 @@ async function lockCompetition(tx: Tx, competitionId: string): Promise<void> {
 }
 
 function seededBracket(teamIds: readonly string[]): string[] {
-  if (teamIds.length === 4) return [teamIds[0], teamIds[3], teamIds[1], teamIds[2]];
-  if (teamIds.length === 8) {
-    return [teamIds[0], teamIds[7], teamIds[3], teamIds[4], teamIds[1], teamIds[6], teamIds[2], teamIds[5]];
-  }
-  throw new Error('PLAYOFF_SIZE_UNSUPPORTED');
+  if (teamIds.length !== 4) throw new Error('PLAYOFF_SIZE_UNSUPPORTED');
+  // Olympic crossing: 1st x 4th and 2nd x 3rd.
+  return [teamIds[0], teamIds[3], teamIds[1], teamIds[2]];
 }
 
 function knockoutRoundName(teamCount: number, roundNumber: number): string {
@@ -38,12 +40,15 @@ async function createKnockoutStage(
   competitionId: string,
   teamIds: readonly string[],
   order: number,
+  format: KnockoutFormat,
 ): Promise<{ stageId: string; matchCount: number }> {
   const stage = await tx.stage.create({
     data: {
       competitionId,
       type: 'KNOCKOUT',
-      name: 'Fase Final · Mata-Mata',
+      name: format === 'HOME_AWAY'
+        ? 'Fase Final · Top 4 · Semis Ida e Volta'
+        : 'Fase Final · Top 4 · Jogo Único',
       order,
       status: 'ACTIVE',
     },
@@ -54,7 +59,8 @@ async function createKnockoutStage(
   let cursor = 0;
   let slotsInRound = bracketSize / 2;
   let roundNumber = 1;
-  const matchByPosition = new Map<number, string>();
+  let matchCount = 0;
+  const matchIdsByPosition = new Map<number, string[]>();
 
   while (slotsInRound >= 1) {
     const round = await tx.round.create({
@@ -66,20 +72,35 @@ async function createKnockoutStage(
       },
     });
 
+    const isSemifinal = bracketSize === 4 && roundNumber === 1;
     for (const slot of slots.slice(cursor, cursor + slotsInRound)) {
-      const match = await tx.match.create({
-        data: {
-          competitionId,
-          stageId: stage.id,
-          roundId: round.id,
-          bracketPosition: slot.position,
-          homeTeamId: slot.homeTeamId,
-          awayTeamId: slot.awayTeamId,
-          nextMatchSlot: slot.nextSlot,
-          leg: 1,
-        },
-      });
-      matchByPosition.set(slot.position, match.id);
+      const legs = format === 'HOME_AWAY' && isSemifinal
+        ? [
+            // Jogo 1: menor seed recebe o melhor colocado (4º x 1º / 3º x 2º).
+            { leg: 1, homeTeamId: slot.awayTeamId, awayTeamId: slot.homeTeamId },
+            // Jogo 2: melhor colocado decide em casa.
+            { leg: 2, homeTeamId: slot.homeTeamId, awayTeamId: slot.awayTeamId },
+          ]
+        : [{ leg: 1, homeTeamId: slot.homeTeamId, awayTeamId: slot.awayTeamId }];
+
+      const ids: string[] = [];
+      for (const leg of legs) {
+        const match = await tx.match.create({
+          data: {
+            competitionId,
+            stageId: stage.id,
+            roundId: round.id,
+            bracketPosition: slot.position,
+            homeTeamId: leg.homeTeamId,
+            awayTeamId: leg.awayTeamId,
+            nextMatchSlot: slot.nextSlot,
+            leg: leg.leg,
+          },
+        });
+        ids.push(match.id);
+        matchCount += 1;
+      }
+      matchIdsByPosition.set(slot.position, ids);
     }
 
     cursor += slotsInRound;
@@ -89,14 +110,15 @@ async function createKnockoutStage(
 
   for (const slot of slots) {
     if (!slot.nextPosition) continue;
-    const matchId = matchByPosition.get(slot.position);
-    const nextMatchId = matchByPosition.get(slot.nextPosition);
-    if (matchId && nextMatchId) {
+    const sourceIds = matchIdsByPosition.get(slot.position) ?? [];
+    const nextMatchId = matchIdsByPosition.get(slot.nextPosition)?.[0];
+    if (!nextMatchId) throw new Error('KNOCKOUT_NEXT_MATCH_NOT_CONFIGURED');
+    for (const matchId of sourceIds) {
       await tx.match.update({ where: { id: matchId }, data: { nextMatchId } });
     }
   }
 
-  return { stageId: stage.id, matchCount: slots.length };
+  return { stageId: stage.id, matchCount };
 }
 
 async function advanceRoundIfTerminal(tx: Tx, stageId: string, roundId: string | null): Promise<void> {
@@ -199,9 +221,7 @@ hostActions.get('/:id/host-actions', async (c) => {
     leagueStage: leagueStage ?? null,
     knockoutStage: knockoutStage ?? null,
     teamCount,
-    allowedPlayoffSizes: leagueStage && !knockoutStage
-      ? ([4, 8] as const).filter((size) => teamCount >= size)
-      : [],
+    allowedPlayoffSizes: leagueStage && !knockoutStage && teamCount >= 4 ? ([4] as const) : [],
     extraTurnCount: extraTurns.size,
     cancelableMatches: cancelableMatches.map((match) => ({
       ...match,
@@ -264,12 +284,13 @@ hostActions.post('/:id/host-actions/matches/:matchId/cancel', async (c) => {
 
 hostActions.post('/:id/host-actions/playoffs', async (c) => {
   const parsed = playoffSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: 'INVALID_PLAYOFF_SIZE', message: 'Escolha Top 4 ou Top 8.' }, 400);
+  if (!parsed.success) return c.json({ error: 'INVALID_PLAYOFF_FORMAT', message: 'A Fase Final usa obrigatoriamente o Top 4. Escolha Jogo Único ou Ida e Volta.' }, 400);
 
   const db = c.get('prisma');
   const user = c.get('user');
   const competitionId = c.req.param('id');
-  const playoffSize = parsed.data.size;
+  const playoffSize = 4 as const;
+  const knockoutFormat = parsed.data.format;
 
   const result = await db.$transaction(async (tx) => {
     await lockCompetition(tx, competitionId);
@@ -332,11 +353,12 @@ hostActions.post('/:id/host-actions/playoffs', async (c) => {
     await tx.stage.update({ where: { id: leagueStage.id }, data: { status: 'FINISHED' } });
 
     const nextOrder = Math.max(...competition.stages.map((stage) => stage.order), 0) + 1;
-    const bracket = await createKnockoutStage(tx, competitionId, seededBracket(qualified), nextOrder);
+    const bracket = await createKnockoutStage(tx, competitionId, seededBracket(qualified), nextOrder, knockoutFormat);
 
     return {
       generated: true as const,
       playoffSize,
+      format: knockoutFormat,
       canceledPendingMatches: canceled.count,
       qualifiedTeamIds: qualified,
       stageId: bracket.stageId,
@@ -471,6 +493,7 @@ hostActions.get('/:id/playoffs', async (c) => {
               status: true,
               version: true,
               bracketPosition: true,
+              leg: true,
               homeScore: true,
               awayScore: true,
               homePenaltyScore: true,
