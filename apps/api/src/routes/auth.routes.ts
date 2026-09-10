@@ -15,6 +15,7 @@ import {
 import { claimDailyLoginReward } from '../services/sticker-pack-rewards.service';
 
 const auth = new Hono<Env>();
+const SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000; // 30 days; explicit for mobile/PWA persistence.
 const password = z.string().min(10).max(128);
 const registerSchema = z
   .object({
@@ -40,7 +41,7 @@ const cookieOptions = {
   secure: true,
   sameSite: 'Lax' as const,
   path: '/',
-  maxAge: 60 * 60 * 24 * 30,
+  maxAge: SESSION_COOKIE_MAX_AGE_SECONDS,
 };
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
@@ -172,6 +173,13 @@ auth.get('/me', async (c) => {
   const prisma = c.get('prisma');
   const user = await getSessionUser(prisma, token);
   if (!user) return c.json({ user: null, rewards: { dailyPackGranted: false } });
+
+  // Renew the first-party HttpOnly cookie on every successful bootstrap.
+  // Mobile/PWA app termination must not downgrade it to a browser-session cookie.
+  setCookie(c, 'chavea_session', token, {
+    ...cookieOptions,
+    expires: new Date(Date.now() + SESSION_COOKIE_MAX_AGE_SECONDS * 1_000),
+  });
 
   const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
   return c.json({ user, rewards: { dailyPackGranted } });

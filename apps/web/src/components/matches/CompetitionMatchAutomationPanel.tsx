@@ -79,14 +79,14 @@ export function CompetitionMatchAutomationPanel() {
   const visible = showAll ? view.matches : view.matches.slice(0, 12);
 
   return (
-    <section className="mx-auto mt-5 max-w-5xl px-4 sm:px-6">
-      <div className="rounded-[2rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-5 shadow-lg shadow-blue-100/50">
+    <section className="mx-auto mt-3 max-w-5xl px-2.5 sm:mt-5 sm:px-6">
+      <div className="rounded-[1.5rem] border border-blue-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-3 shadow-lg shadow-blue-100/50 sm:rounded-[2rem] sm:p-5">
         <div className="flex items-start gap-3">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#073B8C] text-white shadow-md"><Gamepad2 className="h-6 w-6" /></span>
-          <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Automação de partidas</p><h2 className="mt-1 text-xl font-black text-slate-950">Check-in, clipe e W.O.</h2><p className="mt-1 text-sm font-semibold text-slate-500">Confirme presença e, se rolou golaço, deixe o link pronto. Ao registrar o placar, o clipe segue junto na mesma consolidação.</p></div>
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#073B8C] sm:h-12 sm:w-12 sm:rounded-2xl text-white shadow-md"><Gamepad2 className="h-6 w-6" /></span>
+          <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Automação de partidas</p><h2 className="mt-0.5 text-lg font-black text-slate-950 sm:mt-1 sm:text-xl">Check-in, clipe e W.O.</h2><p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500 sm:mt-1 sm:text-sm">Confirme presença e, se rolou golaço, deixe o link pronto. Ao registrar o placar, o clipe segue junto na mesma consolidação.</p></div>
         </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <div className="mt-3 grid gap-2 sm:mt-5 sm:gap-3 lg:grid-cols-2">
           {visible.map((match) => {
             const viewerSide = match.homeTeam?.id === view.myTeamId ? 'HOME' : match.awayTeam?.id === view.myTeamId ? 'AWAY' : null;
             const viewerReady = viewerSide === 'HOME' ? match.homeReady : viewerSide === 'AWAY' ? match.awayReady : false;
@@ -96,9 +96,9 @@ export function CompetitionMatchAutomationPanel() {
             const readyPending = ready.isPending && ready.variables === match.id;
 
             return (
-              <article key={`${match.id}:${match.version}:${match.homeReady}:${match.awayReady}`} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <article key={`${match.id}:${match.version}:${match.homeReady}:${match.awayReady}`} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:rounded-3xl sm:p-4">
                 <div className="flex items-center justify-between gap-2"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{match.round?.name || `Rodada ${match.round?.number ?? '-'}`} · {match.leg === 2 ? 'Volta' : 'Jogo'}</p><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-500">{match.status.replaceAll('_', ' ')}</span></div>
-                <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:mt-3 sm:gap-3">
                   <TeamReady name={match.homeTeam?.name ?? 'Mandante'} logoUrl={match.homeTeam?.logoUrl} ready={match.homeReady} />
                   <span className="text-sm font-black text-slate-300">VS</span>
                   <TeamReady name={match.awayTeam?.name ?? 'Visitante'} logoUrl={match.awayTeam?.logoUrl} ready={match.awayReady} align="right" />
@@ -107,14 +107,14 @@ export function CompetitionMatchAutomationPanel() {
                 {(viewerSide || data.isHost) && <ClipDraftInput matchId={match.id} />}
 
                 {viewerSide && (
-                  <button type="button" disabled={viewerReady || readyPending} onClick={() => ready.mutate(match.id)} className={`mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-black transition ${viewerReady ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#073B8C] text-white shadow-md'} disabled:opacity-70`}>
+                  <button type="button" disabled={viewerReady || readyPending} onClick={() => ready.mutate(match.id)} className={`mt-2 flex min-h-10 w-full items-center justify-center sm:mt-3 sm:min-h-12 gap-2 rounded-2xl text-sm font-black transition ${viewerReady ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-[#073B8C] text-white shadow-md'} disabled:opacity-70`}>
                     {viewerReady ? <CheckCircle2 className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
                     {viewerReady ? 'Você está pronto ✅' : readyPending ? 'Confirmando…' : 'Estou Pronto'}
                   </button>
                 )}
 
                 {data.isHost && (
-                  <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="mt-2 border-t border-slate-100 pt-2 sm:mt-3 sm:pt-3">
                     {!choosing ? (
                       <button type="button" disabled={walkoverPending} onClick={() => {
                         if (autoWinnerAvailable) {
@@ -160,7 +160,7 @@ function ClipDraftInput({ matchId }: { matchId: string }) {
   }
 
   return (
-    <label className="mt-4 block rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
+    <label className="mt-2 block rounded-xl border border-violet-100 bg-violet-50/60 p-2.5 sm:mt-4 sm:rounded-2xl sm:p-3">
       <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-violet-700"><Film className="h-3.5 w-3.5" /> Link do Clipe / Golaço <span className="text-violet-400">· opcional</span></span>
       <span className="relative mt-2 block"><Link2 className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-violet-400" /><input type="url" inputMode="url" value={value} onChange={(event) => change(event.target.value)} placeholder="https://youtube.com/..." className="min-h-10 w-full rounded-xl border border-violet-200 bg-white pl-9 pr-3 text-xs font-semibold outline-none focus:border-violet-400" /></span>
       <span className="mt-1.5 block text-[10px] font-semibold text-violet-500">YouTube, Twitch, TikTok ou link direto. Será enviado junto quando o placar for registrado.</span>

@@ -218,10 +218,15 @@ export async function getSessionUser(
     return null;
   }
 
-  if (Date.now() - session.lastUsedAt.getTime() > 5 * 60_000) {
+  const now = Date.now();
+  if (now - session.lastUsedAt.getTime() > 5 * 60_000) {
+    const refreshedAt = new Date(now);
     await prisma.session.update({
       where: { id: session.id },
-      data: { lastUsedAt: new Date() },
+      data: {
+        lastUsedAt: refreshedAt,
+        expiresAt: new Date(now + SESSION_TTL_MS),
+      },
     });
   }
 

@@ -300,7 +300,10 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
                       name: true,
                       logoUrl: true,
                       participation: {
-                        select: { user: { select: { id: true, name: true, displayName: true } } },
+                        select: {
+                          teamLogoUrl: true,
+                          user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+                        },
                       },
                     },
                   },
@@ -329,7 +332,19 @@ phaseSixCompetitions.get('/:id/group-stage', async (c) => {
   return c.json({
     competitionId,
     groupCount: competition.groupCount,
-    groups: groupStage?.groups ?? [],
+    groups: (groupStage?.groups ?? []).map((group) => ({
+      ...group,
+      standings: group.standings.map((row) => ({
+        ...row,
+        team: {
+          ...row.team,
+          logoUrl: row.team.logoUrl
+            ?? row.team.participation.user.avatarUrl
+            ?? row.team.participation.teamLogoUrl
+            ?? null,
+        },
+      })),
+    })),
     totalMatches,
     finishedMatches: totalMatches - unfinishedMatches,
     groupStageFinished: totalMatches > 0 && unfinishedMatches === 0,

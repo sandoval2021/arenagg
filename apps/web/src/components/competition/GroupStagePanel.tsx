@@ -39,7 +39,7 @@ export function GroupStagePanel() {
   return (
     <section className="mx-auto mt-5 max-w-5xl px-4 sm:px-6">
       <div className="overflow-hidden rounded-[2rem] border border-blue-200 bg-white shadow-lg shadow-blue-100/40">
-        <header className="bg-gradient-to-r from-[#073B8C] via-blue-700 to-cyan-600 p-5 text-white">
+        <header className="bg-gradient-to-r from-[#073B8C] via-blue-700 to-cyan-600 p-3 text-white sm:p-5">
           <div className="flex items-start gap-3">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/20"><Table2 className="h-6 w-6" /></span>
             <div className="min-w-0 flex-1"><p className="text-[10px] font-black uppercase tracking-[.2em] text-blue-100">Champions Style</p><h2 className="mt-1 text-xl font-black">Tabela de Classificação</h2><p className="mt-1 text-xs font-semibold text-blue-100">Os 2 melhores de cada grupo avançam para o mata-mata.</p></div>
@@ -55,21 +55,21 @@ export function GroupStagePanel() {
         )}
 
         {data && data.groups.length > 0 && (
-          <div className="p-4 sm:p-5">
+          <div className="p-3 sm:p-5">
             <div className="-mx-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden sm:-mx-5 sm:px-5">
               <div className="flex w-max snap-x snap-mandatory gap-3 pr-4">
                 {data.groups.map((group) => (
                   <article key={group.id} className="w-[min(88vw,360px)] shrink-0 snap-center overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3"><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-[#073B8C]">Classificação</p><h3 className="text-base font-black text-slate-950">{group.name}</h3></div><Trophy className="h-5 w-5 text-amber-500" /></div>
                     <div className="divide-y divide-slate-100">
-                      <div className="grid grid-cols-[28px_minmax(0,1fr)_34px_28px_28px_34px] items-center gap-1 px-3 py-2 text-[8px] font-black uppercase tracking-wide text-slate-400"><span>#</span><span>Time</span><span className="text-center">PTS</span><span className="text-center">J</span><span className="text-center">V</span><span className="text-center">SG</span></div>
+                      <div className="grid grid-cols-[24px_minmax(0,1fr)_30px_24px_24px_24px_24px_30px] items-center gap-1 px-3 py-2 text-[8px] font-black uppercase tracking-wide text-slate-400"><span>#</span><span>Time</span><span className="text-center">PTS</span><span className="text-center">J</span><span className="text-center">V</span><span className="text-center">E</span><span className="text-center">D</span><span className="text-center">SG</span></div>
                       {group.standings.map((row, index) => {
                         const qualified = index < 2;
                         return (
-                          <div key={row.teamId} className={`grid min-h-12 grid-cols-[28px_minmax(0,1fr)_34px_28px_28px_34px] items-center gap-1 px-3 py-2 ${qualified ? 'bg-emerald-50/70' : 'bg-white'}`}>
+                          <div key={row.teamId} className={`grid min-h-12 grid-cols-[24px_minmax(0,1fr)_30px_24px_24px_24px_24px_30px] items-center gap-1 px-3 py-2 ${qualified ? 'bg-emerald-50/70' : 'bg-white'}`}>
                             <span className={`grid h-6 w-6 place-items-center rounded-lg text-[10px] font-black ${qualified ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span>
                             <div className="flex min-w-0 items-center gap-2">{row.team.logoUrl ? <img src={row.team.logoUrl} alt="" className="h-7 w-7 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-[8px] font-black text-[#073B8C]">{row.team.name.slice(0, 2).toUpperCase()}</span>}<div className="min-w-0"><p className="truncate text-[11px] font-black text-slate-900">{row.team.name}</p>{qualified && <p className="text-[8px] font-black uppercase text-emerald-600">Zona de classificação</p>}</div></div>
-                            <span className="text-center text-sm font-black text-[#073B8C]">{row.points}</span><span className="text-center text-xs font-bold text-slate-600">{row.played}</span><span className="text-center text-xs font-bold text-emerald-700">{row.wins}</span><span className={`text-center text-xs font-black ${row.goalDifference > 0 ? 'text-emerald-700' : row.goalDifference < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{row.goalDifference > 0 ? '+' : ''}{row.goalDifference}</span>
+                            <span className="text-center text-xs font-black text-[#073B8C]">{row.points}</span><span className="text-center text-xs font-bold text-slate-600">{row.played}</span><span className="text-center text-[10px] font-bold text-emerald-700">{row.wins}</span><span className="text-center text-[10px] font-bold text-slate-600">{row.draws}</span><span className="text-center text-[10px] font-bold text-rose-600">{row.losses}</span><span className={`text-center text-[10px] font-black ${row.goalDifference > 0 ? 'text-emerald-700' : row.goalDifference < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{row.goalDifference > 0 ? '+' : ''}{row.goalDifference}</span>
                           </div>
                         );
                       })}

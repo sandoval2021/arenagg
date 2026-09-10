@@ -412,8 +412,22 @@ competitions.get('/:id', async (c) => {
         orderBy: [{ round: { number: 'asc' } }, { bracketPosition: 'asc' }, { leg: 'asc' }],
         include: {
           round: { select: { id: true, number: true, name: true } },
-          homeTeam: { select: { id: true, name: true, logoUrl: true } },
-          awayTeam: { select: { id: true, name: true, logoUrl: true } },
+          homeTeam: {
+            select: {
+              id: true,
+              name: true,
+              logoUrl: true,
+              participation: { select: { teamLogoUrl: true, user: { select: { avatarUrl: true } } } },
+            },
+          },
+          awayTeam: {
+            select: {
+              id: true,
+              name: true,
+              logoUrl: true,
+              participation: { select: { teamLogoUrl: true, user: { select: { avatarUrl: true } } } },
+            },
+          },
         },
       },
     },
@@ -423,6 +437,29 @@ competitions.get('/:id', async (c) => {
 
   return c.json({
     ...competition,
+    matches: competition.matches.map((match) => ({
+      ...match,
+      homeTeam: match.homeTeam
+        ? {
+            id: match.homeTeam.id,
+            name: match.homeTeam.name,
+            logoUrl: match.homeTeam.logoUrl
+              ?? match.homeTeam.participation.user.avatarUrl
+              ?? match.homeTeam.participation.teamLogoUrl
+              ?? null,
+          }
+        : null,
+      awayTeam: match.awayTeam
+        ? {
+            id: match.awayTeam.id,
+            name: match.awayTeam.name,
+            logoUrl: match.awayTeam.logoUrl
+              ?? match.awayTeam.participation.user.avatarUrl
+              ?? match.awayTeam.participation.teamLogoUrl
+              ?? null,
+          }
+        : null,
+    })),
     currentUserId: user.id,
     isHost: competition.hostId === user.id,
     hasJoined: competition.participations.some((participation) => participation.userId === user.id),
@@ -576,7 +613,7 @@ competitions.get('/:id/standings', async (c) => {
         include: {
           participation: {
             include: {
-              user: { select: { id: true, name: true, displayName: true } },
+              user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
             },
           },
         },
@@ -609,7 +646,11 @@ competitions.get('/:id/standings', async (c) => {
         ...row,
         position: index + 1,
         team: team?.name ?? 'Time',
-        logoUrl: team?.logoUrl ?? team?.participation.teamLogoUrl ?? undefined,
+        logoUrl:
+          team?.logoUrl
+          ?? team?.participation.user.avatarUrl
+          ?? team?.participation.teamLogoUrl
+          ?? undefined,
         playerName:
           team?.participation.user.displayName ?? team?.participation.user.name ?? 'Jogador',
       };
