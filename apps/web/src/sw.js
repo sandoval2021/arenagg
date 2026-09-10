@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'chavea-shell-';
-const APP_CACHE = `${CACHE_PREFIX}v6-20260910`;
+const APP_CACHE = `${CACHE_PREFIX}v7-20260910-auth-escape`;
 const PRECACHE = self.__WB_MANIFEST;
 const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
 
@@ -7,7 +7,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(APP_CACHE);
     await Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)));
-    // Never leave a fresh mobile build stuck in the waiting state.
+    // injectManifest uses this custom worker, so skipWaiting/clientsClaim live
+    // here rather than in generateSW workbox options.
     await self.skipWaiting();
   })());
 });
@@ -22,9 +23,9 @@ self.addEventListener('activate', (event) => {
     );
     await self.clients.claim();
 
-    // A worker can take control after the old JS bundle was already loaded.
-    // Reload each currently open Chavea window once on this new worker's
-    // activation so the first reopen after deployment receives the new shell.
+    // A worker can take control after an old JS bundle was already loaded.
+    // Navigate controlled windows once so the newly claimed worker serves the
+    // current HTML/assets without requiring uninstall/reinstall on mobile.
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(
       windows.map(async (client) => {
@@ -32,8 +33,8 @@ self.addEventListener('activate', (event) => {
         try {
           await client.navigate(client.url);
         } catch {
-          // Navigation can be rejected while a mobile PWA is backgrounding;
-          // the next foreground/navigation still uses the new controller.
+          // Mobile PWAs may reject navigation while backgrounding. The next
+          // foreground/navigation is still controlled by this worker.
         }
       }),
     );
