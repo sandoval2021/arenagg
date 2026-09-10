@@ -68,6 +68,15 @@ export type CompetitionDetail = {
   }>;
 };
 
+export type CompetitionMatch = CompetitionDetail['matches'][number];
+
+export type CompetitionMatchesPage = {
+  items: CompetitionMatch[];
+  round: number | null;
+  rounds: number[];
+  hasMore: boolean;
+};
+
 export type Standing = {
   teamId: string;
   team: string;
@@ -284,12 +293,22 @@ export async function getCompetition(competitionId: string): Promise<Competition
     ...competition,
     game: competition.game ?? null,
     platform: competition.platform ?? null,
-    matches: competition.matches.map((match) => ({
+    matches: (competition.matches ?? []).map((match) => ({
       ...match,
       homeTeamName: match.homeTeamName ?? null,
       awayTeamName: match.awayTeamName ?? null,
     })),
   };
+}
+
+export async function getCompetitionMatches(
+  competitionId: string,
+  round?: number,
+): Promise<CompetitionMatchesPage> {
+  const params = new URLSearchParams();
+  if (round) params.set('round', String(round));
+  const suffix = params.size ? `?${params.toString()}` : '';
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}/matches${suffix}`);
 }
 
 export async function getCompetitionTopScorers(competitionId: string): Promise<TopScorer[]> {

@@ -65,7 +65,7 @@ export function createCompetitionPhaseThree(input: CreateCompetitionPhaseThreeIn
 }
 
 export function getPhaseThreeCompetition(competitionId: string): Promise<PhaseThreeCompetitionDetail> {
-  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}`);
+  return apiRequest(`/api/competitions/${encodeURIComponent(competitionId)}?view=operations`);
 }
 
 export function updateCompetitionPrize(

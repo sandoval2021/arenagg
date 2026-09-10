@@ -25,7 +25,7 @@ export function CompetitionPhaseFiveCenter() {
   const [selectedDisputeId, setSelectedDisputeId] = useState<string | null>(null);
 
   const competition = useQuery({
-    queryKey: ['competition', competitionId],
+    queryKey: ['competition-operations', competitionId],
     queryFn: () => getPhaseThreeCompetition(competitionId),
     enabled: Boolean(competitionId),
     staleTime: 5_000,
@@ -48,6 +48,7 @@ export function CompetitionPhaseFiveCenter() {
   async function invalidateCompetition() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-operations', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['global-ranking'] }),

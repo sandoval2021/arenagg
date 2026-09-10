@@ -65,7 +65,7 @@ export function CompetitionPrizePanel() {
   const [third, setThird] = useState(10);
 
   const competition = useQuery({
-    queryKey: ['competition', competitionId],
+    queryKey: ['competition-operations', competitionId],
     queryFn: () => getPhaseThreeCompetition(competitionId),
     enabled: Boolean(competitionId),
   });
@@ -95,6 +95,7 @@ export function CompetitionPrizePanel() {
       setEditing(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-operations', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['competitions', 'mine'] }),
       ]);
     },

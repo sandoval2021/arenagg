@@ -388,27 +388,50 @@ competitions.get('/:id', async (c) => {
   const db = c.get('prisma');
   const id = c.req.param('id');
   const user = c.get('user');
+  const operationsView = c.req.query('view') === 'operations';
+  const where: Prisma.CompetitionWhereInput = {
+    id,
+    OR: [
+      { hostId: user.id },
+      { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
+    ],
+  };
+  const baseInclude = {
+    host: { select: { id: true, name: true, displayName: true } },
+    participations: {
+      where: { status: 'ACTIVE' as const },
+      orderBy: { joinedAt: 'asc' as const },
+      select: {
+        id: true,
+        userId: true,
+        teamName: true,
+        teamLogoUrl: true,
+        user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+        team: { select: { id: true, name: true, logoUrl: true } },
+      },
+    },
+  } satisfies Prisma.CompetitionInclude;
+
+  if (!operationsView) {
+    const competition = await db.competition.findFirst({ where, include: baseInclude });
+    if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
+
+    return c.json({
+      ...competition,
+      matches: [],
+      currentUserId: user.id,
+      isHost: competition.hostId === user.id,
+      hasJoined: competition.participations.some((participation) => participation.userId === user.id),
+    });
+  }
 
   const competition = await db.competition.findFirst({
-    where: {
-      id,
-      OR: [
-        { hostId: user.id },
-        { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
-      ],
-    },
+    where,
     include: {
-      host: { select: { id: true, name: true, displayName: true } },
-      participations: {
-        where: { status: 'ACTIVE' },
-        orderBy: { joinedAt: 'asc' },
-        include: {
-          user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
-          team: { select: { id: true, name: true, logoUrl: true } },
-        },
-      },
+      ...baseInclude,
       matches: {
-        take: 500,
+        where: { status: { not: 'FINISHED' } },
+        take: 120,
         orderBy: [{ round: { number: 'asc' } }, { bracketPosition: 'asc' }, { leg: 'asc' }],
         include: {
           round: { select: { id: true, number: true, name: true } },
@@ -460,6 +483,97 @@ competitions.get('/:id', async (c) => {
     isHost: competition.hostId === user.id,
     hasJoined: competition.participations.some((participation) => participation.userId === user.id),
   });
+});
+
+competitions.get('/:id/matches', async (c) => {
+  const db = c.get('prisma');
+  const id = c.req.param('id');
+  const user = c.get('user');
+  const rawRound = c.req.query('round');
+  const requestedRound = rawRound ? Number(rawRound) : null;
+  if (requestedRound !== null && (!Number.isInteger(requestedRound) || requestedRound < 1)) {
+    return c.json({ error: 'INVALID_ROUND' }, 400);
+  }
+
+  const accessWhere: Prisma.CompetitionWhereInput = {
+    id,
+    OR: [
+      { hostId: user.id },
+      { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
+    ],
+  };
+
+  const [competition, roundRows] = await Promise.all([
+    db.competition.findFirst({ where: accessWhere, select: { id: true } }),
+    db.round.findMany({
+      where: { stage: { competitionId: id, status: 'ACTIVE' } },
+      select: { id: true, number: true, status: true },
+      orderBy: { number: 'asc' },
+    }),
+  ]);
+  if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
+
+  const rounds = [...new Set(roundRows.map((round) => round.number))].sort((a, b) => a - b);
+  const currentRound = roundRows.find((round) => round.status === 'ACTIVE')?.number ?? rounds[0] ?? null;
+  const selectedRound = requestedRound ?? currentRound;
+  if (selectedRound === null) return c.json({ items: [], round: null, rounds: [], hasMore: false });
+  if (!rounds.includes(selectedRound)) return c.json({ error: 'ROUND_NOT_FOUND' }, 404);
+
+  const roundIds = roundRows.filter((round) => round.number === selectedRound).map((round) => round.id);
+  const rows = await db.match.findMany({
+    where: { competitionId: id, roundId: { in: roundIds } },
+    take: 41,
+    orderBy: [{ bracketPosition: 'asc' }, { leg: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      status: true,
+      leg: true,
+      version: true,
+      homeTeamName: true,
+      awayTeamName: true,
+      homeScore: true,
+      awayScore: true,
+      round: { select: { id: true, number: true, name: true } },
+      homeTeam: {
+        select: {
+          id: true,
+          name: true,
+          logoUrl: true,
+          participation: { select: { teamLogoUrl: true, user: { select: { avatarUrl: true } } } },
+        },
+      },
+      awayTeam: {
+        select: {
+          id: true,
+          name: true,
+          logoUrl: true,
+          participation: { select: { teamLogoUrl: true, user: { select: { avatarUrl: true } } } },
+        },
+      },
+    },
+  });
+
+  const visible = rows.slice(0, 40).map((match) => ({
+    ...match,
+    homeTeam: match.homeTeam
+      ? {
+          id: match.homeTeam.id,
+          name: match.homeTeam.name,
+          logoUrl: match.homeTeam.logoUrl ?? match.homeTeam.participation.teamLogoUrl ?? null,
+          user: { avatarUrl: match.homeTeam.participation.user.avatarUrl },
+        }
+      : null,
+    awayTeam: match.awayTeam
+      ? {
+          id: match.awayTeam.id,
+          name: match.awayTeam.name,
+          logoUrl: match.awayTeam.logoUrl ?? match.awayTeam.participation.teamLogoUrl ?? null,
+          user: { avatarUrl: match.awayTeam.participation.user.avatarUrl },
+        }
+      : null,
+  }));
+
+  return c.json({ items: visible, round: selectedRound, rounds, hasMore: rows.length > 40 });
 });
 
 competitions.patch('/:id/my-team', async (c) => {
@@ -602,42 +716,57 @@ competitions.post('/:id/start', async (c) => {
 competitions.get('/:id/standings', async (c) => {
   const db = c.get('prisma');
   const id = c.req.param('id');
-  const competition = await db.competition.findUnique({
-    where: { id },
-    include: {
-      teams: {
-        include: {
-          participation: {
-            include: {
-              user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+  const user = c.get('user');
+
+  const [competition, matches] = await Promise.all([
+    db.competition.findFirst({
+      where: {
+        id,
+        OR: [
+          { hostId: user.id },
+          { participations: { some: { userId: user.id, status: 'ACTIVE' } } },
+        ],
+      },
+      select: {
+        id: true,
+        teams: {
+          select: {
+            id: true,
+            name: true,
+            logoUrl: true,
+            participation: {
+              select: {
+                teamLogoUrl: true,
+                user: { select: { id: true, name: true, displayName: true, avatarUrl: true } },
+              },
             },
           },
         },
       },
-    },
-  });
+    }),
+    db.match.findMany({
+      where: {
+        competitionId: id,
+        status: 'FINISHED',
+        homeTeamId: { not: null },
+        awayTeamId: { not: null },
+        homeScore: { not: null },
+        awayScore: { not: null },
+      },
+      select: {
+        homeTeamId: true,
+        awayTeamId: true,
+        homeScore: true,
+        awayScore: true,
+      },
+    }),
+  ]);
   if (!competition) return c.json({ error: 'COMPETITION_NOT_FOUND' }, 404);
 
-  const matches = await db.match.findMany({
-    where: {
-      competitionId: id,
-      status: 'FINISHED',
-      homeTeamId: { not: null },
-      awayTeamId: { not: null },
-      homeScore: { not: null },
-      awayScore: { not: null },
-    },
-    select: {
-      homeTeamId: true,
-      awayTeamId: true,
-      homeScore: true,
-      awayScore: true,
-    },
-  });
-
+  const teamById = new Map(competition.teams.map((team) => [team.id, team]));
   return c.json(
     calculateStandings(competition.teams.map((team) => team.id), matches as never).map((row, index) => {
-      const team = competition.teams.find((item) => item.id === row.teamId);
+      const team = teamById.get(row.teamId);
       return {
         ...row,
         position: index + 1,

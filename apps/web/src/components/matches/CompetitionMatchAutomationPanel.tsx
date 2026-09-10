@@ -32,7 +32,7 @@ export function CompetitionMatchAutomationPanel() {
   const [choosingWinnerId, setChoosingWinnerId] = useState<string | null>(null);
 
   const competition = useQuery({
-    queryKey: ['competition', competitionId],
+    queryKey: ['competition-operations', competitionId],
     queryFn: () => getPhaseThreeCompetition(competitionId),
     enabled: Boolean(competitionId),
   });
@@ -41,6 +41,7 @@ export function CompetitionMatchAutomationPanel() {
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
+      queryClient.invalidateQueries({ queryKey: ['competition-operations', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
       queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),

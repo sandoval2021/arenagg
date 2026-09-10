@@ -27,6 +27,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   ApiError,
   getCompetition,
+  getCompetitionMatches,
   getCompetitionMatchStats,
   getCompetitionTopScorers,
   getStandings,
@@ -60,6 +61,7 @@ export function CompetitionDetailPageLight() {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<CompetitionTab>('standings');
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
 
   const competition = useQuery({
     queryKey: ['competition', competitionId],
@@ -73,12 +75,23 @@ export function CompetitionDetailPageLight() {
   const data = competition.data;
   const isStarted = data?.status === 'IN_PROGRESS' || data?.status === 'FINISHED';
 
+  // Runs in parallel with the competition detail on the first render. Waiting
+  // for `isStarted` here created a real network waterfall on mobile.
   const standings = useQuery({
     queryKey: ['standings', competitionId],
     queryFn: () => getStandings(competitionId),
-    enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'standings',
-    staleTime: 8_000,
-    refetchInterval: 12_000,
+    enabled: Boolean(competitionId) && activeTab === 'standings',
+    staleTime: 1_000,
+    refetchInterval: 3_000,
+    refetchIntervalInBackground: false,
+  });
+
+  const roundMatches = useQuery({
+    queryKey: ['competition-matches', competitionId, selectedRound ?? 'current'],
+    queryFn: () => getCompetitionMatches(competitionId, selectedRound ?? undefined),
+    enabled: Boolean(competitionId) && activeTab === 'rounds',
+    staleTime: 1_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
   });
 
@@ -92,9 +105,9 @@ export function CompetitionDetailPageLight() {
   const matchStats = useQuery({
     queryKey: ['match-stats', competitionId],
     queryFn: () => getCompetitionMatchStats(competitionId),
-    enabled: Boolean(competitionId) && Boolean(isStarted) && activeTab === 'rounds',
-    staleTime: 8_000,
-    refetchInterval: 12_000,
+    enabled: Boolean(competitionId) && activeTab === 'rounds',
+    staleTime: 1_000,
+    refetchInterval: 3_000,
     refetchIntervalInBackground: false,
   });
 
@@ -112,6 +125,7 @@ export function CompetitionDetailPageLight() {
         queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['competitions', 'mine'] }),
         queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['competition-matches', competitionId] }),
       ]);
     },
   });
@@ -134,7 +148,7 @@ export function CompetitionDetailPageLight() {
   const canStart = data.isHost && isRegistrationOpen && data.participations.length >= 2;
   const myParticipation = data.participations.find((participant) => participant.userId === data.currentUserId);
   const myTeamId = myParticipation?.team?.id;
-  const rounds = groupMatchesByRound(data.matches);
+  const rounds = groupMatchesByRound(roundMatches.data?.items ?? []);
   const userIdByTeam = Object.fromEntries(
     data.participations.flatMap((participant) =>
       participant.team?.id ? [[participant.team.id, participant.userId] as const] : [],
@@ -201,7 +215,22 @@ export function CompetitionDetailPageLight() {
             </div>
             <div className="mt-5">
               {activeTab === 'standings' && <>{standings.isLoading && <GlobalLoader mode="section" label="Carregando classificação…" />}{standings.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar a classificação.</div>}{!standings.isLoading && !standings.isError && <StandingsTable standings={standings.data ?? []} userIdByTeam={userIdByTeam} />}</>}
-              {activeTab === 'rounds' && <RoundsView rounds={rounds} competitionId={data.id} myTeamId={myTeamId} isHost={data.isHost} requireValidation={data.requireValidation} statsByMatch={statsByMatch} statsLoading={matchStats.isLoading} />}
+              {activeTab === 'rounds' && <>
+                {roundMatches.isLoading && <RoundSkeleton />}
+                {roundMatches.isError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">Não foi possível carregar esta rodada.</div>}
+                {!roundMatches.isLoading && !roundMatches.isError && <RoundsView
+                  rounds={rounds}
+                  availableRounds={roundMatches.data?.rounds ?? []}
+                  selectedRound={roundMatches.data?.round ?? selectedRound}
+                  onSelectRound={setSelectedRound}
+                  competitionId={data.id}
+                  myTeamId={myTeamId}
+                  isHost={data.isHost}
+                  requireValidation={data.requireValidation}
+                  statsByMatch={statsByMatch}
+                  statsLoading={matchStats.isLoading}
+                />}
+              </>}
               {activeTab === 'scorers' && <TopScorersPanel scorers={topScorers.data ?? []} loading={topScorers.isLoading} error={topScorers.isError} />}
               {activeTab === 'feed' && <CompetitionFeedPanel competitionId={data.id} />}
             </div>
@@ -302,11 +331,17 @@ function Lobby({ competitionId, participants, hostId, maxParticipants, isHost }:
   );
 }
 
-function RoundsView({ rounds, competitionId, myTeamId, isHost, requireValidation, statsByMatch, statsLoading }: { rounds: Array<{ number: number; name: string; matches: CompetitionMatch[] }>; competitionId: string; myTeamId?: string; isHost: boolean; requireValidation: boolean; statsByMatch: Map<string, MatchStats>; statsLoading: boolean }) {
-  if (rounds.length === 0) return <div className="rounded-[1.5rem] border border-slate-200 bg-white p-3 text-center text-sm font-bold text-slate-500 shadow-sm sm:rounded-[2rem] sm:p-6">As partidas estão sendo preparadas.</div>;
-  return <div className="space-y-3 sm:space-y-5">{rounds.map((round) => <section key={round.number} className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-md shadow-slate-200/50 sm:rounded-[2rem]"><div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:px-5 sm:py-4"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Fase de jogos</p><h3 className="mt-1 text-lg font-black">{round.name}</h3></div><span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-500">{round.matches.length} jogos</span></div><div className="grid gap-2 p-2.5 sm:gap-3 sm:p-4 lg:grid-cols-2">{round.matches.map((match) => { const canEdit = isHost || Boolean(myTeamId && (match.homeTeam?.id === myTeamId || match.awayTeam?.id === myTeamId)); return <MatchCard key={`${match.id}:${match.version}`} match={match} competitionId={competitionId} canEdit={canEdit} isHost={isHost} requireValidation={requireValidation} stats={statsByMatch.get(match.id)} statsLoading={statsLoading} />; })}</div></section>)}</div>;
+function RoundsView({ rounds, availableRounds, selectedRound, onSelectRound, competitionId, myTeamId, isHost, requireValidation, statsByMatch, statsLoading }: { rounds: Array<{ number: number; name: string; matches: CompetitionMatch[] }>; availableRounds: number[]; selectedRound: number | null; onSelectRound: (round: number) => void; competitionId: string; myTeamId?: string; isHost: boolean; requireValidation: boolean; statsByMatch: Map<string, MatchStats>; statsLoading: boolean }) {
+  return <div className="space-y-3 sm:space-y-5">
+    {availableRounds.length > 1 && <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Selecionar rodada">{availableRounds.map((round) => <button key={round} type="button" onClick={() => onSelectRound(round)} className={`min-h-9 shrink-0 rounded-full border px-3 text-[11px] font-black transition ${selectedRound === round ? 'border-[#073B8C] bg-[#073B8C] text-white' : 'border-slate-200 bg-white text-slate-500'}`}>Rodada {round}</button>)}</div>}
+    {rounds.length === 0 && <div className="rounded-[1.5rem] border border-slate-200 bg-white p-3 text-center text-sm font-bold text-slate-500 shadow-sm sm:rounded-[2rem] sm:p-6">As partidas desta rodada estão sendo preparadas.</div>}
+    {rounds.map((round) => <section key={round.number} className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-md shadow-slate-200/50 sm:rounded-[2rem]"><div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2.5 sm:px-5 sm:py-4"><div><p className="text-[10px] font-black uppercase tracking-[.2em] text-[#073B8C]">Fase de jogos</p><h3 className="mt-1 text-lg font-black">{round.name}</h3></div><span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-500">{round.matches.length} jogos</span></div><div className="grid gap-2 p-2.5 sm:gap-3 sm:p-4 lg:grid-cols-2">{round.matches.map((match) => { const canEdit = isHost || Boolean(myTeamId && (match.homeTeam?.id === myTeamId || match.awayTeam?.id === myTeamId)); return <MatchCard key={`${match.id}:${match.version}`} match={match} competitionId={competitionId} canEdit={canEdit} isHost={isHost} requireValidation={requireValidation} stats={statsByMatch.get(match.id)} statsLoading={statsLoading} />; })}</div></section>)}
+  </div>;
 }
 
+function RoundSkeleton() {
+  return <div className="space-y-2" aria-hidden="true"><div className="h-9 w-48 animate-pulse rounded-full bg-slate-100" /><div className="rounded-[1.5rem] border border-slate-100 bg-white p-3"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><div className="h-28 animate-pulse rounded-2xl bg-slate-100" /><div className="h-28 animate-pulse rounded-2xl bg-slate-100" /></div></div></div>;
+}
 function MatchCard({ match, competitionId, canEdit, isHost, requireValidation, stats, statsLoading }: { match: CompetitionMatch; competitionId: string; canEdit: boolean; isHost: boolean; requireValidation: boolean; stats?: MatchStats; statsLoading: boolean }) {
   const queryClient = useQueryClient();
   const [homeScore, setHomeScore] = useState(match.homeScore ?? 0);
@@ -322,6 +357,7 @@ function MatchCard({ match, competitionId, canEdit, isHost, requireValidation, s
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['competition', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['standings', competitionId] }),
+        queryClient.invalidateQueries({ queryKey: ['competition-matches', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['top-scorers', competitionId] }),
         queryClient.invalidateQueries({ queryKey: ['competition-feed', competitionId] }),
       ]);
@@ -362,5 +398,14 @@ function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; on
 type RuleTone = 'blue' | 'violet' | 'amber' | 'emerald' | 'rose';
 function RuleBadge({ icon: Icon, label, tone }: { icon: typeof Repeat2; label: string; tone: RuleTone }) { const tones: Record<RuleTone, string> = { blue: 'border-blue-200 bg-blue-50 text-[#073B8C]', violet: 'border-violet-200 bg-violet-50 text-violet-700', amber: 'border-amber-200 bg-amber-50 text-amber-700', emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700', rose: 'border-rose-200 bg-rose-50 text-rose-700' }; return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-black ${tones[tone]}`}><Icon className="h-3.5 w-3.5" />{label}</span>; }
 function groupMatchesByRound(matches: CompetitionMatch[]) { const grouped = new Map<number, CompetitionMatch[]>(); for (const match of matches) { const number = match.round?.number ?? 0; const bucket = grouped.get(number) ?? []; bucket.push(match); grouped.set(number, bucket); } return [...grouped.entries()].sort(([a], [b]) => a - b).map(([number, roundMatches]) => ({ number, name: roundMatches[0]?.round?.name || (number > 0 ? `Rodada ${number}` : 'Partidas'), matches: roundMatches })); }
-function Loading() { return <GlobalLoader mode="screen" label="Carregando campeonato…" />; }
+function Loading() {
+  return <main className="min-h-dvh bg-white px-4 pt-[max(1rem,env(safe-area-inset-top))] text-slate-900" aria-label="Abrindo campeonato">
+    <div className="mx-auto max-w-5xl animate-pulse">
+      <div className="flex items-center gap-3 py-3"><div className="h-11 w-11 rounded-2xl bg-slate-100" /><div className="flex-1"><div className="h-3 w-28 rounded bg-blue-100" /><div className="mt-2 h-6 w-48 rounded bg-slate-100" /></div><div className="h-11 w-11 rounded-2xl bg-amber-100" /></div>
+      <div className="mt-3 flex gap-2"><div className="h-8 w-28 rounded-full bg-slate-100" /><div className="h-8 w-24 rounded-full bg-slate-100" /><div className="h-8 w-32 rounded-full bg-slate-100" /></div>
+      <div className="mt-7 rounded-[2rem] border border-slate-100 bg-white p-2"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-12 rounded-2xl bg-slate-100" />)}</div></div>
+      <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-slate-100"><div className="h-14 bg-slate-50" /><div className="space-y-2 p-3">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-11 rounded-xl bg-slate-100" />)}</div></div>
+    </div>
+  </main>;
+}
 function ErrorState() { return <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900"><div className="max-w-sm text-center"><h1 className="text-xl font-black">Campeonato não encontrado</h1><p className="mt-2 text-sm font-medium text-slate-500">Você precisa participar desta copa para visualizar os detalhes.</p><Link to="/competitions" className="mt-5 inline-flex rounded-2xl bg-[#073B8C] px-5 py-3 font-black text-white">Ver minhas copas</Link></div></main>; }
