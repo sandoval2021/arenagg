@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Logo } from '../../components/brand/Logo';
 import { GlobalLoader } from '../../components/brand/GlobalLoader';
 import { CompetitionCard } from '../../components/competition/CompetitionCard';
+import { GlobalFriendlyFeedPanel } from '../../components/feed/GlobalFriendlyFeedPanel';
 import { BottomNavigation } from '../../components/navigation/BottomNavigation';
 import { PushNotificationsCard } from '../../components/push/PushNotificationsCard';
 import { useAuth } from '../../hooks/useAuth';
@@ -41,6 +42,7 @@ export function DashboardPage() {
         </section>
 
         <PushNotificationsCard />
+        <GlobalFriendlyFeedPanel />
 
         <section className="mt-7">
           <div className="mb-3"><p className="text-xs font-black uppercase tracking-wider text-[#073B8C]">Sua chave</p><h2 className="text-xl font-black">Meus campeonatos</h2></div>
