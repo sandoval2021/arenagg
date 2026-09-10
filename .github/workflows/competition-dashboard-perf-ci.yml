@@ -25,6 +25,18 @@ jobs:
           if git log -1 --pretty=%s | grep -Fq 'perf: make competition dashboard zero-latency'; then
             echo 'Product patch already committed.'
           else
+            # StandingsPage already received 3s polling from the previous PWA QA hotfix.
+            # Let the temporary patcher treat that specific target as already compliant.
+            python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_competition_dashboard_perf.py')
+          text = path.read_text()
+          old = "def replace_once(text: str, old: str, new: str, label: str) -> str:\n    if old not in text:\n        raise SystemExit(f'missing target: {label}')\n    return text.replace(old, new, 1)"
+          new = "def replace_once(text: str, old: str, new: str, label: str) -> str:\n    if old not in text:\n        if label == 'standings page live polling' and 'refetchInterval: LIVE_POLL_MS' in text:\n            return text\n        raise SystemExit(f'missing target: {label}')\n    return text.replace(old, new, 1)"
+          if old not in text:
+              raise SystemExit('could not harden temporary patcher')
+          path.write_text(text.replace(old, new, 1))
+          PY
             python scripts/apply_competition_dashboard_perf.py
             git config user.name 'sandoval2021'
             git config user.email '78934835+sandoval2021@users.noreply.github.com'
