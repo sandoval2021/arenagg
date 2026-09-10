@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'chavea-shell-';
-const APP_CACHE = `${CACHE_PREFIX}v6-20260910`;
+const APP_CACHE = `${CACHE_PREFIX}v7-20260910-auth-recovery`;
 const PRECACHE = self.__WB_MANIFEST;
 const PRECACHE_URLS = PRECACHE.map((entry) => typeof entry === 'string' ? entry : entry.url);
 
@@ -24,7 +24,7 @@ self.addEventListener('activate', (event) => {
 
     // A worker can take control after the old JS bundle was already loaded.
     // Reload each currently open Chavea window once on this new worker's
-    // activation so the first reopen after deployment receives the new shell.
+    // activation so the first foreground after deployment receives the new shell.
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(
       windows.map(async (client) => {
@@ -32,7 +32,7 @@ self.addEventListener('activate', (event) => {
         try {
           await client.navigate(client.url);
         } catch {
-          // Navigation can be rejected while a mobile PWA is backgrounding;
+          // Navigation may be rejected while a mobile PWA is backgrounding;
           // the next foreground/navigation still uses the new controller.
         }
       }),
@@ -62,12 +62,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first prevents a previously cached JS/CSS asset from pinning an
-  // outdated PWA. Cache remains only as an offline fallback.
+  // Network-first prevents an old JS/CSS asset from pinning a stale PWA.
+  // Cache is retained only as an offline fallback.
   event.respondWith((async () => {
     const cache = await caches.open(APP_CACHE);
     try {
-      const fresh = await fetch(request);
+      const fresh = await fetch(request, { cache: 'no-cache' });
       if (fresh.ok) await cache.put(request, fresh.clone());
       return fresh;
     } catch {
