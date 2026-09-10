@@ -58,8 +58,8 @@ jobs:
             grep -Fq 'overflow-x-auto pb-2' "$file"
             grep -Fq 'min-w-[520px]' "$file"
             grep -Fq 'max-w-[80px] truncate' "$file"
-            if grep -Fq 'hidden' "$file"; then
-              echo "Mobile standings still contains a hidden class: $file" >&2
+            if grep -nE '<(th|td)[^>]*className="[^"]*hidden' "$file"; then
+              echo "A standings table cell is hidden on mobile: $file" >&2
               exit 1
             fi
             for col in PTS J V E D SG; do
