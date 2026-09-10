@@ -1,0 +1,42 @@
+name: Auth PWA Recovery CI
+
+on:
+  push:
+    branches: [hotfix-auth-pwa-recovery]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert auth escape contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'AUTH_BOOT_TIMEOUT_MS = 5_000' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "window.location.replace('/login')" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'window.localStorage.clear()' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'isPublicAuthRoute' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'enabled: !isPublicAuthRoute' apps/web/src/hooks/useAuth.tsx
+      - name: Assert PWA auto-update contract
+        run: |
+          set -euo pipefail
+          grep -Fq "registerType: 'autoUpdate'" apps/web/vite.config.ts
+          grep -Fq 'clientsClaim: true' apps/web/vite.config.ts
+          grep -Fq 'skipWaiting: true' apps/web/vite.config.ts
+          grep -Fq 'registration.update()' apps/web/src/main.tsx
+          grep -Fq "window.addEventListener('online', checkForUpdate)" apps/web/src/main.tsx
+          grep -Fq 'await self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'await self.clients.claim()' apps/web/src/sw.js
