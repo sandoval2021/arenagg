@@ -35,3 +35,4 @@ jobs:
           grep -F 'Você ganhou 1 Pacote Diário de Cartas!' apps/web/src/hooks/useAuth.tsx
           grep -F "America/Sao_Paulo" apps/api/src/services/sticker-pack-rewards.service.ts
           ! grep -F '$queryRaw`SELECT pg_advisory_xact_lock' apps/api/src/services/profile-stats.service.ts
+          grep -F '$executeRaw`SELECT pg_advisory_xact_lock' apps/api/src/services/profile-stats.service.ts
