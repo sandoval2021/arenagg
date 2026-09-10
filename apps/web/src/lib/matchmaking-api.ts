@@ -2,7 +2,6 @@ import { apiRequest } from './api';
 
 export type MatchmakingPlatform = 'PS4' | 'XBOX_ONE' | 'PS5' | 'XBOX_SERIES' | 'PC';
 export type MatchmakingPool = 'ALL' | 'LEGACY' | 'CURRENT';
-export type CasualMatchMode = 'CASUAL' | 'RANKED';
 export type CasualMatchRoomStatus = 'OPEN' | 'AWAITING_CONFIRMATION' | 'FINISHED' | 'CANCELED';
 
 export type MatchmakingQueue = {
@@ -25,7 +24,6 @@ export type AvailablePlayer = {
 
 export type IncomingChallenge = {
   id: string;
-  mode: CasualMatchMode;
   challengerPlatform: MatchmakingPlatform;
   challengedPlatform: MatchmakingPlatform;
   expiresAt: string;
@@ -39,7 +37,6 @@ export type IncomingChallenge = {
 
 export type OutgoingChallenge = {
   id: string;
-  mode: CasualMatchMode;
   challengerPlatform: MatchmakingPlatform;
   challengedPlatform: MatchmakingPlatform;
   expiresAt: string;
@@ -63,13 +60,11 @@ export type CasualRoomPlayer = {
   platform: MatchmakingPlatform;
   handle: string | null;
   score: number | null;
-  mmrDelta: number | null;
 };
 
 export type CasualMatchRoom = {
   id: string;
   challengeId: string;
-  mode: CasualMatchMode;
   status: CasualMatchRoomStatus;
   currentUserId: string;
   isChallenger: boolean;
@@ -114,10 +109,10 @@ export function getMatchmakingChallenges() {
   return apiRequest<MatchmakingChallenges>('/api/matchmaking/challenges');
 }
 
-export function challengePlayer(challengedUserId: string, mode: CasualMatchMode) {
-  return apiRequest<{ challenge: { id: string; mode: CasualMatchMode; expiresAt: string } }>('/api/matchmaking/challenges', {
+export function challengePlayer(challengedUserId: string) {
+  return apiRequest<{ challenge: { id: string; expiresAt: string } }>('/api/matchmaking/challenges', {
     method: 'POST',
-    body: JSON.stringify({ challengedUserId, mode }),
+    body: JSON.stringify({ challengedUserId }),
   });
 }
 
@@ -151,7 +146,7 @@ export function submitCasualScore(roomId: string, myScore: number, opponentScore
 }
 
 export function confirmCasualScore(roomId: string) {
-  return apiRequest<{ ok: true; mmr: { challengerDelta: number | null; challengedDelta: number | null } }>(
+  return apiRequest<{ ok: true }>(
     `/api/matchmaking/rooms/${encodeURIComponent(roomId)}/score/confirm`,
     { method: 'POST' },
   );
