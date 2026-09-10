@@ -9,6 +9,7 @@ import { devAuth } from './routes/dev-auth.routes';
 import { competitions } from './routes/competitions.routes';
 import { competitionJoin } from './routes/competition-join.routes';
 import { competitionChat } from './routes/competition-chat.routes';
+import { competitionStartV2 } from './routes/competition-start-v2.routes';
 import { lobbyModeration } from './routes/lobby-moderation.routes';
 import { teamSettings } from './routes/team-settings.routes';
 import { scorers } from './routes/scorers.routes';
@@ -124,9 +125,11 @@ app.route('/api/reputation', reputation);
 app.route('/api/matchmaking', matchmakingUnranked);
 app.route('/api/matchmaking', matchmaking);
 app.route('/api/feed', globalFeed);
-// phaseFour wraps /start with push; phaseSix intercepts only GROUP_STAGE;
-// other formats keep flowing into the existing canonical routers.
+// Keep the Phase 4 push wrapper first. It calls next() and sends notifications
+// only after the canonical start handler succeeds. Start V2 then owns every
+// format, so the legacy Phase 6/competitions start handlers are not reached.
 app.route('/api/competitions', phaseFourCompetitions);
+app.route('/api/competitions', competitionStartV2);
 app.route('/api/competitions', phaseSixCompetitions);
 app.route('/api/competitions', phaseThreeCompetitions);
 app.route('/api/competitions', competitionChat);
