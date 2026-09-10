@@ -3,19 +3,23 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 import {
-  createSession,
   getSessionUser,
   hashPassword,
   normalizeEmail,
   normalizePhone,
-  revokeSession,
   toPublicUser,
   verifyPassword,
 } from '../services/auth.service';
+import {
+  createTemporaryMigrationPassword,
+  provisionAndIssueSupabaseSession,
+  resolveBearerUser,
+  revokeSupabaseSession,
+  SupabaseAuthBridgeError,
+} from '../services/supabase-auth.service';
 import { claimDailyLoginReward } from '../services/sticker-pack-rewards.service';
 
 const auth = new Hono<Env>();
-const SESSION_COOKIE_MAX_AGE_SECONDS = 2_592_000; // 30 days.
 const password = z.string().min(10).max(128);
 const registerSchema = z
   .object({
@@ -33,18 +37,6 @@ const loginSchema = z
   })
   .refine((value) => Boolean(value.email) !== Boolean(value.phone), 'Provide exactly one identifier');
 
-function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string) {
-  // Production requests use the same-origin Cloudflare Pages /api proxy, so
-  // SameSite=Lax is first-party and reliable in standalone iOS/Android PWAs.
-  // Keep the exact persistent security contract explicit instead of relying on
-  // serializer defaults or an Expires clock that can drift on mobile devices.
-  c.header(
-    'Set-Cookie',
-    `chavea_session=${token}; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_COOKIE_MAX_AGE_SECONDS}; Path=/`,
-    { append: true },
-  );
-}
-
 function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
   const result = schema.safeParse(body);
   return result.success ? result.data : null;
@@ -52,6 +44,12 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T | null {
 
 function isPrismaUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+}
+
+function readBearerToken(authorization?: string): string | null {
+  if (!authorization) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
+  return match?.[1]?.trim() || null;
 }
 
 async function claimDailyRewardSafely(
@@ -65,35 +63,35 @@ async function claimDailyRewardSafely(
       userId,
       error: error instanceof Error ? error.message : String(error),
     });
-    // Authentication must remain available. Because lastLoginReward is only
-    // advanced in the reward transaction, a later /me bootstrap can retry.
     return false;
   }
 }
 
-async function attachSession(
-  c: Parameters<typeof setCookie>[0],
-  prisma: Env['Variables']['prisma'],
-  userId: string,
-) {
-  const session = await createSession(prisma, userId);
-  setSessionCookie(c, session.token);
+function authBridgeFailure(c: Parameters<typeof auth.post>[1] extends never ? never : any, error: unknown) {
+  console.error('[auth.supabase] bridge failed', {
+    error: error instanceof Error ? error.message : String(error),
+    code: error instanceof SupabaseAuthBridgeError ? error.code : undefined,
+  });
+  const configured = !(error instanceof SupabaseAuthBridgeError) || error.code !== 'SUPABASE_AUTH_NOT_CONFIGURED';
+  return c.json(
+    {
+      error: configured ? 'AUTH_SESSION_ISSUE_FAILED' : 'AUTH_SERVICE_NOT_CONFIGURED',
+      message: configured
+        ? 'Não foi possível criar a sessão segura agora. Tente novamente.'
+        : 'O serviço de autenticação está temporariamente indisponível.',
+    },
+    503,
+  );
 }
 
-type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'create_session';
+type RegistrationStage = 'lookup' | 'hash_password' | 'create_user' | 'supabase_session';
 
 auth.post('/register', async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = registerSchema.safeParse(body);
 
   if (!parsed.success) {
-    return c.json(
-      {
-        error: 'INVALID_INPUT',
-        issues: parsed.error.flatten(),
-      },
-      400,
-    );
+    return c.json({ error: 'INVALID_INPUT', issues: parsed.error.flatten() }, 400);
   }
 
   const input = parsed.data;
@@ -104,11 +102,8 @@ auth.post('/register', async (c) => {
 
   try {
     const existing = await prisma.user.findFirst({
-      where: {
-        OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
-      },
+      where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
     });
-
     if (existing) return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
 
     stage = 'hash_password';
@@ -116,20 +111,16 @@ auth.post('/register', async (c) => {
 
     stage = 'create_user';
     const user = await prisma.user.create({
-      data: {
-        name: input.name,
-        email,
-        phone,
-        passwordHash,
-      },
+      data: { name: input.name, email, phone, passwordHash },
     });
 
-    stage = 'create_session';
-    await attachSession(c, prisma, user.id);
+    stage = 'supabase_session';
+    const session = await provisionAndIssueSupabaseSession(c.env, prisma, user, input.password);
+    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
     const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
-    return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } }, 201);
+    return c.json({ user: toPublicUser(user), session, rewards: { dailyPackGranted } }, 201);
   } catch (error) {
-    console.log('[auth.register] failed', {
+    console.error('[auth.register] failed', {
       stage,
       nameLength: input.name.length,
       hasEmail: Boolean(email),
@@ -138,10 +129,8 @@ auth.post('/register', async (c) => {
       errorMessage: error instanceof Error ? error.message : String(error),
     });
 
-    if (isPrismaUniqueConstraintError(error)) {
-      return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
-    }
-
+    if (isPrismaUniqueConstraintError(error)) return c.json({ error: 'ACCOUNT_EXISTS' }, 409);
+    if (error instanceof SupabaseAuthBridgeError) return authBridgeFailure(c, error);
     return c.json({ error: 'REGISTRATION_FAILED', stage }, 500);
   }
 });
@@ -159,31 +148,127 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'INVALID_CREDENTIALS' }, 401);
   }
 
-  await attachSession(c, prisma, user.id);
-  const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
-  return c.json({ user: toPublicUser(user), rewards: { dailyPackGranted } });
+  try {
+    const session = await provisionAndIssueSupabaseSession(c.env, prisma, user, input.password);
+    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
+    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+    return c.json({ user: toPublicUser(user), session, rewards: { dailyPackGranted } });
+  } catch (error) {
+    return authBridgeFailure(c, error);
+  }
+});
+
+// One-time bridge for devices that still have the legacy HttpOnly cookie after
+// this release. The browser exchanges it for a Supabase access/refresh session
+// and then persists that session in localStorage. No legacy cookie is renewed.
+auth.post('/migrate-cookie', async (c) => {
+  const legacyToken = getCookie(c, 'chavea_session');
+  if (!legacyToken) return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
+
+  const prisma = c.get('prisma');
+  const legacyUser = await getSessionUser(prisma, legacyToken);
+  if (!legacyUser) {
+    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
+    return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: legacyUser.id } });
+  if (!user || !user.isActive) return c.json({ error: 'NO_LEGACY_SESSION' }, 401);
+
+  try {
+    const session = await provisionAndIssueSupabaseSession(
+      c.env,
+      prisma,
+      user,
+      createTemporaryMigrationPassword(),
+    );
+    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
+    const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
+    return c.json({ user: toPublicUser(user), session, rewards: { dailyPackGranted }, migrated: true });
+  } catch (error) {
+    return authBridgeFailure(c, error);
+  }
 });
 
 auth.get('/me', async (c) => {
-  const token = getCookie(c, 'chavea_session');
-  if (!token) return c.json({ user: null, rewards: { dailyPackGranted: false } });
+  const token = readBearerToken(c.req.header('Authorization'));
+  if (!token) return c.json({ error: 'UNAUTHORIZED', message: 'Sessão ausente.' }, 401);
 
   const prisma = c.get('prisma');
-  const user = await getSessionUser(prisma, token);
-  if (!user) return c.json({ user: null, rewards: { dailyPackGranted: false } });
-
-  // Sliding 30-day browser lifetime on every successful PWA bootstrap.
-  setSessionCookie(c, token);
+  const user = await resolveBearerUser(c.env, prisma, token);
+  if (!user) return c.json({ error: 'UNAUTHORIZED', message: 'Sessão inválida ou expirada.' }, 401);
 
   const dailyPackGranted = await claimDailyRewardSafely(prisma, user.id);
   return c.json({ user, rewards: { dailyPackGranted } });
 });
 
 auth.post('/logout', async (c) => {
-  const token = getCookie(c, 'chavea_session');
-  if (token) await revokeSession(c.get('prisma'), token);
+  const token = readBearerToken(c.req.header('Authorization'));
+  if (token) await revokeSupabaseSession(c.env, token);
   deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
   return c.body(null, 204);
+});
+
+// Browser Supabase client auth traffic is proxied so the publishable key does
+// not need to be added during this emergency migration. Only the minimum user
+// session endpoints are allowed; admin paths and arbitrary Supabase APIs are
+// rejected. The Worker injects the service-role key upstream and never returns it.
+auth.all('/supabase-proxy', async (c) => {
+  const rawTarget = c.req.query('target');
+  const serviceRoleKey = c.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const supabaseUrl = c.env.SUPABASE_URL?.trim();
+  if (!rawTarget || !serviceRoleKey || !supabaseUrl) {
+    return c.json({ error: 'AUTH_SERVICE_NOT_CONFIGURED' }, 503);
+  }
+
+  let target: URL;
+  try {
+    target = new URL(rawTarget, supabaseUrl);
+  } catch {
+    return c.json({ error: 'INVALID_AUTH_PROXY_TARGET' }, 400);
+  }
+
+  const projectOrigin = new URL(supabaseUrl).origin;
+  const method = c.req.method.toUpperCase();
+  const grantType = target.searchParams.get('grant_type');
+  const allowed =
+    target.origin === projectOrigin &&
+    ((target.pathname === '/auth/v1/token' && method === 'POST' && ['password', 'refresh_token'].includes(grantType ?? '')) ||
+      (target.pathname === '/auth/v1/user' && method === 'GET') ||
+      (target.pathname === '/auth/v1/logout' && method === 'POST'));
+
+  if (!allowed) return c.json({ error: 'AUTH_PROXY_TARGET_NOT_ALLOWED' }, 403);
+
+  const headers = new Headers();
+  headers.set('apikey', serviceRoleKey);
+  headers.set('Accept', 'application/json');
+  const contentType = c.req.header('Content-Type');
+  if (contentType) headers.set('Content-Type', contentType);
+  const apiVersion = c.req.header('X-Supabase-Api-Version');
+  if (apiVersion) headers.set('X-Supabase-Api-Version', apiVersion);
+
+  if (target.pathname === '/auth/v1/token') {
+    headers.set('Authorization', `Bearer ${serviceRoleKey}`);
+  } else {
+    const authorization = c.req.header('Authorization');
+    if (!readBearerToken(authorization)) return c.json({ error: 'UNAUTHORIZED' }, 401);
+    headers.set('Authorization', authorization!);
+  }
+
+  const upstream = await fetch(target.toString(), {
+    method,
+    headers,
+    body: method === 'GET' || method === 'HEAD' ? undefined : await c.req.arrayBuffer(),
+    redirect: 'manual',
+  });
+
+  const responseHeaders = new Headers({
+    'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
+    'Cache-Control': 'no-store',
+  });
+  const requestId = upstream.headers.get('X-Request-Id');
+  if (requestId) responseHeaders.set('X-Request-Id', requestId);
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 });
 
 auth.get('/google', (c) => {
@@ -210,7 +295,6 @@ auth.get('/google/callback', async (c) => {
   const code = c.req.query('code');
   const state = c.req.query('state');
   const expected = getCookie(c, 'chavea_oauth_state');
-
   if (!code || !state || !expected || state !== expected) {
     return c.json({ error: 'INVALID_OAUTH_STATE' }, 400);
   }
@@ -255,7 +339,6 @@ auth.get('/google/callback', async (c) => {
   const prisma = c.get('prisma');
   const email = normalizeEmail(profile.email);
   let user = await prisma.user.findUnique({ where: { email } });
-
   if (!user) {
     user = await prisma.user.create({
       data: {
@@ -268,23 +351,34 @@ auth.get('/google/callback', async (c) => {
   }
 
   await prisma.authAccount.upsert({
-    where: {
-      provider_providerAccountId: {
-        provider: 'google',
-        providerAccountId: profile.sub,
-      },
-    },
-    create: {
-      userId: user.id,
-      provider: 'google',
-      providerAccountId: profile.sub,
-    },
+    where: { provider_providerAccountId: { provider: 'google', providerAccountId: profile.sub } },
+    create: { userId: user.id, provider: 'google', providerAccountId: profile.sub },
     update: { userId: user.id },
   });
 
-  await attachSession(c, prisma, user.id);
-  deleteCookie(c, 'chavea_oauth_state', { path: '/' });
-  return c.redirect(c.env.WEB_APP_URL);
+  try {
+    const session = await provisionAndIssueSupabaseSession(
+      c.env,
+      prisma,
+      user,
+      createTemporaryMigrationPassword(),
+    );
+    deleteCookie(c, 'chavea_oauth_state', { path: '/' });
+    deleteCookie(c, 'chavea_session', { path: '/', secure: true, sameSite: 'Lax' });
+
+    const redirect = new URL(c.env.WEB_APP_URL);
+    redirect.hash = new URLSearchParams({
+      access_token: session.accessToken,
+      refresh_token: session.refreshToken,
+      expires_in: String(session.expiresIn),
+      expires_at: String(session.expiresAt ?? Math.floor(Date.now() / 1000) + session.expiresIn),
+      token_type: session.tokenType,
+      type: 'oauth',
+    }).toString();
+    return c.redirect(redirect.toString());
+  } catch (error) {
+    return authBridgeFailure(c, error);
+  }
 });
 
 export { auth };
