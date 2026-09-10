@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '../lib/api';
+import { ApiError, apiRequest } from '../lib/api';
 import { Logo } from '../components/brand/Logo';
 import { GlobalLoader } from '../components/brand/GlobalLoader';
 
@@ -56,8 +56,26 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
+function isAuthorizationError(error: unknown): error is ApiError {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+async function requestSession(): Promise<AuthSessionResponse> {
+  try {
+    return await apiRequest<AuthSessionResponse>('/api/auth/me');
+  } catch (error) {
+    // 401/403 are authorization outcomes, not connectivity failures. Clear only
+    // the non-sensitive session hint and let the router show the login flow.
+    if (isAuthorizationError(error)) {
+      writeKnownSession(false);
+      return { user: null, rewards: { dailyPackGranted: false } };
+    }
+    throw error;
+  }
+}
+
 async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
-  const first = await apiRequest<AuthSessionResponse>('/api/auth/me');
+  const first = await requestSession();
   if (first.user) {
     writeKnownSession(true);
     return first;
@@ -72,7 +90,7 @@ async function loadSessionWithPwaGrace(): Promise<AuthSessionResponse> {
   let latest = first;
   for (const delay of delays) {
     await sleep(delay);
-    latest = await apiRequest<AuthSessionResponse>('/api/auth/me');
+    latest = await requestSession();
     if (latest.user) {
       writeKnownSession(true);
       return latest;
@@ -91,7 +109,7 @@ function useAuthState() {
     queryFn: loadSessionWithPwaGrace,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
-    retry: 2,
+    retry: (failureCount, error) => !isAuthorizationError(error) && failureCount < 2,
     retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
     refetchOnWindowFocus: false,
     refetchOnMount: 'always',
@@ -141,6 +159,7 @@ function useAuthState() {
     isLoading: isBootstrapping,
     isBootstrapping,
     hasBootstrapError,
+    bootstrapError: me.error,
     isAuthenticated: Boolean(me.data?.user),
     dailyRewardGranted: Boolean(me.data?.rewards?.dailyPackGranted),
     login,
@@ -155,14 +174,19 @@ function SessionBootScreen() {
   return <GlobalLoader mode="screen" label="Validando sua sessão…" />;
 }
 
-function SessionRecoveryScreen({ onRetry }: { onRetry: () => void }) {
+function SessionRecoveryScreen({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const networkFailure = error instanceof ApiError && error.status === 0;
   return (
     <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
       <div className="w-full max-w-sm text-center">
         <div className="flex justify-center"><Logo size="md" /></div>
-        <h1 className="mt-7 text-xl font-black">Não foi possível validar sua sessão.</h1>
+        <h1 className="mt-7 text-xl font-black">
+          {networkFailure ? 'Não foi possível conectar ao Chavea.' : 'Não foi possível validar sua sessão.'}
+        </h1>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-          Sua conta não foi desconectada. Verifique a conexão e tente novamente.
+          {networkFailure
+            ? 'Verifique sua conexão e tente novamente.'
+            : 'O serviço de autenticação respondeu com erro. Sua conta não foi marcada como desconectada.'}
         </p>
         <button
           type="button"
@@ -204,7 +228,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // Never mount the router until the initial persistent session check (including
   // the bounded PWA hydration grace) has completed.
   if (value.isBootstrapping) return <SessionBootScreen />;
-  if (value.hasBootstrapError) return <SessionRecoveryScreen onRetry={() => void value.refresh()} />;
+  if (value.hasBootstrapError) {
+    return <SessionRecoveryScreen error={value.bootstrapError} onRetry={() => void value.refresh()} />;
+  }
 
   return (
     <AuthContext.Provider value={value}>
