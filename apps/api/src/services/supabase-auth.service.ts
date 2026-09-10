@@ -1,11 +1,10 @@
 import {
   createClient,
-  UserRole,
   type Session,
   type SupabaseClient,
   type User as SupabaseAuthUser,
 } from '@supabase/supabase-js';
-import type { PrismaClient, User } from '@prisma/client';
+import { UserRole, type PrismaClient, type User } from '@prisma/client';
 import type { Env } from '../types/env';
 import { normalizeEmail, normalizePhone, toPublicUser, type PublicUser } from './auth.service';
 
