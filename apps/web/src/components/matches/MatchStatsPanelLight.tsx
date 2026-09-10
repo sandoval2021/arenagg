@@ -202,7 +202,7 @@ function StatInput({ value, max, label, onChange }: { value: number; max: number
 
 function TeamMini({ team }: { team: CompetitionMatch['homeTeam'] }) {
   const name = team?.name ?? 'A definir';
-  return <div className="min-w-0">{team?.logoUrl ? <img src={team.logoUrl} alt="" className="mx-auto h-12 w-12 rounded-2xl border border-slate-200 bg-white object-cover shadow-sm" referrerPolicy="no-referrer" /> : <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-blue-100 bg-blue-50 text-xs font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>}<p className="mt-2 truncate text-xs font-black text-slate-900">{name}</p></div>;
+  return <div className="min-w-0">{team?.logoUrl ? <img loading="lazy" decoding="async" src={team.logoUrl} alt="" className="mx-auto h-12 w-12 rounded-2xl border border-slate-200 bg-white object-cover shadow-sm" referrerPolicy="no-referrer" /> : <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-blue-100 bg-blue-50 text-xs font-black text-[#073B8C]">{name.slice(0, 2).toUpperCase()}</span>}<p className="mt-2 truncate text-xs font-black text-slate-900">{name}</p></div>;
 }
 
 function StatusBadge({ stats, loading }: { stats?: MatchStats; loading: boolean }) {

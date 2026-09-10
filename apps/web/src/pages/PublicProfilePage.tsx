@@ -56,7 +56,7 @@ export function PublicProfilePage() {
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <div className="relative shrink-0">
               <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-[1.4rem] border border-blue-200 bg-white shadow-md sm:h-24 sm:w-24 sm:rounded-[1.6rem]">
-                {data.avatarUrl ? <img src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
+                {data.avatarUrl ? <img loading="lazy" decoding="async" src={data.avatarUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-10 w-10 text-[#073B8C] sm:h-11 sm:w-11" />}
               </div>
               <span className="absolute -bottom-2 -right-2"><RankEmblem rank={rank} /></span>
             </div>
