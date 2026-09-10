@@ -34,7 +34,7 @@ jobs:
       - name: Assert ghost refresh UX
         run: |
           set -euo pipefail
-          grep -Fq 'placeholderData: (previousData) => previousData' apps/web/src/main.tsx
+          grep -Fq 'placeholderData: (previousData: unknown) => previousData' apps/web/src/main.tsx
           grep -Fq 'pointer-events-none' apps/web/src/components/brand/GlobalActivityLoader.tsx
           grep -Fq 'cancelRefetch: false' apps/web/src/hooks/useCompetitionLivePolling.ts
           grep -Fq 'let inFlight = false' apps/web/src/hooks/useCompetitionLivePolling.ts
