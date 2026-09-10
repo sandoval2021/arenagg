@@ -334,7 +334,20 @@ function TeamSide({ team, align }: { team: CompetitionMatch['homeTeam']; align: 
 function TeamAvatar({ name, logoUrl, compact = false }: { name: string; logoUrl?: string; compact?: boolean }) { const size = compact ? 'h-10 w-10' : 'h-11 w-11'; if (logoUrl) return <img src={logoUrl} alt="" className={`${size} inline-block shrink-0 rounded-xl border border-slate-200 bg-white object-cover shadow-sm`} loading="lazy" referrerPolicy="no-referrer" />; return <span className={`inline-grid ${size} shrink-0 place-items-center rounded-xl border border-blue-100 bg-blue-50 text-[10px] font-black text-[#073B8C]`}>{name.slice(0, 2).toUpperCase()}</span>; }
 function ScoreInput({ value, onChange, disabled, label }: { value: number; onChange: (value: number) => void; disabled: boolean; label: string }) { return <input aria-label={label} type="number" inputMode="numeric" min={0} max={99} disabled={disabled} value={value} onChange={(event) => onChange(Math.min(99, Math.max(0, Number(event.target.value) || 0)))} className="h-11 w-11 rounded-xl border border-slate-200 bg-slate-50 text-center text-lg font-black text-slate-900 outline-none focus:border-blue-400 disabled:text-slate-400" />; }
 function scoreError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível registrar o placar.'; if (error.code === 'EVIDENCE_REQUIRED') return 'A foto do placar é obrigatória nesta Copa.'; if (error.code === 'SCORER_TOTAL_EXCEEDS_SCORE') return 'A soma dos gols dos goleadores não pode ultrapassar o placar.'; if (error.code === 'INVALID_MATCH_TRANSITION') return 'Este jogo não aceita um novo placar neste momento.'; if (error.code === 'FORBIDDEN') return 'Você não pode registrar o placar deste jogo.'; return 'Falha ao registrar o placar.'; }
-function startError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível iniciar o campeonato.'; if (error.code === 'NOT_ENOUGH_PARTICIPANTS') return 'Convide pelo menos mais um jogador antes de começar.'; if (error.code === 'COMPETITION_ALREADY_STARTED' || error.code === 'START_CONFLICT') return 'Este campeonato já começou em outra ação.'; if (error.code === 'MATCHES_ALREADY_EXIST') return 'As partidas desta copa já foram geradas.'; return 'Não foi possível gerar as partidas. Tente novamente.'; }
+function startError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const details = error.details as { error?: unknown; message?: unknown; requestId?: unknown } | undefined;
+    const apiMessage = typeof details?.message === 'string' && details.message.trim()
+      ? details.message.trim()
+      : typeof details?.error === 'string' && details.error.trim()
+        ? details.error.trim()
+        : error.message || error.code;
+    const requestId = typeof details?.requestId === 'string' && details.requestId.trim() ? details.requestId.trim() : null;
+    return requestId ? `${apiMessage} · Ref. ${requestId.slice(0, 8)}` : apiMessage;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return String(error || 'Falha desconhecida ao gerar as partidas.');
+}
 function removeParticipantError(error: unknown): string { if (!(error instanceof ApiError)) return 'Não foi possível remover este jogador.'; if (error.code === 'HOST_CANNOT_REMOVE_SELF') return 'O Host não pode remover a si mesmo.'; if (error.code === 'LOBBY_LOCKED') return 'O lobby já foi encerrado e não aceita remoções.'; if (error.code === 'PARTICIPANT_NOT_FOUND') return 'Esse jogador já não está no lobby.'; if (error.code === 'HOST_ONLY') return 'Somente o Host pode remover jogadores.'; return 'Não foi possível remover este jogador agora.'; }
 function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Medal; label: string }) { return <button type="button" onClick={onClick} className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-2xl px-2 text-[11px] font-black transition sm:gap-2 sm:text-sm ${active ? 'bg-[#073B8C] text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="h-4 w-4 shrink-0" /><span className="truncate">{label}</span></button>; }
 type RuleTone = 'blue' | 'violet' | 'amber' | 'emerald' | 'rose';
