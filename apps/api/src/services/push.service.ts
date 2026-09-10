@@ -21,6 +21,18 @@ export function getVapidPublicKey(env: Env['Bindings']): string | null {
   return env.VAPID_SERVER_PUBLIC_KEY?.trim() || null;
 }
 
+function normalizeNotification(notification: ChaveaPushNotification): ChaveaPushNotification {
+  // Phase 7 is permanently unranked. Keep the user-facing wording consistent
+  // even for callers created before the product decision removed ranked LFG.
+  if (notification.tag.startsWith('lfg-')) {
+    return {
+      ...notification,
+      body: notification.body.replace('te desafiou para uma partida no ', 'te desafiou para um Amistoso no '),
+    };
+  }
+  return notification;
+}
+
 /**
  * Push é best-effort e fica fora das transações esportivas. Uma indisponibilidade
  * de FCM/APNs/Mozilla jamais pode reverter placar, check-in, chave ou MMR.
@@ -42,6 +54,7 @@ export async function sendPushToUsers(
     return { delivered: 0, removed: 0, failed: 0 };
   }
 
+  const normalizedNotification = normalizeNotification(notification);
   const candidates = await db.pushSubscription.findMany({
     where: { userId: { in: uniqueUserIds } },
     orderBy: { updatedAt: 'desc' },
@@ -67,8 +80,8 @@ export async function sendPushToUsers(
     subscriptions.map(async (subscription) => {
       const request = await buildPushPayload(
         {
-          data: JSON.stringify(notification),
-          options: { ttl: 300, urgency: 'high', topic: notification.tag.slice(0, 32) },
+          data: JSON.stringify(normalizedNotification),
+          options: { ttl: 300, urgency: 'high', topic: normalizedNotification.tag.slice(0, 32) },
         },
         {
           endpoint: subscription.endpoint,
