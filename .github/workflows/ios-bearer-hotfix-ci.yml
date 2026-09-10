@@ -1,0 +1,84 @@
+name: iOS Bearer Hotfix CI
+
+on:
+  push:
+    branches: [hotfix-ios-supabase-bearer-realtime]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: hotfix-ios-supabase-bearer-realtime
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Generate deterministic lockfile
+        run: npm install --package-lock-only
+      - name: Commit lockfile when absent or changed
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- package-lock.json || [ -n "$(git ls-files --others --exclude-standard package-lock.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: lock Supabase browser auth dependency"
+            git push origin HEAD:hotfix-ios-supabase-bearer-realtime
+          fi
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert Supabase localStorage session contract
+        run: |
+          set -euo pipefail
+          grep -Fq '"@supabase/supabase-js": "2.57.4"' apps/web/package.json
+          grep -Fq 'persistSession: true' apps/web/src/lib/supabase.ts
+          grep -Fq 'storage: window.localStorage' apps/web/src/lib/supabase.ts
+          grep -Fq "storageKey: 'chavea-supabase-auth'" apps/web/src/lib/supabase.ts
+          grep -Fq 'supabase.auth.setSession' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'supabase.auth.getSession' apps/web/src/hooks/useAuth.tsx
+      - name: Assert Bearer API contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'headers.set('\''Authorization'\'', `Bearer ${accessToken}`)' apps/web/src/lib/api.ts
+          grep -Fq "credentials: 'omit'" apps/web/src/lib/api.ts
+          grep -Fq "allowHeaders: ['Authorization', 'Content-Type', 'X-Dev-Reset-Token']" apps/api/src/index.ts
+          grep -Fq "extractBearerToken(c.req.header('authorization'))" apps/api/src/middleware/auth.middleware.ts
+          ! grep -Fq 'getCookie' apps/api/src/middleware/auth.middleware.ts
+          grep -Fq "headers.set('authorization', authorization)" 'apps/web/functions/api/[[path]].ts'
+          grep -Fq "headers.delete('cookie')" 'apps/web/functions/api/[[path]].ts'
+      - name: Assert realtime polling contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'COMPETITION_LIVE_POLL_MS = 3_000' apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq 'useCompetitionLivePolling(competitionId)' apps/web/src/pages/competitions/CompetitionDetailExperience.tsx
+          grep -Fq 'refetchInterval: COMPETITION_LIVE_POLL_MS' apps/web/src/pages/competitions/StandingsPage.tsx
+          grep -Fq 'refetchInterval: COMPETITION_LIVE_POLL_MS' apps/web/src/components/competition/GroupStagePanel.tsx
+      - name: Assert mobile standings contract
+        run: |
+          set -euo pipefail
+          grep -Fq 'className="w-full overflow-x-auto pb-2' apps/web/src/components/standings/StandingsTable.tsx
+          grep -Fq 'className="w-full overflow-x-auto pb-2' apps/web/src/components/competition/GroupStagePanel.tsx
+          grep -Fq 'max-w-[80px] truncate' apps/web/src/components/standings/StandingsTable.tsx
+          grep -Fq 'max-w-[80px] truncate' apps/web/src/components/competition/GroupStagePanel.tsx
+          for col in PTS J V E D SG; do
+            grep -Fq ">$col<" apps/web/src/components/competition/GroupStagePanel.tsx
+          done
+          if grep -nE '<th[^>]*(hidden|sm:hidden|md:table-cell)|<(td|th)[^>]*(hidden|sm:hidden|md:table-cell)' apps/web/src/components/standings/StandingsTable.tsx apps/web/src/components/competition/GroupStagePanel.tsx; then
+            echo 'A mathematical standings column is conditionally hidden.' >&2
+            exit 1
+          fi
+          CSS_FILE=$(find apps/web/dist/assets -maxdepth 1 -name '*.css' -print -quit)
+          test -n "$CSS_FILE"
+          grep -Fq 'overflow-x:auto' "$CSS_FILE"
