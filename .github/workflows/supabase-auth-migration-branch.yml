@@ -1,0 +1,111 @@
+name: Supabase Auth Bearer Migration CI
+
+on:
+  push:
+    branches: [supabase-auth-bearer-migration]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      VITE_SUPABASE_URL: https://uruwrztfbjbykgxwtgvg.supabase.co
+      VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyZWYiOiJjaS1idWlsZC1vbmx5Iiwicm9sZSI6ImFub24ifQ.ci-build-only
+      VITE_API_URL: https://arenagg-api.example.workers.dev
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Apply remaining migration patches once
+        if: contains(github.event.head_commit.message, 'validate Supabase bearer migration branch')
+        run: node scripts/patch-supabase-auth-branch.mjs
+
+      - name: Commit patched product files
+        if: contains(github.event.head_commit.message, 'validate Supabase bearer migration branch')
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/src/lib/api.ts apps/api/src/routes/auth.routes.ts apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx apps/web/src/pages/auth/RegisterPage.tsx apps/web/src/pages/auth/LoginPage.tsx
+          if ! git diff --cached --quiet; then
+            git commit -m 'refactor(auth): finish bearer client and remove cookie auth bridge'
+            git push origin HEAD:supabase-auth-bearer-migration
+          fi
+
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+
+      - name: Assert Supabase browser auth contract
+        run: |
+          set -euo pipefail
+          grep -Fq "createClient(SUPABASE_URL, SUPABASE_ANON_KEY" apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'storage: window.localStorage' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'persistSession: true' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'autoRefreshToken: true' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'signInWithPassword' apps/web/src/lib/supabase-auth.ts
+          grep -Fq '.auth.signUp' apps/web/src/lib/supabase-auth.ts
+          grep -Fq '.auth.getSession()' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'VITE_SUPABASE_URL' apps/web/src/lib/supabase-auth.ts
+          grep -Fq 'VITE_SUPABASE_ANON_KEY' apps/web/src/lib/supabase-auth.ts
+          ! grep -Rq 'AUTH_PROXY_KEY\|/supabase-proxy' apps/web/src apps/api/src/routes/auth.routes.ts
+
+      - name: Assert Bearer Worker contract
+        run: |
+          set -euo pipefail
+          grep -Fq "c.req.header('Authorization')" apps/api/src/middleware/auth.middleware.ts
+          grep -Fq 'resolveBearerUser' apps/api/src/middleware/auth.middleware.ts
+          grep -Fq 'client.auth.getUser(accessToken)' apps/api/src/services/supabase-auth.service.ts
+          grep -Fq 'supabaseAuthId: authUser.id' apps/api/src/services/supabase-auth.service.ts
+          ! grep -Fq "getCookie(c, 'chavea_session')" apps/api/src/routes/auth.routes.ts
+          ! grep -Fq '/migrate-cookie' apps/api/src/routes/auth.routes.ts
+
+      - name: Assert no auth dead end
+        run: |
+          set -euo pipefail
+          grep -Fq 'AUTH_BOOT_TIMEOUT_MS = 5_000' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "window.location.replace('/login')" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'clearSupabaseSessionStorage()' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'if (value.isLoading' apps/web/src/hooks/useAuth.tsx
+
+      - name: Assert HTTP Bearer injection
+        run: |
+          set -euo pipefail
+          grep -Fq 'await getSupabaseAccessToken()' apps/web/src/lib/api.ts
+          grep -Fq "headers.set('Authorization', \`Bearer \${accessToken}\`)" apps/web/src/lib/api.ts
+          grep -Fq 'refreshSupabaseAccessToken()' apps/web/src/lib/api.ts
+
+      - name: Assert live polling and fixed mobile tables
+        run: |
+          set -euo pipefail
+          grep -Fq 'refetchInterval: LIVE_POLL_MS' apps/web/src/pages/competitions/StandingsPage.tsx
+          grep -Fq 'COMPETITION_LIVE_POLL_MS = 3_000' apps/web/src/hooks/useCompetitionLivePolling.ts
+          grep -Fq 'refetchInterval: 3_000' apps/web/src/pages/competitions/CompetitionDetailPageLight.tsx
+          grep -Fq 'table-fixed' apps/web/src/components/standings/StandingsTable.tsx
+          grep -Fq 'table-fixed' apps/web/src/components/competition/GroupStagePanel.tsx
+          ! grep -Fq 'overflow-x-auto' apps/web/src/components/standings/StandingsTable.tsx
+          ! grep -Fq 'overflow-x-auto' apps/web/src/components/competition/GroupStagePanel.tsx
+          for col in PTS J V E D SG; do
+            grep -Fq ">$col<" apps/web/src/components/competition/GroupStagePanel.tsx
+          done
+
+      - name: Assert PWA silent update contract
+        run: |
+          set -euo pipefail
+          grep -Fq "registerType: 'autoUpdate'" apps/web/vite.config.ts
+          grep -Fq 'self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'self.clients.claim()' apps/web/src/sw.js
+          grep -Fq 'registration.update()' apps/web/src/main.tsx
