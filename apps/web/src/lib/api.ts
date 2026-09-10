@@ -1,3 +1,5 @@
+import { getSupabaseAccessToken } from './supabase-auth';
+
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
   | 'DRAFT'
@@ -191,12 +193,17 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers.set('Content-Type', 'application/json');
   }
 
+  const accessToken = await getSupabaseAccessToken();
+  if (accessToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+
   let response: Response;
   try {
     response = await fetch(resolveRequestUrl(path), {
       ...init,
       headers,
-      credentials: 'include',
+      credentials: 'omit',
       cache: 'no-store',
     });
   } catch (error) {

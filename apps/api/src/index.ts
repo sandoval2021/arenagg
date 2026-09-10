@@ -65,7 +65,7 @@ app.use(
     },
     credentials: true,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'X-Dev-Reset-Token'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Dev-Reset-Token'],
     maxAge: 86_400,
   }),
 );
