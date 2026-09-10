@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Gamepad2, Home, Medal, Trophy, UserRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -79,16 +78,6 @@ export function BottomNavigation() {
       }),
     ]);
   }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      prefetch('/dashboard');
-      prefetch('/play');
-      prefetch('/ranking');
-      prefetch('/profile');
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [queryClient]);
 
   return (
     <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-50 border-t border-black/5 bg-white/90 px-1 pb-[max(.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl sm:px-4">
