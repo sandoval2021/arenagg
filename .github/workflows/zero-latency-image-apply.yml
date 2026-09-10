@@ -9,65 +9,14 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message != 'perf(images): add lazy async decode to every image'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Add lazy loading and async decoding to every img
+      - name: Apply and verify image performance hints
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          pattern = re.compile(r'<img\b[^>]*?/?>', re.S)
-          changed = []
-
-          def patch_tag(tag: str) -> str:
-              attrs = []
-              if not re.search(r'\bloading\s*=', tag):
-                  attrs.append('loading="lazy"')
-              if not re.search(r'\bdecoding\s*=', tag):
-                  attrs.append('decoding="async"')
-              if not attrs:
-                  return tag
-              suffix = '/>' if tag.rstrip().endswith('/>') else '>'
-              body = tag.rstrip()[:-len(suffix)].rstrip()
-              return f"{body} {' '.join(attrs)} {suffix}"
-
-          for path in Path('apps/web/src').rglob('*.tsx'):
-              original = path.read_text()
-              updated = pattern.sub(lambda m: patch_tag(m.group(0)), original)
-              if updated != original:
-                  path.write_text(updated)
-                  changed.append(str(path))
-
-          print(f'updated {len(changed)} files')
-          for path in changed:
-              print(path)
-          PY
+          python .tmp/zero_latency_images.py
           git diff --check
-      - name: Verify every img has both performance hints
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re, sys
-          pattern = re.compile(r'<img\b[^>]*?/?>', re.S)
-          failures = []
-          count = 0
-          for path in Path('apps/web/src').rglob('*.tsx'):
-              text = path.read_text()
-              for match in pattern.finditer(text):
-                  count += 1
-                  tag = match.group(0)
-                  if not re.search(r'\bloading\s*=\s*["\']lazy["\']', tag) or not re.search(r'\bdecoding\s*=\s*["\']async["\']', tag):
-                      failures.append((path, tag[:180]))
-          print(f'validated {count} img tags')
-          if failures:
-              for path, tag in failures:
-                  print(f'MISSING {path}: {tag}', file=sys.stderr)
-              sys.exit(1)
-          PY
-      - name: Commit image optimizations
+      - name: Commit image optimizations when needed
         run: |
           if git diff --quiet; then exit 0; fi
           git config user.name sandoval2021
