@@ -60,50 +60,56 @@ export function GroupStagePanel() {
         {data && data.groups.length > 0 && (
           <div className="p-3 sm:p-5">
             <div className="grid gap-3 md:grid-cols-2">
-                {data.groups.map((group) => (
-                  <article key={group.id} className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5 sm:px-4 sm:py-3"><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-[#073B8C]">Classificação</p><h3 className="text-base font-black text-slate-950">{group.name}</h3></div><Trophy className="h-5 w-5 text-amber-500" /></div>
-                    <div className="w-full pb-1">
-                      <table className="w-full table-fixed border-collapse text-[10px] text-slate-700">
-                        <thead>
-                          <tr className="border-b border-slate-100 bg-white text-[8px] font-black uppercase tracking-wide text-slate-400">
-                            <th className="w-6 px-1 py-1 text-center text-[10px]">#</th>
-                            <th className="w-[88px] px-1 py-1 text-left text-[10px]">Time</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">PTS</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">J</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">V</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">E</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">D</th>
-                            <th className="w-7 px-1 py-1 text-center text-[10px]">SG</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.standings.map((row, index) => {
-                            const qualified = index < 2;
-                            const playerImage = row.user?.avatarUrl ?? row.team.logoUrl;
-                            return (
-                              <tr key={row.teamId} className={`border-b border-slate-100 last:border-b-0 ${qualified ? 'bg-emerald-50/70' : 'bg-white'}`}>
-                                <td className="px-1 py-1 text-center text-[10px]"><span className={`inline-grid h-6 w-6 place-items-center rounded-lg text-[10px] font-black ${qualified ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span></td>
-                                <td className="px-1 py-1">
-                                  <div className="flex min-w-0 items-center gap-1.5">
-                                    {playerImage ? <img src={playerImage} alt="" className="h-7 w-7 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-[8px] font-black text-[#073B8C]">{row.team.name.slice(0, 2).toUpperCase()}</span>}
-                                    <div className="min-w-0"><p className="max-w-[70px] truncate text-[10px] font-black text-slate-900">{row.team.name}</p>{qualified && <p className="max-w-[80px] truncate text-[7px] font-black uppercase text-emerald-600">Classifica</p>}</div>
-                                  </div>
-                                </td>
-                                <td className="px-1 py-1 text-center text-[10px] text-[11px] font-black text-[#073B8C]">{row.points}</td>
-                                <td className="px-1 py-1 text-center text-[10px] text-[10px] font-bold text-slate-600">{row.played}</td>
-                                <td className="px-1 py-1 text-center text-[10px] text-[10px] font-bold text-emerald-700">{row.wins}</td>
-                                <td className="px-1 py-1 text-center text-[10px] text-[10px] font-bold text-slate-600">{row.draws}</td>
-                                <td className="px-1 py-1 text-center text-[10px] text-[10px] font-bold text-rose-600">{row.losses}</td>
-                                <td className={`px-1 py-1 text-center text-[10px] text-[10px] font-black ${row.goalDifference > 0 ? 'text-emerald-700' : row.goalDifference < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{row.goalDifference > 0 ? '+' : ''}{row.goalDifference}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </article>
-                ))}
+              {data.groups.map((group) => (
+                <article key={group.id} className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5 sm:px-4 sm:py-3"><div><p className="text-[9px] font-black uppercase tracking-[.16em] text-[#073B8C]">Classificação</p><h3 className="text-base font-black text-slate-950">{group.name}</h3></div><Trophy className="h-5 w-5 text-amber-500" /></div>
+                  <div
+                    className="w-full overflow-x-auto pb-2 overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]"
+                    style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+                    role="region"
+                    aria-label={`Classificação ${group.name}`}
+                    tabIndex={0}
+                  >
+                    <table className="w-full min-w-[520px] border-collapse text-[10px] text-slate-700">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-white text-[9px] font-black uppercase tracking-wide text-slate-400">
+                          <th className="w-8 px-1.5 py-2 text-center">#</th>
+                          <th className="w-[112px] px-1.5 py-2 text-left">Time</th>
+                          <th className="px-1.5 py-2 text-center">PTS</th>
+                          <th className="px-1.5 py-2 text-center">J</th>
+                          <th className="px-1.5 py-2 text-center">V</th>
+                          <th className="px-1.5 py-2 text-center">E</th>
+                          <th className="px-1.5 py-2 text-center">D</th>
+                          <th className="px-1.5 py-2 text-center">SG</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.standings.map((row, index) => {
+                          const qualified = index < 2;
+                          const playerImage = row.user?.avatarUrl ?? row.team.logoUrl;
+                          return (
+                            <tr key={row.teamId} className={`border-b border-slate-100 last:border-b-0 ${qualified ? 'bg-emerald-50/70' : 'bg-white'}`}>
+                              <td className="px-1.5 py-2 text-center"><span className={`inline-grid h-6 w-6 place-items-center rounded-lg text-[10px] font-black ${qualified ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{index + 1}</span></td>
+                              <td className="px-1.5 py-2">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  {playerImage ? <img src={playerImage} alt="" className="h-7 w-7 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" loading="lazy" /> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-[8px] font-black text-[#073B8C]">{row.team.name.slice(0, 2).toUpperCase()}</span>}
+                                  <div className="min-w-0"><p className="max-w-[80px] truncate text-[10px] font-black text-slate-900">{row.team.name}</p>{qualified && <p className="max-w-[80px] truncate text-[7px] font-black uppercase text-emerald-600">Classifica</p>}</div>
+                                </div>
+                              </td>
+                              <td className="px-1.5 py-2 text-center text-[11px] font-black text-[#073B8C]">{row.points}</td>
+                              <td className="px-1.5 py-2 text-center font-bold text-slate-600">{row.played}</td>
+                              <td className="px-1.5 py-2 text-center font-bold text-emerald-700">{row.wins}</td>
+                              <td className="px-1.5 py-2 text-center font-bold text-slate-600">{row.draws}</td>
+                              <td className="px-1.5 py-2 text-center font-bold text-rose-600">{row.losses}</td>
+                              <td className={`px-1.5 py-2 text-center font-black ${row.goalDifference > 0 ? 'text-emerald-700' : row.goalDifference < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{row.goalDifference > 0 ? '+' : ''}{row.goalDifference}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              ))}
             </div>
 
             {data.knockoutGenerated && <div className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-700"><CheckCircle2 className="h-5 w-5" />Mata-mata gerado. A chave decisiva já está disponível.</div>}
