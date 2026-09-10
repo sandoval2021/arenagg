@@ -36,7 +36,7 @@ export function ProfilePage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isOwner = auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
+  const isAdmin = auth.user?.role === 'ADMIN' || auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
 
   const profile = useQuery({ queryKey: ['gamer-profile', 'me'], queryFn: getMyGamerProfile });
   const friends = useQuery({ queryKey: ['friends'], queryFn: getFriends });
@@ -146,7 +146,7 @@ export function ProfilePage() {
           <div className="mt-3 space-y-2">{friends.data?.map((friend) => <Link key={friend.id} to={`/profile/${friend.id}`} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3"><MiniAvatar url={friend.avatarUrl} name={friend.displayName ?? friend.name} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-800">{friend.displayName ?? friend.name}</p><div className="mt-1"><ConsoleBadges consoles={friend.consoles} compact /></div></div></Link>)}</div>
         </section>
 
-        {isOwner && <Link to="/owner/settings" className="mt-5 flex min-h-16 items-center gap-3 rounded-3xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 text-[#073B8C] shadow-sm"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073B8C] text-white"><Crown className="h-6 w-6" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-black uppercase tracking-wider text-blue-500">Proprietário</span><span className="mt-1 block text-base font-black">Configuração Geral</span></span><Settings2 className="h-5 w-5" /></Link>}
+        {isAdmin && <Link to="/owner/settings" className="mt-5 flex min-h-16 items-center gap-3 rounded-3xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 text-[#073B8C] shadow-sm"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#073B8C] text-white"><Crown className="h-6 w-6" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-black uppercase tracking-wider text-blue-500">Admin</span><span className="mt-1 block text-base font-black">Configuração Geral</span></span><Settings2 className="h-5 w-5" /></Link>}
 
         {(data?.email ?? auth.user?.email) && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"><Mail className="h-5 w-5 text-slate-400" /><div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Conta</p><p className="truncate text-sm font-bold">{data?.email ?? auth.user?.email}</p></div></div>}
         <button onClick={logout} disabled={auth.logout.isPending} className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 font-black text-[#E31B23] disabled:opacity-60">{auth.logout.isPending ? <GlobalLoader mode="inline" label="Saindo…" /> : <><LogOut className="h-5 w-5" />Sair da conta</>}</button>

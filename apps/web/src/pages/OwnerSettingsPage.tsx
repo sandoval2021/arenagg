@@ -30,12 +30,12 @@ export function OwnerSettingsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [cardImportResult, setCardImportResult] = useState<CardBulkImportResult | null>(null);
-  const isOwner = auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
+  const isAdmin = auth.user?.role === 'ADMIN' || auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
 
   const shields = useQuery({
     queryKey: ['owner', 'default-shields'],
     queryFn: getOwnerDefaultShields,
-    enabled: isOwner,
+    enabled: isAdmin,
   });
 
   const upload = useMutation({
@@ -85,13 +85,13 @@ export function OwnerSettingsPage() {
     },
   });
 
-  if (!isOwner) {
+  if (!isAdmin) {
     return (
       <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
         <div className="max-w-sm text-center">
           <ShieldCheck className="mx-auto h-10 w-10 text-slate-300" />
-          <h1 className="mt-4 text-xl font-black">Área do proprietário</h1>
-          <p className="mt-2 text-sm font-medium text-slate-500">Esta configuração geral é exclusiva do proprietário do Chavea.</p>
+          <h1 className="mt-4 text-xl font-black">Área administrativa</h1>
+          <p className="mt-2 text-sm font-medium text-slate-500">Esta configuração geral é exclusiva de administradores do Chavea.</p>
           <Link to="/profile" className="mt-5 inline-flex rounded-2xl bg-[#073B8C] px-5 py-3 font-black text-white">Voltar ao perfil</Link>
         </div>
       </main>
@@ -106,7 +106,7 @@ export function OwnerSettingsPage() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">Proprietário Chavea</p>
+            <p className="text-[10px] font-black uppercase tracking-[.18em] text-[#073B8C]">Admin Chavea</p>
             <h1 className="text-2xl font-black">Configuração Geral</h1>
           </div>
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-[#073B8C]"><Settings2 className="h-5 w-5" /></span>
