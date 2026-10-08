@@ -7,6 +7,7 @@ on:
       - 'apps/api/src/d1/**'
       - 'apps/api/wrangler.d1.local.toml'
       - 'scripts/validate-d1-sqlite.py'
+      - 'apps/web/src/**'
       - '.github/workflows/validate-d1-schema.yml'
   workflow_dispatch:
 permissions:
@@ -29,6 +30,8 @@ jobs:
         run: |
           npx prisma generate --schema prisma/schema.prisma
           npm run typecheck --workspace=@chavea/api
+      - name: Typecheck and build the D1 PWA without publishing
+        run: npm run build --workspace=@chavea/web
       - name: Execute SQLite integrity and account/session smoke tests
         run: python3 scripts/validate-d1-sqlite.py
       - name: Verify D1 schema with Wrangler local database
