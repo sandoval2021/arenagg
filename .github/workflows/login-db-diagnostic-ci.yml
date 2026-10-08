@@ -1,0 +1,33 @@
+name: Login and DB Diagnosis
+
+on:
+  push:
+    branches: [fix-login-supabase-session-regression]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check published Worker without credentials
+        env:
+          API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+        run: |
+          set -euo pipefail
+          for endpoint in '/health' '/api/health/db'; do
+            STATUS="$(curl -sS --max-time 15 -o /tmp/diagnose-body -w '%{http_code}' "$API_URL$endpoint" || true)"
+            echo "$endpoint HTTP $STATUS"
+            if [ "$endpoint" = '/api/health/db' ]; then
+              node -e 'const fs=require("fs");try {const b=JSON.parse(fs.readFileSync("/tmp/diagnose-body","utf8")); console.log("DB health code:",b.error||b.status||b.ok||"unknown")} catch {console.log("DB health response was non-JSON")}'
+            fi
+          done
+          STATUS="$(curl -sS --max-time 20 -o /tmp/login-diagnose-body -w '%{http_code}' \
+            -X POST "$API_URL/api/auth/login" \
+            -H 'Content-Type: application/json' \
+            --data '{"email":"chavea-diagnostic-nonexistent@example.invalid","password":"DiagnosticNeverValid123!"}' || true)"
+          echo "Nonexistent user login HTTP $STATUS"
+          node -e 'const fs=require("fs");try{const b=JSON.parse(fs.readFileSync("/tmp/login-diagnose-body","utf8"));console.log("Login error code:",b.error||"none")}catch{console.log("Login response was non-JSON")}'
