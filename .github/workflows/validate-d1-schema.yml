@@ -4,6 +4,7 @@ on:
     branches: ['feat/cloudflare-d1-migration']
     paths:
       - 'prisma/d1/**'
+      - 'apps/api/src/d1/**'
       - '.github/workflows/validate-d1-schema.yml'
   workflow_dispatch:
 permissions:
@@ -22,6 +23,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Validate Prisma SQLite schema
         run: npx prisma validate --schema prisma/d1/schema.prisma
+      - name: Typecheck staged D1-native auth (without activating in production)
+        run: |
+          npx prisma generate --schema prisma/schema.prisma
+          npm run typecheck --workspace=@chavea/api
       - name: Validate SQLite Prisma Client generation
         run: npx prisma generate --schema prisma/d1/schema.prisma
       - name: Generate D1 baseline migration SQL for inspection
