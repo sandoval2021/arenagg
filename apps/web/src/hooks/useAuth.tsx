@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from '../lib/api';
 import {
   clearSupabaseSession,
+  clearSupabaseSessionLocalSync,
   persistSupabaseSession,
   readPersistedSupabaseSession,
   refreshSupabaseAccessToken,
@@ -359,12 +360,14 @@ function useAuthState() {
   });
 
   const forceLoginRecovery = useCallback(() => {
-    void (async () => {
-      await clearSupabaseSession();
-      clearUserSnapshot();
-      queryClient.clear();
-      window.location.replace('/login');
-    })();
+    // Fail closed synchronously: WebKit may hang on SDK signOut/refresh.
+    // Never await a network operation before leaving the dead-end screen.
+    clearSupabaseSessionLocalSync();
+    clearUserSnapshot();
+    setCachedUser(null);
+    setHasPersistedSession(false);
+    queryClient.clear();
+    window.location.replace('/login');
   }, [queryClient]);
 
   const liveUser = me.data?.user ?? null;
@@ -377,6 +380,8 @@ function useAuthState() {
     // Network/session validation runs in the background and never blocks paint.
     isLoading: false,
     isBootstrapping,
+    // A cached display name is not proof of a validated Bearer JWT.
+    isSessionVerified: Boolean(me.data?.user),
     hasPersistedSession,
     hasBootstrapError,
     bootstrapError: me.error,
