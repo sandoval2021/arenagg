@@ -1,0 +1,47 @@
+name: Hotfix Auth Escape and PWA Update CI
+
+on:
+  push:
+    branches: [hotfix-auth-exit-pwa-silent-update-20261008]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema prisma/schema.prisma
+      - name: Typecheck API
+        run: npm run typecheck --workspace=@chavea/api
+      - name: Build React PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Assert auth bootstrap cannot dead-end
+        run: |
+          set -euo pipefail
+          grep -Fq 'AUTH_BOOTSTRAP_TIMEOUT_MS = 5_000' apps/web/src/components/auth/AuthBootstrapEscape.tsx
+          grep -Fq 'auth.isSessionVerified' apps/web/src/components/auth/AuthBootstrapEscape.tsx
+          grep -Fq 'isSessionVerified: Boolean(me.data?.user)' apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'clearSupabaseSessionLocalSync();' apps/web/src/hooks/useAuth.tsx
+          grep -Fq "window.location.replace('/login');" apps/web/src/hooks/useAuth.tsx
+          grep -Fq 'window.localStorage.removeItem(SUPABASE_STORAGE_KEY)' apps/web/src/lib/supabase-auth.ts
+      - name: Assert silent PWA updates
+        run: |
+          set -euo pipefail
+          grep -Fq "registerType: 'autoUpdate'" apps/web/vite.config.ts
+          grep -Fq 'clientsClaim: true' apps/web/vite.config.ts
+          grep -Fq 'skipWaiting: true' apps/web/vite.config.ts
+          grep -Fq 'v13-20261008-auto-update' apps/web/src/sw.js
+          grep -Fq 'await self.skipWaiting()' apps/web/src/sw.js
+          grep -Fq 'await self.clients.claim()' apps/web/src/sw.js
+          grep -Fq "window.addEventListener('online', onOnline)" apps/web/src/components/pwa/PwaUpdatePrompt.tsx
+          grep -Fq "window.addEventListener('pageshow', onPageShow)" apps/web/src/components/pwa/PwaUpdatePrompt.tsx
+          grep -Fq 'navigator.serviceWorker.getRegistration' apps/web/src/components/pwa/PwaUpdatePrompt.tsx
+          grep -Fq 'registration.update()' apps/web/src/components/pwa/PwaUpdatePrompt.tsx
+          grep -Fq "navigator.serviceWorker.addEventListener('controllerchange'" apps/web/src/components/pwa/PwaUpdatePrompt.tsx
