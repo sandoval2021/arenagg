@@ -5,6 +5,8 @@ on:
     paths:
       - 'prisma/d1/**'
       - 'apps/api/src/d1/**'
+      - 'apps/api/wrangler.d1.local.toml'
+      - 'scripts/validate-d1-sqlite.py'
       - '.github/workflows/validate-d1-schema.yml'
   workflow_dispatch:
 permissions:
@@ -27,6 +29,14 @@ jobs:
         run: |
           npx prisma generate --schema prisma/schema.prisma
           npm run typecheck --workspace=@chavea/api
+      - name: Execute SQLite integrity and account/session smoke tests
+        run: python3 scripts/validate-d1-sqlite.py
+      - name: Verify D1 schema with Wrangler local database
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --file ../../prisma/d1/migrations/0001_init.sql
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --command 'SELECT COUNT(*) AS total FROM sqlite_master WHERE type="table";'
       - name: Validate SQLite Prisma Client generation
         run: npx prisma generate --schema prisma/d1/schema.prisma
       - name: Generate D1 baseline migration SQL for inspection
