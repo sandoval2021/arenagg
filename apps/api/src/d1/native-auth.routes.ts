@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { hashPassword, normalizeEmail, normalizePhone, verifyPassword } from '../services/auth.service';
@@ -64,7 +64,7 @@ async function hashToken(token: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 }
-function sendCookie(c: Parameters<Parameters<typeof routes.post>[1]>[0], token: string): void {
+function sendCookie(c: Context<D1AuthEnv>, token: string): void {
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     secure: true,
