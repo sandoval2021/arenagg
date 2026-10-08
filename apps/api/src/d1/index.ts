@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { routes as authRoutes, type D1DatabasePort } from './native-auth.routes';
+import { googleOAuthRoutes } from './google-oauth.routes';
 import { readPublicImageFromR2 } from './r2-images';
 import type { R2BucketPort } from '../infrastructure/storage/r2/r2-storage.adapter';
 
@@ -9,6 +10,9 @@ type Env = {
     DB: D1DatabasePort;
     EVIDENCE_BUCKET?: R2BucketPort;
     WEB_APP_URL?: string;
+    GOOGLE_CLIENT_ID?: string;
+    GOOGLE_CLIENT_SECRET?: string;
+    GOOGLE_REDIRECT_URI?: string;
   };
 };
 
@@ -44,6 +48,7 @@ app.get('/api/health/db', async c => {
   }
 });
 app.route('/api/auth', authRoutes);
+app.route('/api/auth', googleOAuthRoutes);
 app.get('/api/media/:scope/:owner/:file', async c => {
   if (!c.env.EVIDENCE_BUCKET) return c.json({ error: 'STORAGE_UNAVAILABLE' }, 503);
   return readPublicImageFromR2(c.env as { EVIDENCE_BUCKET: R2BucketPort },
