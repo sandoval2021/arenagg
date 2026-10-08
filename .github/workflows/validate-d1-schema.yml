@@ -1,0 +1,115 @@
+name: Validate D1 Schema (staging only)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - 'prisma/d1/**'
+      - 'apps/api/src/d1/**'
+      - 'apps/api/wrangler.d1.local.toml'
+      - 'scripts/validate-d1-sqlite.py'
+      - 'apps/web/src/**'
+      - '.github/workflows/validate-d1-schema.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      D1_LOCAL_DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: Validate Prisma SQLite schema
+        run: npx prisma validate --schema prisma/d1/schema.prisma
+      - name: Typecheck staged D1-native auth (without activating in production)
+        run: |
+          npx prisma generate --schema prisma/schema.prisma
+          npm run typecheck --workspace=@chavea/api
+      - name: Typecheck and build the D1 PWA without publishing
+        run: npm run build --workspace=@chavea/web
+      - name: Execute SQLite integrity and account/session smoke tests
+        run: python3 scripts/validate-d1-sqlite.py
+      - name: Verify D1 schema with Wrangler local database
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --file ../../prisma/d1/migrations/0001_init.sql
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --command 'SELECT COUNT(*) AS total FROM sqlite_master WHERE type="table";'
+      - name: Smoke-test native D1 HTTP authentication in local Worker
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler dev --config wrangler.d1.local.toml --local --port 8788 --ip 127.0.0.1 > /tmp/chavea-d1-worker.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail --max-time 2 'http://127.0.0.1:8788/health' -o /dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo 'Staged D1 Worker did not start'
+            tail -n 80 /tmp/chavea-d1-worker.log
+            exit 1
+          fi
+          echo 'Staging Worker health: PASS'
+          BASE=http://127.0.0.1:8788/api/auth
+          TEST_EMAIL="d1-ci-$(date +%s)@example.invalid"
+          BODY="{\"name\":\"D1 CI\",\"email\":\"$TEST_EMAIL\",\"password\":\"SecureTest12345!\"}"
+          STATUS="$(curl -sS -o /tmp/d1-register.json -c /tmp/d1-cookies -w '%{http_code}' "$BASE/register" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "$BODY")"
+          echo "Register HTTP: $STATUS"
+          test "$STATUS" = 201
+          STATUS="$(curl -sS -o /tmp/d1-me.json -b /tmp/d1-cookies -w '%{http_code}' "$BASE/me")"
+          echo "Session /me HTTP: $STATUS"
+          test "$STATUS" = 200
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/register" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "$BODY")"
+          echo "Duplicate registration HTTP: $STATUS"
+          test "$STATUS" = 409
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/login" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "{\"email\":\"$TEST_EMAIL\",\"password\":\"WrongPassword12345!\"}")"
+          echo "Wrong password HTTP: $STATUS"
+          test "$STATUS" = 401
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies "$BASE/logout" -X POST -H 'Origin: http://localhost:5173')"
+          echo "Logout HTTP: $STATUS"
+          test "$STATUS" = 204
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies "$BASE/me")"
+          echo "Revoked /me HTTP: $STATUS"
+          test "$STATUS" = 401
+          STATUS="$(curl -sS -o /tmp/d1-login.json -c /tmp/d1-cookies-new -w '%{http_code}' "$BASE/login" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "{\"email\":\"$TEST_EMAIL\",\"password\":\"SecureTest12345!\"}")"
+          echo "New login HTTP: $STATUS"
+          test "$STATUS" = 200
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies-new "$BASE/me")"
+          echo "New session /me HTTP: $STATUS"
+          test "$STATUS" = 200
+          echo 'D1 auth smoke test: PASS'
+      - name: Validate SQLite Prisma Client generation
+        run: npx prisma generate --schema prisma/d1/schema.prisma
+      - name: Generate D1 baseline migration SQL for inspection
+        run: |
+          set -euo pipefail
+          mkdir -p prisma/d1/migrations
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/d1/schema.prisma --script > prisma/d1/migrations/0001_init.sql
+          test -s prisma/d1/migrations/0001_init.sql
+          echo "Migration lines: $(wc -l < prisma/d1/migrations/0001_init.sql)"
+          echo "Migration SHA256: $(sha256sum prisma/d1/migrations/0001_init.sql | cut -d' ' -f1)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chavea-d1-baseline-migration
+          path: prisma/d1/migrations/0001_init.sql
+          retention-days: 3
+      - name: Commit reproducible D1 migration to isolated branch
+        if: github.ref == 'refs/heads/feat/cloudflare-d1-migration'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add prisma/d1/migrations/0001_init.sql
+          if git diff --cached --quiet; then
+            echo 'No SQL migration changes'
+          else
+            git commit -m 'feat(d1): store generated initial SQLite migration'
+            git push origin HEAD:feat/cloudflare-d1-migration
+          fi

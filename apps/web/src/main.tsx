@@ -7,7 +7,6 @@ import { AuthProvider } from './hooks/useAuth';
 import { AuthBootstrapEscape } from './components/auth/AuthBootstrapEscape';
 import { GlobalActivityLoader } from './components/brand/GlobalActivityLoader';
 import { PwaUpdatePrompt } from './components/pwa/PwaUpdatePrompt';
-import { hydrateSupabaseAccessTokenSync } from './lib/supabase-auth';
 import { installImagePerformanceDefaults } from './lib/image-performance';
 import { DEFAULT_STALE_TIME, QUERY_GC_TIME } from './lib/query-cache';
 import './styles/globals.css';
@@ -19,9 +18,6 @@ import './styles/globals.css';
 document.documentElement.dataset.chaveaProduct = 'O melhor gerenciador de campeonatos de EA FC e e-Sports!';
 document.documentElement.dataset.chaveaApi = import.meta.env.VITE_API_URL?.trim() ?? '';
 
-// Network-free boot work only. Protected queries can attach the persisted
-// Bearer token on the first frame without waiting for Supabase getSession().
-hydrateSupabaseAccessTokenSync();
 installImagePerformanceDefaults();
 
 // Entry-level update recovery for iOS standalone mode: unlike component

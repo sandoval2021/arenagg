@@ -1,9 +1,3 @@
-import {
-  getSupabaseAccessTokenForRequest,
-  refreshSupabaseAccessToken,
-  SupabaseAuthRestoringError,
-} from './supabase-auth';
-
 export type CompetitionFormat = 'LEAGUE' | 'KNOCKOUT' | 'GROUPS_KNOCKOUT' | 'ENDLESS';
 export type CompetitionStatus =
   | 'DRAFT'
@@ -177,16 +171,14 @@ export type CreateCompetitionInput = {
 function resolveApiUrl(): string {
   const configured = import.meta.env.VITE_API_URL?.trim();
   if (configured) return configured.replace(/\/+$/, '');
-
-  if (import.meta.env.DEV) return 'http://localhost:8787';
-
-  console.warn('[api] VITE_API_URL is missing; using the Chavea production Worker fallback');
-  return PRODUCTION_API_URL;
+  return import.meta.env.DEV ? 'http://localhost:8788' : 'https://arenagg-api.sandovaloliveira284.workers.dev';
 }
 
 export const API_URL = resolveApiUrl();
 
 function resolveRequestUrl(path: string): string {
+  // The same-origin Cloudflare Pages Function acts as the only production API
+  // gateway. The browser owns no JWT, refresh token or Supabase session.
   if (import.meta.env.PROD && path.startsWith('/api/')) return path;
   return `${API_URL}${path}`;
 }
@@ -202,71 +194,23 @@ export class ApiError extends Error {
   }
 }
 
-function isSessionIssuingPath(path: string): boolean {
-  return path === '/api/auth/login' || path === '/api/auth/register' || path === '/api/auth/migrate-cookie';
-}
-
-async function fetchApi(path: string, init: RequestInit, headers: Headers): Promise<Response> {
-  try {
-    return await fetch(resolveRequestUrl(path), {
-      ...init,
-      headers,
-      credentials: 'omit',
-      cache: 'no-store',
-    });
-  } catch (error) {
-    console.error('[api] network request failed', {
-      path,
-      apiUrl: import.meta.env.PROD ? window.location.origin : API_URL,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    throw new ApiError(0, 'NETWORK_ERROR');
-  }
-}
-
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!path.startsWith('/api/')) throw new ApiError(0, 'INVALID_API_PATH');
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  let accessToken: string | null = null;
-  if (!isSessionIssuingPath(path)) {
-    try {
-      accessToken = await getSupabaseAccessTokenForRequest();
-    } catch (error) {
-      if (error instanceof SupabaseAuthRestoringError) {
-        // Do not poison polling/prefetch caches with an anonymous 401 while a
-        // persisted iOS session is still being hydrated/refreshed.
-        throw new ApiError(0, 'AUTH_RESTORING', { message: error.message });
-      }
-      throw error;
-    }
-  }
-
-  if (accessToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${accessToken}`);
-  }
-
-  let response = await fetchApi(path, init, headers);
-
-  // iOS can resume the PWA after an access JWT expires. Supabase keeps the
-  // refresh token in localStorage; refresh once and replay the same protected
-  // request with a fresh Bearer token. This is bounded to one retry.
-  if (response.status === 401 && accessToken && !isSessionIssuingPath(path)) {
-    try {
-      const refreshedToken = await refreshSupabaseAccessToken();
-      if (refreshedToken) {
-        const retryHeaders = new Headers(headers);
-        retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
-        response = await fetchApi(path, init, retryHeaders);
-      }
-    } catch (refreshError) {
-      console.warn('[api] bearer refresh failed', {
-        path,
-        message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-      });
-    }
+  let response: Response;
+  try {
+    response = await fetch(resolveRequestUrl(path), {
+      ...init,
+      headers,
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError(0, 'NETWORK_ERROR');
   }
 
   if (!response.ok) {
@@ -274,7 +218,6 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       error?: string;
       issues?: unknown;
       message?: string;
-      prismaCode?: string;
     };
     throw new ApiError(response.status, body.error ?? 'REQUEST_FAILED', body);
   }
