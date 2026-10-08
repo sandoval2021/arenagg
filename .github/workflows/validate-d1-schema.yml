@@ -1,0 +1,39 @@
+name: Validate D1 Schema (staging only)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - 'prisma/d1/**'
+      - '.github/workflows/validate-d1-schema.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      D1_LOCAL_DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: Validate Prisma SQLite schema
+        run: npx prisma validate --schema prisma/d1/schema.prisma
+      - name: Validate SQLite Prisma Client generation
+        run: npx prisma generate --schema prisma/d1/schema.prisma
+      - name: Generate D1 baseline migration SQL for inspection
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/chavea-d1
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/d1/schema.prisma --script > /tmp/chavea-d1/0001_init.sql
+          test -s /tmp/chavea-d1/0001_init.sql
+          echo "Migration lines: $(wc -l < /tmp/chavea-d1/0001_init.sql)"
+          echo "Migration SHA256: $(sha256sum /tmp/chavea-d1/0001_init.sql | cut -d' ' -f1)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chavea-d1-baseline-migration
+          path: /tmp/chavea-d1/0001_init.sql
+          retention-days: 3
