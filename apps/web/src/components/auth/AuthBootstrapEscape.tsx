@@ -15,6 +15,10 @@ export function AuthBootstrapEscape() {
   const recoveryStarted = useRef(false);
 
   useEffect(() => {
+    // A cached, already-authenticated user must never lose their refresh token
+    // because /auth/me took longer than five seconds on mobile data.
+    // Protected Worker calls still require a valid Bearer JWT.
+    if (auth.isAuthenticated) return;
     if (!auth.isBootstrapping && !auth.hasBootstrapError) return;
 
     const recover = () => {
@@ -30,7 +34,7 @@ export function AuthBootstrapEscape() {
 
     const timer = window.setTimeout(recover, AUTH_BOOTSTRAP_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [auth.isBootstrapping, auth.hasBootstrapError, auth.forceLoginRecovery]);
+  }, [auth.isAuthenticated, auth.isBootstrapping, auth.hasBootstrapError, auth.forceLoginRecovery]);
 
   return null;
 }
