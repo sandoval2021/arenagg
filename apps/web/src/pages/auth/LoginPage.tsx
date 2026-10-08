@@ -13,17 +13,31 @@ function safeNext(value: string | null): string | null {
 }
 
 function loginErrorMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) return 'Não foi possível entrar. Tente novamente.';
+  if (!(error instanceof ApiError)) {
+    // The API may have accepted the password, but the browser can still fail
+    // when persisting the issued Supabase session on iOS/WebKit.
+    return 'Não foi possível salvar a sessão neste aparelho. Tente novamente; se persistir, informe o suporte.';
+  }
 
   switch (error.code) {
     case 'NETWORK_ERROR':
-      return 'Não foi possível conectar ao servidor do Chavea.';
+      return 'Não foi possível conectar ao servidor do Chavea. Verifique a conexão.';
     case 'INVALID_INPUT':
       return 'Confira seu e-mail, telefone e senha.';
     case 'INVALID_CREDENTIALS':
       return 'E-mail, telefone ou senha inválidos.';
-    default:
-      return 'Não foi possível entrar. Tente novamente.';
+    case 'AUTH_SESSION_ISSUE_FAILED':
+      return 'Sua senha foi aceita, mas o serviço de autenticação não conseguiu criar a sessão. Tente novamente.';
+    case 'AUTH_SERVICE_NOT_CONFIGURED':
+      return 'O serviço de login está indisponível. A equipe precisa verificar a configuração do servidor.';
+    case 'AUTH_RESTORING':
+      return 'Sua sessão anterior ainda está sendo restaurada. Tente entrar novamente.';
+    default: {
+      const details = error.details as { message?: unknown } | undefined;
+      if (typeof details?.message === 'string' && details.message.length <= 240) return details.message;
+      if (error.status >= 500) return 'O servidor não conseguiu concluir seu login. Tente novamente ou informe o suporte.';
+      return 'Não foi possível entrar. Confira os dados e tente novamente.';
+    }
   }
 }
 
