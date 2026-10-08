@@ -1,0 +1,114 @@
+name: Chavea Database Connectivity Diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/chavea-db-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read-only Supabase / PostgreSQL diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test configured database without exposing credentials or modifying data
+        env:
+          PG_DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+          EXPECTED_PROJECT_REF: uruwrztfbjbykgxwtgvg
+        run: |
+          node --input-type=module <<'NODE'
+          import dns from 'node:dns/promises';
+          import net from 'node:net';
+          import { Client } from 'pg';
+
+          const timeoutMs = 8000;
+          const ref = process.env.EXPECTED_PROJECT_REF;
+          const raw = process.env.PG_DATABASE_URL;
+          if (!raw) {
+            console.log('DATABASE_URL_DIRECT: NOT_CONFIGURED');
+            process.exitCode = 1;
+          } else {
+            let url;
+            try {
+              url = new URL(raw);
+              if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw Error('invalid protocol');
+              if (!url.username || !url.password || !url.hostname) throw Error('incomplete URL');
+            } catch {
+              console.log('DATABASE_URL_DIRECT: INVALID_FORMAT');
+              process.exitCode = 1;
+            }
+            if (url) {
+              const safeError = e => String(e?.code || e?.name || 'UNKNOWN').slice(0, 100);
+              const host = url.hostname;
+              console.log('DATABASE_URL_DIRECT: PRESENT');
+              console.log('Connection hostname:', host);
+              console.log('Connection port:', url.port || '5432');
+              console.log('Configured project reference:', ref);
+              console.log('Secret username matches API project:', url.username.includes(ref) ? 'YES' : 'NO_OR_NOT_IN_USERNAME');
+
+              async function probeDns(label, hostname) {
+                try {
+                  const found = await dns.lookup(hostname, { all: true });
+                  console.log(label + ': DNS_OK (addresses=' + found.length + ')');
+                  return true;
+                } catch (error) {
+                  console.log(label + ': DNS_' + safeError(error));
+                  return false;
+                }
+              }
+
+              async function probeTcp(label, hostname, port) {
+                await new Promise(resolve => {
+                  const socket = net.createConnection({ host: hostname, port: Number(port) });
+                  const deadline = setTimeout(() => { console.log(label + ': TIMEOUT'); socket.destroy(); resolve(); }, timeoutMs);
+                  socket.once('connect', () => { clearTimeout(deadline); console.log(label + ': CONNECTED'); socket.destroy(); resolve(); });
+                  socket.once('error', e => { clearTimeout(deadline); console.log(label + ': ' + safeError(e)); resolve(); });
+                });
+              }
+
+              await probeDns('Configured DB', host);
+              await probeDns('Supabase direct DB', 'db.' + ref + '.supabase.co');
+              await probeDns('Supabase auth API', ref + '.supabase.co');
+              await probeTcp('Configured database TCP', host, url.port || '5432');
+
+              try {
+                const response = await fetch('https://' + ref + '.supabase.co/auth/v1/health', {
+                  signal: AbortSignal.timeout(timeoutMs),
+                  redirect: 'manual',
+                });
+                console.log('Supabase Auth endpoint HTTP:', response.status);
+              } catch (error) {
+                console.log('Supabase Auth endpoint:', safeError(error));
+              }
+
+              const client = new Client({
+                connectionString: raw,
+                connectionTimeoutMillis: timeoutMs,
+                query_timeout: timeoutMs,
+                statement_timeout: timeoutMs,
+                application_name: 'chavea-readonly-connectivity-diagnostic',
+              });
+              try {
+                await client.connect();
+                await client.query('SELECT 1');
+                console.log('Postgres SELECT 1: SUCCESS');
+              } catch (error) {
+                console.log('Postgres SELECT 1: FAILED (' + safeError(error) + ')');
+                process.exitCode = 1;
+              } finally {
+                await client.end().catch(() => {});
+              }
+            }
+          }
+          NODE
