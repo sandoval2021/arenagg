@@ -93,17 +93,17 @@ async function ensureSupabaseUser(
   if (user.supabaseAuthId) {
     const { data, error } = await client.auth.admin.getUserById(user.supabaseAuthId);
     if (!error && data.user) {
-      const { data: updated, error: updateError } = await client.auth.admin.updateUserById(data.user.id, {
-        password,
-        app_metadata: { ...data.user.app_metadata, ...authMetadata(user) },
-      });
-      if (updateError || !updated.user) {
+      // An existing identity must NOT have its password reset on every login.
+      // That operation can revoke active Supabase sessions on other devices.
+      // Only repair a divergent password after the user's Chavea password was
+      // already verified and Supabase explicitly rejects those credentials.
+      if (!sameIdentifier(data.user, user)) {
         throw new SupabaseAuthBridgeError(
           'SUPABASE_AUTH_PROVISION_FAILED',
-          updateError?.message ?? 'Could not synchronize the Supabase Auth user.',
+          'Supabase identity does not match the linked Chavea user.',
         );
       }
-      return updated.user;
+      return data.user;
     }
   }
 
@@ -189,7 +189,25 @@ export async function provisionAndIssueSupabaseSession(
   const credentials = user.email
     ? { email: normalizeEmail(user.email), password }
     : { phone: normalizePhone(user.phone ?? ''), password };
-  const { data, error } = await client.auth.signInWithPassword(credentials);
+  let { data, error } = await client.auth.signInWithPassword(credentials);
+
+  // Legacy Chavea accounts may have a different password stored in Supabase
+  // Auth. Only resync after an explicit invalid-credentials response. All
+  // other failures (network, rate limit, availability) must fail closed.
+  const passwordMismatch = error?.code === 'invalid_credentials' ||
+    (error?.status === 400 && /invalid login credentials/i.test(error.message));
+  if (passwordMismatch && user.supabaseAuthId === authUser.id) {
+    const { error: syncError } = await client.auth.admin.updateUserById(authUser.id, {
+      password,
+    });
+    if (syncError) {
+      throw new SupabaseAuthBridgeError(
+        'SUPABASE_AUTH_PROVISION_FAILED',
+        'Could not synchronize this account password.',
+      );
+    }
+    ({ data, error } = await client.auth.signInWithPassword(credentials));
+  }
 
   if (error || !data.session || data.user?.id !== authUser.id) {
     throw new SupabaseAuthBridgeError(
