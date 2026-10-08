@@ -7,7 +7,7 @@ on:
       - '.github/workflows/validate-d1-schema.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   schema:
     runs-on: ubuntu-latest
@@ -27,13 +27,25 @@ jobs:
       - name: Generate D1 baseline migration SQL for inspection
         run: |
           set -euo pipefail
-          mkdir -p /tmp/chavea-d1
-          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/d1/schema.prisma --script > /tmp/chavea-d1/0001_init.sql
-          test -s /tmp/chavea-d1/0001_init.sql
-          echo "Migration lines: $(wc -l < /tmp/chavea-d1/0001_init.sql)"
-          echo "Migration SHA256: $(sha256sum /tmp/chavea-d1/0001_init.sql | cut -d' ' -f1)"
+          mkdir -p prisma/d1/migrations
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma/d1/schema.prisma --script > prisma/d1/migrations/0001_init.sql
+          test -s prisma/d1/migrations/0001_init.sql
+          echo "Migration lines: $(wc -l < prisma/d1/migrations/0001_init.sql)"
+          echo "Migration SHA256: $(sha256sum prisma/d1/migrations/0001_init.sql | cut -d' ' -f1)"
       - uses: actions/upload-artifact@v4
         with:
           name: chavea-d1-baseline-migration
-          path: /tmp/chavea-d1/0001_init.sql
+          path: prisma/d1/migrations/0001_init.sql
           retention-days: 3
+      - name: Commit reproducible D1 migration to isolated branch
+        if: github.ref == 'refs/heads/feat/cloudflare-d1-migration'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add prisma/d1/migrations/0001_init.sql
+          if git diff --cached --quiet; then
+            echo 'No SQL migration changes'
+          else
+            git commit -m 'feat(d1): store generated initial SQLite migration'
+            git push origin HEAD:feat/cloudflare-d1-migration
+          fi
