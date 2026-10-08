@@ -286,13 +286,22 @@ export function subscribeSupabaseAuthState(
   };
 }
 
-export async function clearSupabaseSession(): Promise<void> {
+/**
+ * Synchronous escape hatch for a failed initial auth bootstrap.
+ * No network call or lazy SDK import is allowed to delay navigation to /login.
+ * Keep unrelated preferences, album drafts and install state intact.
+ */
+export function clearSupabaseSessionLocalSync(): void {
   cachedAccessToken = null;
   try {
     window.localStorage.removeItem(SUPABASE_STORAGE_KEY);
   } catch {
-    // Storage may be restricted; in-memory auth is already cleared.
+    // Storage access may be restricted on iOS; in-memory bearer is still cleared.
   }
+}
+
+export async function clearSupabaseSession(): Promise<void> {
+  clearSupabaseSessionLocalSync();
 
   try {
     const client = await getSupabaseClient();
