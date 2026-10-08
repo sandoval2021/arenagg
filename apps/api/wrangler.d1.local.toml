@@ -2,7 +2,7 @@
 # remote deployment until Cloudflare D1 is provisioned and data cutover approved.
 name = "chavea-d1-local"
 main = "src/d1/index.ts"
-compatibility_date = "2026-10-08"
+compatibility_date = "2026-09-08"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
