@@ -18,6 +18,22 @@ function requiresAuth(pathname: string): boolean {
 export function AuthBootstrapEscape() {
   const auth = useAuth();
   const recoveryStarted = useRef(false);
+  const verifiedRef = useRef(auth.isSessionVerified);
+  const recoverRef = useRef(auth.forceLoginRecovery);
+  verifiedRef.current = auth.isSessionVerified;
+  recoverRef.current = auth.forceLoginRecovery;
+
+  // A hard deadline measured from the first mount: React Query retries or
+  // auth-state events must never reset the five-second escape window.
+  useEffect(() => {
+    if (!requiresAuth(window.location.pathname) || verifiedRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (verifiedRef.current || recoveryStarted.current) return;
+      recoveryStarted.current = true;
+      recoverRef.current();
+    }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!requiresAuth(window.location.pathname) || auth.isSessionVerified) return;
@@ -35,8 +51,7 @@ export function AuthBootstrapEscape() {
       return;
     }
 
-    const timer = window.setTimeout(recover, AUTH_BOOTSTRAP_TIMEOUT_MS);
-    return () => window.clearTimeout(timer);
+    // The mount-scoped watchdog above owns the absolute timeout.
   }, [auth.isSessionVerified, auth.isBootstrapping, auth.hasBootstrapError, auth.forceLoginRecovery]);
 
   return null;
