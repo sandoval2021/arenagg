@@ -1,0 +1,43 @@
+name: Chavea D1 Discovery (read-only)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - '.github/workflows/chavea-d1-discovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  discover:
+    name: Discover existing D1 database and permissions
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install project tools
+        run: npm ci --no-audit --no-fund
+      - name: List Cloudflare D1 resources without creating anything
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'CLOUDFLARE_SECRETS_MISSING'
+            exit 1
+          fi
+          npx wrangler d1 list --json > /tmp/d1-list.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const parsed = JSON.parse(fs.readFileSync('/tmp/d1-list.json', 'utf8'));
+          const list = Array.isArray(parsed) ? parsed : (parsed.result ?? []);
+          console.log('D1_ACCESS_CONFIRMED');
+          console.log('Total D1 databases:', list.length);
+          const relevant = list.filter(d => /chavea|arenagg/i.test(String(d.name ?? '')));
+          for (const d of relevant) console.log('Chavea candidate:', d.name, d.uuid ?? d.id ?? '<unknown>');
+          console.log('CHAVEA_D1_PRESENT:', relevant.length > 0);
+          NODE
