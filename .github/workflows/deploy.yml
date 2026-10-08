@@ -187,18 +187,42 @@ jobs:
           wait "$TAIL_PID" 2>/dev/null || true
 
           echo "Registration HTTP status: $STATUS"
-          cat /tmp/register.body || true
-          echo
-
+          # NEVER print registration bodies: they contain live Supabase JWT and
+          # refresh tokens. Only log status and safe error codes.
           if [ "$CURL_EXIT" -ne 0 ] || [ "$STATUS" != '201' ]; then
+            node -e 'try { const b=JSON.parse(require("fs").readFileSync("/tmp/register.body","utf8")); console.error("Registration error code:",b.error||"unknown"); } catch { console.error("Registration body not JSON"); }'
             echo '--- Worker tail diagnostics ---'
-            cat /tmp/arenagg-tail.log || true
+            grep -E 'error|Error|failed' /tmp/arenagg-tail.log | tail -n 30 || true
             exit 1
           fi
 
           grep -qi '^access-control-allow-origin: https://chavea.pages.dev' /tmp/register.headers
           grep -qi '^access-control-allow-credentials: true' /tmp/register.headers
-          grep -qi '^set-cookie: chavea_session=' /tmp/register.headers
+
+          REGISTER_TOKEN="$(node -e 'const b=JSON.parse(require("fs").readFileSync("/tmp/register.body","utf8"));if (!b.session?.accessToken || !b.session?.refreshToken) process.exit(1);process.stdout.write(b.session.accessToken)')"
+          test -n "$REGISTER_TOKEN"
+          ME_STATUS="$(curl --silent --show-error -o /tmp/me-register.body -w '%{http_code}' "$API_URL/api/auth/me" -H "Authorization: Bearer $REGISTER_TOKEN")"
+          test "$ME_STATUS" = '200'
+          unset REGISTER_TOKEN
+
+          LOGIN_STATUS="$(curl --silent --show-error \
+            -o /tmp/login.body -w '%{http_code}' \
+            -X POST "$API_URL/api/auth/login" \
+            -H 'Origin: https://chavea.pages.dev' \
+            -H 'Content-Type: application/json' \
+            --data "{\"email\":\"$TEST_EMAIL\",\"password\":\"ArenaGG-CI-12345!\"}")"
+          echo "Existing-account login HTTP status: $LOGIN_STATUS"
+          if [ "$LOGIN_STATUS" != '200' ]; then
+            node -e 'try { const b=JSON.parse(require("fs").readFileSync("/tmp/login.body","utf8")); console.error("Login error code:",b.error||"unknown"); } catch { console.error("Login body not JSON"); }'
+            exit 1
+          fi
+
+          LOGIN_TOKEN="$(node -e 'const b=JSON.parse(require("fs").readFileSync("/tmp/login.body","utf8"));if (!b.session?.accessToken || !b.session?.refreshToken) process.exit(1);process.stdout.write(b.session.accessToken)')"
+          test -n "$LOGIN_TOKEN"
+          ME_LOGIN_STATUS="$(curl --silent --show-error -o /tmp/me-login.body -w '%{http_code}' "$API_URL/api/auth/me" -H "Authorization: Bearer $LOGIN_TOKEN")"
+          test "$ME_LOGIN_STATUS" = '200'
+          unset LOGIN_TOKEN
+          node -e 'const fs=require("fs"); const a=JSON.parse(fs.readFileSync("/tmp/me-register.body","utf8"));const b=JSON.parse(fs.readFileSync("/tmp/me-login.body","utf8")); if (!a.user?.id || a.user.id!==b.user?.id) process.exit(1); console.log("Supabase Bearer registration, existing-account login and /auth/me: OK");'
 
           cd ../..
           node --input-type=module <<'NODE'
