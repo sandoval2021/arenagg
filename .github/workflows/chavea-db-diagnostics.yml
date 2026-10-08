@@ -104,7 +104,14 @@ jobs:
                 await client.query('SELECT 1');
                 console.log('Postgres SELECT 1: SUCCESS');
               } catch (error) {
-                console.log('Postgres SELECT 1: FAILED (' + safeError(error) + ')');
+                const message = String(error?.message ?? '').toLowerCase();
+                const reason =
+                  /tenant or user not found|tenant not found|project.*not found/.test(message) ? 'PROJECT_OR_TENANT_NOT_FOUND' :
+                  /password authentication failed|invalid password/.test(message) ? 'PASSWORD_REJECTED' :
+                  /too many connections|remaining connection slots/.test(message) ? 'CONNECTION_LIMIT' :
+                  /timeout|timed out/.test(message) ? 'CONNECTION_TIMEOUT' :
+                  /does not exist/.test(message) ? 'DATABASE_NOT_FOUND' : 'UNCLASSIFIED';
+                console.log('Postgres SELECT 1: FAILED (' + safeError(error) + ', ' + reason + ')');
                 process.exitCode = 1;
               } finally {
                 await client.end().catch(() => {});
