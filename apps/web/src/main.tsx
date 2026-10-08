@@ -24,6 +24,35 @@ document.documentElement.dataset.chaveaApi = import.meta.env.VITE_API_URL?.trim(
 hydrateSupabaseAccessTokenSync();
 installImagePerformanceDefaults();
 
+// Entry-level update recovery for iOS standalone mode: unlike component
+// effects, this runs even when the router is waiting for auth validation.
+// A single shared check is throttled so connectivity/focus events do not
+// cause redundant update() calls or multiple registrations.
+if ('serviceWorker' in navigator) {
+  let lastCheck = 0;
+  let updatePending = false;
+  const checkWorker = () => {
+    if (!navigator.onLine || updatePending || Date.now() - lastCheck < 15_000) return;
+    lastCheck = Date.now();
+    updatePending = true;
+    void navigator.serviceWorker.getRegistration('/').then((registration) =>
+      registration?.update(),
+    ).catch((error) => {
+      console.warn('[pwa] entry update check failed', error);
+    }).finally(() => {
+      updatePending = false;
+    });
+  };
+  window.addEventListener('online', checkWorker);
+  window.addEventListener('pageshow', checkWorker);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkWorker();
+  });
+  // Defer until the first frame; VitePWA handles registration itself.
+  window.requestAnimationFrame(checkWorker);
+}
+
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
