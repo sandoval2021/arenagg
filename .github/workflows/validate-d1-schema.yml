@@ -37,6 +37,52 @@ jobs:
           cd apps/api
           npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --file ../../prisma/d1/migrations/0001_init.sql
           npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.local.toml --command 'SELECT COUNT(*) AS total FROM sqlite_master WHERE type="table";'
+      - name: Smoke-test native D1 HTTP authentication in local Worker
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler dev --config wrangler.d1.local.toml --local --port 8788 --ip 127.0.0.1 > /tmp/chavea-d1-worker.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail --max-time 2 'http://127.0.0.1:8788/health' -o /dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo 'Staged D1 Worker did not start'
+            tail -n 80 /tmp/chavea-d1-worker.log
+            exit 1
+          fi
+          echo 'Staging Worker health: PASS'
+          BASE=http://127.0.0.1:8788/api/auth
+          TEST_EMAIL="d1-ci-$(date +%s)@example.invalid"
+          BODY="{\"name\":\"D1 CI\",\"email\":\"$TEST_EMAIL\",\"password\":\"SecureTest12345!\"}"
+          STATUS="$(curl -sS -o /tmp/d1-register.json -c /tmp/d1-cookies -w '%{http_code}' "$BASE/register" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "$BODY")"
+          echo "Register HTTP: $STATUS"
+          test "$STATUS" = 201
+          STATUS="$(curl -sS -o /tmp/d1-me.json -b /tmp/d1-cookies -w '%{http_code}' "$BASE/me")"
+          echo "Session /me HTTP: $STATUS"
+          test "$STATUS" = 200
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/register" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "$BODY")"
+          echo "Duplicate registration HTTP: $STATUS"
+          test "$STATUS" = 409
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/login" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "{\"email\":\"$TEST_EMAIL\",\"password\":\"WrongPassword12345!\"}")"
+          echo "Wrong password HTTP: $STATUS"
+          test "$STATUS" = 401
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies "$BASE/logout" -X POST -H 'Origin: http://localhost:5173')"
+          echo "Logout HTTP: $STATUS"
+          test "$STATUS" = 204
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies "$BASE/me")"
+          echo "Revoked /me HTTP: $STATUS"
+          test "$STATUS" = 401
+          STATUS="$(curl -sS -o /tmp/d1-login.json -c /tmp/d1-cookies-new -w '%{http_code}' "$BASE/login" -X POST -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' --data "{\"email\":\"$TEST_EMAIL\",\"password\":\"SecureTest12345!\"}")"
+          echo "New login HTTP: $STATUS"
+          test "$STATUS" = 200
+          STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b /tmp/d1-cookies-new "$BASE/me")"
+          echo "New session /me HTTP: $STATUS"
+          test "$STATUS" = 200
+          echo 'D1 auth smoke test: PASS'
       - name: Validate SQLite Prisma Client generation
         run: npx prisma generate --schema prisma/d1/schema.prisma
       - name: Generate D1 baseline migration SQL for inspection
