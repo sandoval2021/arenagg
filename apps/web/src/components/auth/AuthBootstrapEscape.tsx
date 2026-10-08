@@ -3,23 +3,24 @@ import { useAuth } from '../../hooks/useAuth';
 
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
+function requiresAuth(pathname: string): boolean {
+  return /^(\/dashboard|\/competitions|\/matches|\/ranking|\/profile|\/play|\/owner)(\/|$)/.test(pathname);
+}
+
 /**
- * Fail closed only during the initial protected-route bootstrap.
+ * Initial-auth guard. A user snapshot can paint a friendly shell, but it must
+ * NOT suppress the five-second verification deadline for a protected route.
  *
- * Once /auth/me has produced data, background polling/refetch failures never
- * trigger this guard. That distinction prevents a temporary 5G/Wi-Fi wobble
- * from ejecting an already active user from a competition.
+ * The timer starts when the PWA mounts (not after Supabase's own retries).
+ * A completed/validated session disables this guard; later background network
+ * errors do not log out an otherwise validated user.
  */
 export function AuthBootstrapEscape() {
   const auth = useAuth();
   const recoveryStarted = useRef(false);
 
   useEffect(() => {
-    // A cached, already-authenticated user must never lose their refresh token
-    // because /auth/me took longer than five seconds on mobile data.
-    // Protected Worker calls still require a valid Bearer JWT.
-    if (auth.isAuthenticated) return;
-    if (!auth.isBootstrapping && !auth.hasBootstrapError) return;
+    if (!requiresAuth(window.location.pathname) || auth.isSessionVerified) return;
 
     const recover = () => {
       if (recoveryStarted.current) return;
@@ -27,14 +28,16 @@ export function AuthBootstrapEscape() {
       auth.forceLoginRecovery();
     };
 
-    if (auth.hasBootstrapError) {
+    // Distinguish a server rejection / exhausted retry from the pending
+    // bootstrap. Neither outcome is allowed to leave the user trapped.
+    if (auth.hasBootstrapError || (!auth.isBootstrapping && !auth.isSessionVerified)) {
       recover();
       return;
     }
 
     const timer = window.setTimeout(recover, AUTH_BOOTSTRAP_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [auth.isAuthenticated, auth.isBootstrapping, auth.hasBootstrapError, auth.forceLoginRecovery]);
+  }, [auth.isSessionVerified, auth.isBootstrapping, auth.hasBootstrapError, auth.forceLoginRecovery]);
 
   return null;
 }
