@@ -64,7 +64,7 @@ async function hashToken(token: string): Promise<string> {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 }
-function sendCookie(c: Context<D1AuthEnv>, token: string): void {
+export function sendCookie(c: Context<D1AuthEnv>, token: string): void {
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     secure: true,
@@ -73,7 +73,7 @@ function sendCookie(c: Context<D1AuthEnv>, token: string): void {
     maxAge: SESSION_TTL_SEC,
   });
 }
-async function createSession(db: D1DatabasePort, userId: string): Promise<string> {
+export async function createSession(db: D1DatabasePort, userId: string): Promise<string> {
   const token = randomToken();
   const issued = new Date();
   const expires = new Date(issued.getTime() + SESSION_TTL_SEC * 1_000).toISOString();
