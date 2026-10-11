@@ -1,0 +1,98 @@
+name: Provision CHAVEA D1 Staging (Cloudflare Free)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths: ['.github/workflows/provision-chavea-d1-staging.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chavea-d1-staging-provision
+  cancel-in-progress: false
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned build tools
+        run: npm ci --no-audit --no-fund
+      - name: Identify or create *staging* D1 database only
+        id: d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          if (!token || !/^[a-f0-9]{32}$/i.test(account || '')) {
+            throw new Error('Cloudflare account ID or API token missing/invalid in GitHub secrets');
+          }
+          const base = 'https://api.cloudflare.com/client/v4/accounts/' + account + '/d1/database';
+          const request = async (url, init = {}) => {
+            const res = await fetch(url, {
+              ...init,
+              headers: {
+                Authorization: 'Bearer ' + token,
+                ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+              },
+              signal: AbortSignal.timeout(20000),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok || body.success === false) {
+              const errorCode = Array.isArray(body.errors) ? body.errors[0]?.code : 'unknown';
+              throw new Error('Cloudflare D1 API HTTP ' + res.status + ', code ' + errorCode +
+                '. Token requires Account > D1 > Edit for the correct account.');
+            }
+            return body.result;
+          };
+          const existing = await request(base + '?per_page=100');
+          if (!Array.isArray(existing)) throw new Error('Unexpected D1 list response');
+          const name = 'chavea-staging';
+          let record = existing.find(db => db.name === name);
+          let created = false;
+          if (!record) {
+            record = await request(base, {method:'POST',body:JSON.stringify({name})});
+            created = true;
+          }
+          const id = record?.uuid;
+          if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id)) {
+            throw new Error('D1 database UUID was missing or invalid');
+          }
+          // Ephemeral Wrangler config; no credentials or production bindings.
+          fs.writeFileSync('/tmp/chavea-d1-staging.toml',
+            'name = "chavea-d1-staging-setup"\n' +
+            'main = "src/d1/index.ts"\n' +
+            'compatibility_date = "2026-09-08"\n' +
+            'compatibility_flags = ["nodejs_compat"]\n' +
+            '[[d1_databases]]\n' +
+            'binding = "DB"\n' +
+            'database_name = "' + name + '"\n' +
+            'database_id = "' + id + '"\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'created=' + created + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'database_id=' + id + '\n');
+          console.log('D1_STAGING_NAME=' + name);
+          console.log('D1_STAGING_UUID=' + id);
+          console.log('D1_STAGING_CREATED=' + created);
+          NODE
+      - name: Initialize staging SQLite schema (new empty database only)
+        if: steps.d1.outputs.created == 'true'
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler d1 execute chavea-staging --remote --config /tmp/chavea-d1-staging.toml --file ../../prisma/d1/migrations/0001_init.sql
+      - name: Read-only remote D1 schema verification
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler d1 execute chavea-staging --remote --config /tmp/chavea-d1-staging.toml --command "SELECT COUNT(*) AS tables FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+          echo 'Staging D1 is initialized or was already present. Production is unchanged.'
