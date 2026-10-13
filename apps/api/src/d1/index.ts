@@ -25,6 +25,7 @@ type Env = {
 const app = new Hono<Env>();
 // Guard isolated staging endpoints. Production has no STAGING_ACCESS_KEY.
 app.use('*', async (c, next) => {
+  c.header('X-Chavea-Staging-Revision', 'owner-activation-challenge-v2');
   const required = c.env.STAGING_ACCESS_KEY;
   const supplied = c.req.header('X-Chavea-Staging-Key');
   const activationPath = c.req.path === '/api/auth/owner/activate';
