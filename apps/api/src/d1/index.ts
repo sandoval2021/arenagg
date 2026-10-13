@@ -21,8 +21,15 @@ const app = new Hono<Env>();
 // Guard isolated staging endpoints. Production has no STAGING_ACCESS_KEY.
 app.use('*', async (c, next) => {
   const required = c.env.STAGING_ACCESS_KEY;
-  if (required && c.req.header('X-Chavea-Staging-Key') !== required) {
-    return c.json({ error: 'STAGING_ACCESS_DENIED' }, 403);
+  const supplied = c.req.header('X-Chavea-Staging-Key');
+  if (required && supplied !== required) {
+    // Staging-only diagnostics: lengths reveal no credential bytes.
+    return c.json({
+      error: 'STAGING_ACCESS_DENIED',
+      headerPresent: Boolean(supplied),
+      expectedLength: required.length,
+      suppliedLength: supplied?.length ?? 0,
+    }, 403);
   }
   await next();
 });
