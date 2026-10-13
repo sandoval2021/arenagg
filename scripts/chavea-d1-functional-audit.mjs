@@ -79,11 +79,12 @@ async function main() {
   const cupId = creation.data?.id;
   assert.ok(cupId, 'Competition ID missing');
   await request('Host reads cup', '/api/competitions/'+cupId, { actor:host });
-  await request('Guest reads cup', '/api/competitions/'+cupId, { actor:guest });
+  await request('Guest cannot access private cup before joining', '/api/competitions/'+cupId, { actor:guest, expected:[404] });
   await request('Host team read', '/api/competitions/'+cupId, { actor:host });
   await request('Guest joins cup', '/api/competitions/'+cupId+'/join', {actor:guest, method:'POST', expected:[200]});
   await request('Guest cannot join twice (idempotent)', '/api/competitions/'+cupId+'/join', {actor:guest, method:'POST', expected:[200]});
   await request('Host sees two players', '/api/competitions/'+cupId, {actor:host});
+  await request('Guest reads joined cup', '/api/competitions/'+cupId, {actor:guest});
   await request('Guest cannot start cup', '/api/competitions/'+cupId+'/start', {actor:guest, method:'POST', expected:[403]});
   await request('Host starts cup', '/api/competitions/'+cupId+'/start', {actor:host, method:'POST', expected:[200]});
   await request('Host reads matches', '/api/competitions/'+cupId+'/matches', {actor:host});
