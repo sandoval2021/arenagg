@@ -119,6 +119,8 @@ jobs:
           fi
           OWNER_HTTP="$(curl -sS -o /tmp/chavea-owner-register.json -w '%{http_code}' "$BASE/api/auth/register" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data '{"name":"Unverified Owner Claim","email":"sandovaloliveira284@gmail.com","password":"InvalidOwnerClaim!2026"}')"
           echo "Reserved unverified owner email HTTP: $OWNER_HTTP"
+          echo "Owner reservation response:"
+          cat /tmp/chavea-owner-register.json
           test "$OWNER_HTTP" = '403'
           grep -q 'OWNER_EMAIL_VERIFICATION_REQUIRED' /tmp/chavea-owner-register.json
           ADMIN_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview" -H "$HEADER")"
