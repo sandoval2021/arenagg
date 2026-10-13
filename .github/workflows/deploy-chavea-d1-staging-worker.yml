@@ -25,6 +25,10 @@ jobs:
           node-version: '22'
       - name: Install pinned tools
         run: npm ci --no-audit --no-fund
+      - name: Generate SQLite Prisma Client for Worker
+        env:
+          D1_LOCAL_DATABASE_URL: file:./dev.db
+        run: npx prisma generate --schema prisma/d1/schema.prisma
       - name: Check remote D1 and prepare access-protected staging Worker
         run: |
           set -euo pipefail
@@ -104,6 +108,12 @@ jobs:
           if [ "$HTTP" != '200' ]; then
             echo 'Remote health response body (no credentials):'
             head -c 2000 /tmp/chavea-d1-health.json
+            exit 1
+          fi
+          ORM_HTTP="$(curl -sS -o /tmp/chavea-d1-orm.json -w '%{http_code}' "$BASE/api/health/orm" -H "$HEADER")"
+          echo "Remote Prisma D1 ORM HTTP: $ORM_HTTP"
+          if [ "$ORM_HTTP" != '200' ]; then
+            head -c 2000 /tmp/chavea-d1-orm.json
             exit 1
           fi
           EMAIL="chavea-staging-$(date +%s)@example.invalid"
