@@ -68,6 +68,46 @@ phaseThreeCompetitions.post('/', async (c) => {
       ? 'KNOCKOUT' as const
       : input.type;
 
+  if (c.env.DB) {
+    // D1 SQLite cannot execute Prisma's interactive $transaction callback.
+    // Batch each dependent write atomically, preserving the canonical
+    // Phase 3/6 competition format, financial settings and host team.
+    const timestamp = new Date().toISOString();
+    const competitionId = crypto.randomUUID();
+    const participationId = crypto.randomUUID();
+    const teamId = crypto.randomUUID();
+    const d1 = c.env.DB;
+    await d1.batch([
+      d1.prepare(`INSERT INTO "Competition"
+        ("id","hostId","name","slug","type","format","groupCount",
+         "qualifiersPerGroup","game","platform","legFormat","matchPace",
+         "teamSelection","maxParticipants","requireValidation","entryFee",
+         "prizeDistribution","status","createdAt","updatedAt")
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`)
+        .bind(
+          competitionId, host.id, input.name, slugify(input.name),
+          persistedType, format,
+          format === 'GROUP_STAGE' ? input.groupCount ?? 4 : null,
+          format === 'GROUP_STAGE' ? 2 : null,
+          input.game ?? null, input.platform ?? null,
+          input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
+          input.matchPace, input.teamSelection, input.maxParticipants,
+          input.requireValidation ? 1 : 0, input.entryFee,
+          input.prizeDistribution, 'REGISTRATION',
+          timestamp, timestamp,
+        ),
+      d1.prepare(`INSERT INTO "Participation"
+        ("id","competitionId","userId","status","teamName","joinedAt")
+        VALUES (?1,?2,?3,'ACTIVE',?4,?5)`)
+        .bind(participationId, competitionId, host.id, teamName, timestamp),
+      d1.prepare(`INSERT INTO "Team"
+        ("id","competitionId","participationId","createdById","name")
+        VALUES (?1,?2,?3,?4,?5)`)
+        .bind(teamId, competitionId, participationId, host.id, teamName),
+    ]);
+    return c.json({ id: competitionId, name: input.name }, 201);
+  }
+
   const competition = await db.$transaction(async (tx) => {
     const created = await tx.competition.create({
       data: {
