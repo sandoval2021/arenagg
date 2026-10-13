@@ -21,7 +21,7 @@ export interface D1DatabasePort {
   batch(statements: StatementPort[]): Promise<unknown>;
 }
 
-type Bindings = { DB: D1DatabasePort; WEB_APP_URL?: string };
+type Bindings = { DB: D1DatabasePort; WEB_APP_URL?: string; OWNER_EMAIL?: string };
 type D1AuthEnv = { Bindings: Bindings };
 type DatabaseUser = {
   id: string;
@@ -142,6 +142,14 @@ routes.post('/register', async c => {
   const id = crypto.randomUUID();
   const normalizedEmail = email ? normalizeEmail(email) : null;
   const normalizedPhone = phone ? normalizePhone(phone) : null;
+  // Never allow password-only registration to claim the platform owner's
+  // e-mail address. It is unverified at this stage and would enable takeover.
+  // Owner identity is established separately via verified Google identity
+  // (or a future email-verified invitation flow).
+  if (normalizedEmail && c.env.OWNER_EMAIL &&
+    normalizedEmail === normalizeEmail(c.env.OWNER_EMAIL)) {
+    return c.json({ error: 'OWNER_EMAIL_VERIFICATION_REQUIRED' }, 403);
+  }
   const timestamp = nowIso();
   const passwordHash = await hashPassword(password);
   const db = c.env.DB;
