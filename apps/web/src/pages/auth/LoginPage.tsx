@@ -14,9 +14,7 @@ function safeNext(value: string | null): string | null {
 
 function loginErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) {
-    // The API may have accepted the password, but the browser can still fail
-    // when persisting the issued Supabase session on iOS/WebKit.
-    return 'Não foi possível salvar a sessão neste aparelho. Tente novamente; se persistir, informe o suporte.';
+    return 'Não foi possível concluir o login. Confira sua conexão e tente novamente.';
   }
 
   switch (error.code) {
@@ -26,10 +24,10 @@ function loginErrorMessage(error: unknown): string {
       return 'Confira seu e-mail, telefone e senha.';
     case 'INVALID_CREDENTIALS':
       return 'E-mail, telefone ou senha inválidos.';
-    case 'AUTH_SESSION_ISSUE_FAILED':
-      return 'Sua senha foi aceita, mas o serviço de autenticação não conseguiu criar a sessão. Tente novamente.';
-    case 'AUTH_SERVICE_NOT_CONFIGURED':
-      return 'O serviço de login está indisponível. A equipe precisa verificar a configuração do servidor.';
+    case 'SESSION_CREATION_FAILED':
+      return 'A senha foi validada, mas houve erro ao criar sua sessão. Tente novamente.';
+    case 'DATABASE_UNAVAILABLE':
+      return 'O banco de dados está temporariamente indisponível. Tente novamente em instantes.';
     case 'AUTH_RESTORING':
       return 'Sua sessão anterior ainda está sendo restaurada. Tente entrar novamente.';
     default: {
