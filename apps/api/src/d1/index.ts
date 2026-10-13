@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import legacyApp from '../index';
 import { cors } from 'hono/cors';
 import { routes as authRoutes, type D1DatabasePort } from './native-auth.routes';
 import { googleOAuthRoutes } from './google-oauth.routes';
@@ -89,6 +90,10 @@ app.get('/api/media/:scope/:owner/:file', async c => {
   return readPublicImageFromR2(c.env as { EVIDENCE_BUCKET: R2BucketPort },
     `images/${c.req.param('scope')}/${c.req.param('owner')}/${c.req.param('file')}`);
 });
+// Reuse the existing Hono route graph against Prisma's D1 adapter. The
+// D1 session middleware and ORM bridge are activated only with the DB binding;
+// staging smoke tests gate the real production cutover.
+app.route('/', legacyApp);
 app.notFound(c => c.json({ error: 'ROUTE_NOT_YET_MIGRATED' }, 404));
 app.onError((_error, c) => c.json({ error: 'INTERNAL_SERVER_ERROR' }, 500));
 export default app;
