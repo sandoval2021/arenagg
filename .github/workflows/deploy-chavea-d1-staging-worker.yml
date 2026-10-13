@@ -1,5 +1,5 @@
 name: Verify CHAVEA D1 Staging Worker (free Cloudflare)
-# Protected staging API; remote test account is isolated from production.
+# Protected staging API; test same-origin owner activation and CSRF controls.
 on:
   push:
     branches: ['feat/cloudflare-d1-migration']
@@ -132,6 +132,23 @@ jobs:
           echo "Unauthenticated invalid activation link HTTP: $ACTIVATION_HTTP"
           test "$ACTIVATION_HTTP" = '410'
           grep -q 'Link expirado ou inválido' /tmp/chavea-d1-activation-form.html
+          # Browser form POST sends the Worker's HTTPS origin, not the Pages
+          # origin. A bogus token must reach the activation handler (410)
+          # rather than being incorrectly blocked by auth middleware (403).
+          INVALID_TOKEN="$(printf '0%.0s' {1..64})"
+          FORM_HTTP="$(curl -sS -o /tmp/chavea-d1-invalid-owner.html -w '%{http_code}' "$BASE/api/auth/owner/activate" \
+            -H 'Origin: https://chavea-d1-staging.sandovaloliveira284.workers.dev' \
+            --data-urlencode "token=$INVALID_TOKEN" \
+            --data-urlencode 'password=InvalidOwnerActivationTest2026!')"
+          echo "Same-origin owner form POST HTTP: $FORM_HTTP"
+          test "$FORM_HTTP" = '410'
+          CROSS_SITE_HTTP="$(curl -sS -o /tmp/chavea-d1-cross-site.json -w '%{http_code}' "$BASE/api/auth/owner/activate" \
+            -H 'Origin: https://untrusted.example' \
+            --data-urlencode "token=$INVALID_TOKEN" \
+            --data-urlencode 'password=InvalidOwnerActivationTest2026!')"
+          echo "Cross-site owner form POST HTTP: $CROSS_SITE_HTTP"
+          test "$CROSS_SITE_HTTP" = '403'
+          grep -q 'ORIGIN_FORBIDDEN' /tmp/chavea-d1-cross-site.json
           ADMIN_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview" -H "$HEADER")"
           echo "Admin without session HTTP: $ADMIN_HTTP"
           test "$ADMIN_HTTP" = '401'
