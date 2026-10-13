@@ -193,10 +193,19 @@ friends.post('/:id/accept', async (c) => {
   });
   if (!row) return c.json({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404);
   const updated = await db.friendship.update({ where: { id: row.id }, data: { status: 'ACCEPTED' } });
-  await Promise.all([
-    evaluateFriendAchievements(db, row.requesterId),
-    evaluateFriendAchievements(db, row.addresseeId),
-  ]);
+  if(c.env.DB){
+    // The original badge rewarding path uses PostgreSQL transactions.
+    // Accepting a friendship must not fail after the accepted row commits.
+    await Promise.allSettled([
+      evaluateFriendAchievements(db,row.requesterId),
+      evaluateFriendAchievements(db,row.addresseeId),
+    ]);
+  } else {
+    await Promise.all([
+      evaluateFriendAchievements(db,row.requesterId),
+      evaluateFriendAchievements(db,row.addresseeId),
+    ]);
+  }
   return c.json({ id: updated.id, status: updated.status });
 });
 
