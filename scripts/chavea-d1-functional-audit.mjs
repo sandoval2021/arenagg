@@ -122,6 +122,65 @@ async function main() {
     await request('Host sees accepted friend', '/api/friends', {actor:host});
   } else note('Friend request visible', [1],0,'NO_FRIEND_REQUEST');
   await request('Friend list', '/api/friends', {actor:host});
+  const hostStats=await request('Reconcile badges after match', '/api/profile/me', {actor:host});
+  const guestStats=await request('Reconcile guest achievements', '/api/profile/me', {actor:guest});
+  const goals=(hostStats.data?.totalGoalsScored??0)+(guestStats.data?.totalGoalsScored??0);
+  note('Match results updated both players statistics', [1],goals===4?1:0,
+    goals===4?'GOALS_RECORDED':'EXPECTED_FOUR_TOTAL_GOALS');
+  note('Host badge rewards credited', [1],(hostStats.data?.badges?.length??0)>0?1:0);
+  note('Guest badge rewards credited', [1],(guestStats.data?.badges?.length??0)>0?1:0);
+  const allPacks=await request('Badge sticker packs', '/api/album', {actor:host});
+  note('Badge reward grants packs', [1],
+    (allPacks.data?.packs?.some(p=>p.packType==='COMMON'&&p.quantity>=1))?1:0);
+
+  // Separate league format, same disposable DB. Check team enrollment,
+  // round-robin scheduling and no duplicate start.
+  const league=await request('Create league format','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'E2E League '+randomUUID(),type:'LEAGUE',game:'EAFC',
+      platform:'PS5',maxParticipants:4},
+  });
+  const leagueId=league.data?.id;
+  if(leagueId){
+    await request('League guest joins','/api/competitions/'+leagueId+'/join',
+      {actor:guest,method:'POST'});
+    await request('League start','/api/competitions/'+leagueId+'/start',
+      {actor:host,method:'POST'});
+    const r=await request('League fixtures','/api/competitions/'+leagueId+'/matches',{actor:host});
+    note('League has fixtures',[1],r.data?.items?.length>0?1:0);
+    await request('No duplicate league start','/api/competitions/'+leagueId+'/start',
+      {actor:host,method:'POST',expected:[409]});
+  }
+
+  // Four-person group tournament: each registered guest is independent.
+  const extra=[];
+  for(let i=0;i<2;i++){
+    const a={name:'Group Guest '+i,email:'group-'+randomUUID()+'@example.invalid',
+      password:'Audit2026!StrongPassword'};
+    const r=await request('Register group player '+i,'/api/auth/register',{
+      actor:a,method:'POST',body:{name:a.name,email:a.email,password:a.password},expected:[201],
+    });
+    a.id=r.data?.user?.id;extra.push(a);
+  }
+  const group=await request('Create group stage cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'E2E Groups '+randomUUID(),type:'GROUPS_KNOCKOUT',format:'GROUP_STAGE',
+      groupCount:2,game:'EAFC',platform:'PS5',maxParticipants:4},
+  });
+  const groupId=group.data?.id;
+  if(groupId){
+    for(const player of [guest,...extra]){
+      await request('Group participant join '+player.name,
+        '/api/competitions/'+groupId+'/join',{actor:player,method:'POST'});
+    }
+    await request('Start group-stage cup','/api/competitions/'+groupId+'/start',
+      {actor:host,method:'POST'});
+    const st=await request('Group-stage standings','/api/competitions/'+groupId+'/group-stage',{actor:host});
+    note('Group stage contains groups',[1],st.data?.groups?.length>0?1:0);
+    const items=await request('Group stage matches','/api/competitions/'+groupId+'/matches',{actor:host});
+    note('Group stage fixtures present',[1],items.data?.items?.length>0?1:0);
+  }
+
   await request('Unknown player is 404', '/api/profile/'+randomUUID(), {actor:host,expected:[404]});
   await request('Password rejected', '/api/auth/login', { method:'POST',body:{email:host.email,password:'Incorrect2026!!'},expected:[401]});
   await request('Host logs out', '/api/auth/logout', {actor:host,method:'POST',expected:[204]});
