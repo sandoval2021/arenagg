@@ -18,7 +18,6 @@ import {
   ApiError,
   deleteOwnerDefaultShield,
   getOwnerDefaultShields,
-  PLATFORM_OWNER_EMAIL,
   updateOwnerDefaultShield,
   uploadOwnerDefaultShield,
 } from '../lib/api';
@@ -30,7 +29,9 @@ export function OwnerSettingsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [cardImportResult, setCardImportResult] = useState<CardBulkImportResult | null>(null);
-  const isAdmin = auth.user?.role === 'ADMIN' || auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
+  // Display privileges only after the API confirms ADMIN role; an arbitrary
+  // unverified e-mail string must never unlock owner controls.
+  const isAdmin = auth.isSessionVerified && auth.user?.role === 'ADMIN';
 
   const shields = useQuery({
     queryKey: ['owner', 'default-shields'],
