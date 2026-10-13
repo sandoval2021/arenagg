@@ -1,0 +1,24 @@
+name: Check CHAVEA Owner Verification Providers
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths: ['.github/workflows/chavea-auth-provider-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  providers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+    steps:
+      - name: Print credential availability only (never values)
+        run: |
+          if [ -n "${RESEND_API_KEY:-}" ]; then echo 'RESEND_API_KEY=PRESENT'; else echo 'RESEND_API_KEY=ABSENT'; fi
+          if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then echo 'GOOGLE_CLIENT_ID=PRESENT'; else echo 'GOOGLE_CLIENT_ID=ABSENT'; fi
+          if [ -n "${GOOGLE_CLIENT_SECRET:-}" ]; then echo 'GOOGLE_CLIENT_SECRET=PRESENT'; else echo 'GOOGLE_CLIENT_SECRET=ABSENT'; fi
+          if [ -n "${GOOGLE_REDIRECT_URI:-}" ]; then echo 'GOOGLE_REDIRECT_URI=PRESENT'; else echo 'GOOGLE_REDIRECT_URI=ABSENT'; fi
