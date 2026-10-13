@@ -29,6 +29,61 @@ friends.post('/request', async (c) => {
   const [left, right] = orderedPair(user.id, parsed.data.friendId);
   const requestId = crypto.randomUUID();
   let result: FriendRequestResult;
+  if (c.env.DB) {
+    // D1 serializes its SQLite write statements; use a conditional insert
+    // instead of unsupported PG advisory locks / interactive transactions.
+    const existing = await db.friendship.findFirst({
+      where: { OR: [
+        { requesterId: user.id, addresseeId: parsed.data.friendId },
+        { requesterId: parsed.data.friendId, addresseeId: user.id },
+      ] },
+    });
+    if (existing) {
+      let updated = existing;
+      if (existing.status === 'PENDING' && existing.requesterId === parsed.data.friendId) {
+        updated = await db.friendship.update({
+          where: { id: existing.id }, data: { status: 'ACCEPTED' },
+        });
+      } else if (existing.status === 'REJECTED') {
+        updated = await db.friendship.update({
+          where: { id: existing.id },
+          data: { requesterId: user.id, addresseeId: parsed.data.friendId, status: 'PENDING' },
+        });
+      }
+      result = { state: updated.status === 'ACCEPTED' ? 'ACCEPTED' : 'PENDING', friendship: updated };
+    } else {
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      await c.env.DB.prepare(`
+        INSERT INTO "Friendship" ("id","requesterId","addresseeId","status","createdAt","updatedAt")
+        SELECT ?1,?2,?3,'PENDING',?4,?4
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Friendship" WHERE
+          ("requesterId"=?2 AND "addresseeId"=?3) OR
+          ("requesterId"=?3 AND "addresseeId"=?2)
+        )
+      `).bind(id, user.id, parsed.data.friendId, now).run();
+      const record = await db.friendship.findFirst({
+        where: { OR: [
+          { requesterId: user.id, addresseeId: parsed.data.friendId },
+          { requesterId: parsed.data.friendId, addresseeId: user.id },
+        ] },
+      });
+      if (!record) return c.json({ error: 'FRIEND_REQUEST_FAILED' }, 503);
+      result = { state: record.status === 'ACCEPTED' ? 'ACCEPTED' : 'PENDING', friendship: record };
+    }
+    if (result.state === 'ACCEPTED') {
+      // Achievement scoring is best-effort: friendships must survive even
+      // when the reward engine still has PostgreSQL-specific code.
+      await Promise.allSettled([
+        evaluateFriendAchievements(db, user.id),
+        evaluateFriendAchievements(db, parsed.data.friendId),
+      ]);
+    }
+    return c.json({ id: result.friendship.id, status: result.state },
+      result.state === 'ACCEPTED' ? 200 : 201);
+  }
+
   try {
     result = await db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`friend:${left}:${right}`}))`;
