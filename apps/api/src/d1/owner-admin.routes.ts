@@ -19,10 +19,19 @@ ownerAdminRoutes.use('*', async (c, next) => {
   // Fail closed: never authorize by email alone or a UI-provided claim.
   // A verified identity, ADMIN role, and configured owner address are all
   // required for the single-account owner console.
-  if (!user.emailVerified || user.role !== 'ADMIN' ||
-      !user.email || !c.env.OWNER_EMAIL ||
+  if (user.role !== 'ADMIN' || !user.email || !c.env.OWNER_EMAIL ||
       user.email.trim().toLowerCase() !== c.env.OWNER_EMAIL.trim().toLowerCase()) {
     return c.json({ error: 'ADMIN_ONLY' }, 403);
+  }
+  // A Google-verified email OR a one-time bootstrap authorized through the
+  // site's GitHub administrator must establish the owner's identity.
+  if (!user.emailVerified) {
+    const approved = await c.env.DB.prepare(`
+      SELECT "id" FROM "AuthAccount" WHERE "userId" = ?1
+        AND "provider" = ?2 AND "providerAccountId" = ?3
+      LIMIT 1
+    `).bind(user.id, 'github-owner-bootstrap', 'sandoval2021').first();
+    if (!approved) return c.json({ error: 'OWNER_VERIFICATION_REQUIRED' }, 403);
   }
   await next();
 });
