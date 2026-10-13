@@ -89,6 +89,50 @@ profile.patch('/me', async (c) => {
     return c.json({ error: 'INVALID_PROFILE_INPUT', issues: parsed.error.flatten() }, 400);
   }
 
+  if (c.env.DB) {
+    const d1 = c.env.DB;
+    const now = new Date().toISOString();
+    const current = await db.userProfile.findUnique({ where: { userId: user.id } });
+    const profileConsoles = parsed.data.consoles ?? current?.consoles ?? [];
+    const favorite = parsed.data.favoriteFormation === undefined
+      ? current?.favoriteFormation ?? null : parsed.data.favoriteFormation;
+    const playstyle = parsed.data.playstyle === undefined
+      ? current?.playstyle ?? null : parsed.data.playstyle;
+    const userFields = await db.user.findUniqueOrThrow({
+      where: { id: user.id }, select: { displayName: true, avatarUrl: true },
+    });
+    await d1.batch([
+      d1.prepare(`
+        UPDATE "User" SET "displayName"=?1,"avatarUrl"=?2,"updatedAt"=?3
+        WHERE "id"=?4
+      `).bind(parsed.data.displayName ?? userFields.displayName,
+        parsed.data.avatarUrl === undefined ? userFields.avatarUrl : parsed.data.avatarUrl,
+        now, user.id),
+      d1.prepare(`
+        INSERT INTO "UserProfile"
+          ("userId","consoles","favoriteFormation","playstyle","createdAt","updatedAt")
+        VALUES (?1,?2,?3,?4,?5,?5)
+        ON CONFLICT("userId") DO UPDATE SET
+          "consoles"=excluded."consoles",
+          "favoriteFormation"=excluded."favoriteFormation",
+          "playstyle"=excluded."playstyle",
+          "updatedAt"=excluded."updatedAt"
+      `).bind(user.id, JSON.stringify(profileConsoles), favorite, playstyle, now),
+    ]);
+    const [updatedUser, stats] = await Promise.all([
+      db.user.findUniqueOrThrow({
+        where: { id: user.id },
+        select: {
+          id: true, name: true, displayName: true, avatarUrl: true,
+          email: true, phone: true,
+          badges: { select: badgeSelect(), orderBy: { awardedAt: 'asc' } },
+        },
+      }),
+      db.userProfile.findUniqueOrThrow({ where: { userId: user.id }, select: statsSelect() }),
+    ]);
+    return c.json({ ...updatedUser, ...stats });
+  }
+
   const updated = await db.$transaction(async (tx) => {
     const userRow = await tx.user.update({
       where: { id: user.id },
