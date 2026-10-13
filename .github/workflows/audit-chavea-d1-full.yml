@@ -27,6 +27,7 @@ jobs:
           npx prisma generate --schema prisma/schema.prisma
           npx prisma generate --schema prisma/d1/schema.prisma
           npm run typecheck --workspace=@chavea/api
+          npm run build --workspace=@chavea/web
       - name: Initialize truly isolated local D1 database
         run: |
           set -euo pipefail
