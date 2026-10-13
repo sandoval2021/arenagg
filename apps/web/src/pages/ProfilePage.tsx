@@ -23,7 +23,7 @@ import { BottomNavigation } from '../components/navigation/BottomNavigation';
 import { ConsoleBadges } from '../components/profile/ConsoleBadges';
 import { ReputationBadge } from '../components/profile/ReputationBadge';
 import { useAuth } from '../hooks/useAuth';
-import { PLATFORM_OWNER_EMAIL } from '../lib/api';
+
 import {
   acceptFriendRequest,
   getFriendRequests,
@@ -36,7 +36,7 @@ export function ProfilePage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const isAdmin = auth.user?.role === 'ADMIN' || auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
+  const isAdmin = auth.isSessionVerified && auth.user?.role === 'ADMIN';
 
   const profile = useQuery({ queryKey: ['gamer-profile', 'me'], queryFn: getMyGamerProfile });
   const friends = useQuery({ queryKey: ['friends'], queryFn: getFriends });
