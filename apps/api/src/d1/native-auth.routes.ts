@@ -14,6 +14,7 @@ type D1Value = string | number | boolean | null | ArrayBuffer | Uint8Array;
 interface StatementPort {
   bind(...params: D1Value[]): StatementPort;
   first<T = unknown>(): Promise<T | null>;
+  all<T = unknown>(): Promise<{ results: T[]; success?: boolean }>;
   run(): Promise<{ success: boolean; meta: { changes?: number } }>;
 }
 export interface D1DatabasePort {
