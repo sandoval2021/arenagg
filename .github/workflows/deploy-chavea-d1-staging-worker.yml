@@ -132,17 +132,29 @@ jobs:
           echo "Unauthenticated invalid activation link HTTP: $ACTIVATION_HTTP"
           test "$ACTIVATION_HTTP" = '410'
           grep -q 'Link expirado ou inválido' /tmp/chavea-d1-activation-form.html
-          # An activation link is its own authentication credential, not a
-          # cookie-based session. iOS Gmail sometimes submits Origin: null;
-          # do not let Origin block this single-use challenge endpoint.
+          # Check the exact deployed code revision to distinguish origin
+          # handling errors from Cloudflare propagation of a stale Worker.
           INVALID_TOKEN="$(printf '0%.0s' {1..64})"
           for FORM_ORIGIN in 'https://chavea-d1-staging.sandovaloliveira284.workers.dev' 'null' 'https://untrusted.example'; do
-            FORM_HTTP="$(curl -sS -o /tmp/chavea-d1-invalid-owner.html -w '%{http_code}' "$BASE/api/auth/owner/activate" \
-              -H "Origin: $FORM_ORIGIN" \
-              --data-urlencode "token=$INVALID_TOKEN" \
-              --data-urlencode 'password=InvalidOwnerActivationTest2026!')"
-            echo "One-time activation with Origin $FORM_ORIGIN and invalid token HTTP: $FORM_HTTP"
-            test "$FORM_HTTP" = '410'
+            FORM_HTTP="000"
+            for attempt in $(seq 1 30); do
+              FORM_HTTP="$(curl -sS -D /tmp/chavea-d1-form-headers -o /tmp/chavea-d1-invalid-owner.html -w '%{http_code}' \
+                --max-time 10 "$BASE/api/auth/owner/activate" \
+                -H "Origin: $FORM_ORIGIN" \
+                --data-urlencode "token=$INVALID_TOKEN" \
+                --data-urlencode 'password=InvalidOwnerActivationTest2026!' || true)"
+              REVISION="$(grep -i '^x-chavea-staging-revision:' /tmp/chavea-d1-form-headers | tr -d '\r' || true)"
+              if [ "$FORM_HTTP" = '410' ] && [[ "$REVISION" == *owner-activation-challenge-v2* ]]; then break; fi
+              echo "Waiting for activation Worker revision: HTTP $FORM_HTTP, revision: ${REVISION:-missing}"
+              sleep 2
+            done
+            echo "One-time activation Origin $FORM_ORIGIN HTTP: $FORM_HTTP"
+            if [ "$FORM_HTTP" != '410' ]; then
+              echo 'Safe activation error response:'
+              head -c 500 /tmp/chavea-d1-invalid-owner.html
+              exit 1
+            fi
+            [[ "$REVISION" == *owner-activation-challenge-v2* ]]
             grep -q 'Link expirado ou inválido' /tmp/chavea-d1-invalid-owner.html
           done
           ADMIN_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview" -H "$HEADER")"
@@ -177,6 +189,11 @@ jobs:
           echo "Remote revoked session HTTP: $HTTP"
           test "$HTTP" = '401'
           echo "REMOTE_D1_AUTH_SMOKE_PASS=true"
+      - name: Check reserved owner challenge state (no secrets)
+        if: success()
+        working-directory: apps/api
+        run: |
+          npx wrangler d1 execute chavea-staging --remote --config wrangler.d1.staging.generated.toml --command "SELECT COUNT(*) AS pending_owner_challenges FROM AuthAccount WHERE provider = 'owner-email-challenge'"
       - name: Remove ephemeral credentials and configuration from runner
         if: always()
         run: rm -f /tmp/chavea-staging-key apps/api/wrangler.d1.staging.generated.toml /tmp/chavea-d1-cookie.txt
