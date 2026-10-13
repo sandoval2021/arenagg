@@ -88,6 +88,15 @@ jobs:
           test "$CODE" = 200
           curl -fsSL "$BASE/login" -o /tmp/chavea-index.html
           grep -q '/assets/' /tmp/chavea-index.html
+          USER_ID="$(node -e 'const b=require("/tmp/chavea-auto-reg.json");if(!b.user?.id)process.exit(1);process.stdout.write(b.user.id)')"
+          for ENDPOINT in /api/profile/me "/api/profile/$USER_ID"; do
+            PROFILE_CODE="$(curl -sS --max-time 15 -b /tmp/chavea-auto-cookies -o /tmp/chavea-profile-check.json -w '%{http_code}' "$BASE$ENDPOINT")"
+            echo "D1_PROFILE_ROUTE $ENDPOINT HTTP=$PROFILE_CODE"
+            if [ "$PROFILE_CODE" != '200' ]; then
+              node -e 'const b=require("/tmp/chavea-profile-check.json");console.log("PROFILE_ERROR_CODE="+(b.error||"unknown"))' || true
+              exit 1
+            fi
+          done
           echo 'CHAVEA_D1_PRODUCTION_READY=true'
       - name: Cleanup temporary cookies
         if: always()
