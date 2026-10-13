@@ -117,30 +117,46 @@ jobs:
             console.log('CHAVEA_LIVE_INVITE_PHOTO_APPROVAL_PASS=true');
           } finally {save();}
           NODE
-      - name: Remove ONLY test accounts and cascaded temporary cups
+      - name: Clean only QA records by dependency order (including prior interrupted smoke)
         if: always()
         working-directory: apps/api
         run: |
           set -euo pipefail
-          if [ ! -s /tmp/chavea-live-acceptance-ids.json ]; then
-            echo 'No test accounts to remove.'
-            exit 0
-          fi
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const accounts=JSON.parse(fs.readFileSync('/tmp/chavea-live-acceptance-ids.json','utf8'));
-          if(!Array.isArray(accounts)||accounts.length>2) throw Error('Unexpected QA account count');
-          const queries=[];
-          for(const u of accounts){
-            if(!/^[0-9a-f-]{36}$/i.test(u.id) ||
-               !/^chavea-live-smoke-[0-9a-f-]{36}-(host|guest)@example\.invalid$/.test(u.email))
-              throw Error('Refusing unsafe QA cleanup');
-            const id="'"+u.id+"'",email="'"+u.email+"'";
-            queries.push('DELETE FROM "User" WHERE "id"='+id+
-              ' AND "email"='+email+';');
-          }
-          fs.writeFileSync('/tmp/chavea-live-cleanup.sql',queries.join('\n')+'\n',{mode:0o600});
-          NODE
+          # The predicates are intentionally constrained to the synthetic,
+          # unrouteable QA email prefix and competition name. Never match
+          # or delete a normal user or organizer's tournaments.
+          cat > /tmp/chavea-live-cleanup.sql <<'SQL'
+          DELETE FROM "Match" WHERE "competitionId" IN (
+            SELECT c."id" FROM "Competition" c
+            JOIN "User" u ON u."id"=c."hostId"
+            WHERE u."email" LIKE 'chavea-live-smoke-%@example.invalid'
+              AND c."name" LIKE 'CHAVEA Release QA %'
+          );
+          DELETE FROM "Team" WHERE "competitionId" IN (
+            SELECT c."id" FROM "Competition" c
+            JOIN "User" u ON u."id"=c."hostId"
+            WHERE u."email" LIKE 'chavea-live-smoke-%@example.invalid'
+              AND c."name" LIKE 'CHAVEA Release QA %'
+          );
+          DELETE FROM "Participation" WHERE "competitionId" IN (
+            SELECT c."id" FROM "Competition" c
+            JOIN "User" u ON u."id"=c."hostId"
+            WHERE u."email" LIKE 'chavea-live-smoke-%@example.invalid'
+              AND c."name" LIKE 'CHAVEA Release QA %'
+          );
+          DELETE FROM "Stage" WHERE "competitionId" IN (
+            SELECT c."id" FROM "Competition" c
+            JOIN "User" u ON u."id"=c."hostId"
+            WHERE u."email" LIKE 'chavea-live-smoke-%@example.invalid'
+              AND c."name" LIKE 'CHAVEA Release QA %'
+          );
+          DELETE FROM "Competition" WHERE "hostId" IN (
+            SELECT "id" FROM "User"
+            WHERE "email" LIKE 'chavea-live-smoke-%@example.invalid'
+          ) AND "name" LIKE 'CHAVEA Release QA %';
+          DELETE FROM "User"
+          WHERE "email" LIKE 'chavea-live-smoke-%@example.invalid';
+          SQL
           npx wrangler d1 execute chavea-staging --remote --file /tmp/chavea-live-cleanup.sql
           echo 'CHAVEA_LIVE_QA_USERS_CLEANED=true'
       - name: Erase test identifiers
