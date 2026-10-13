@@ -90,7 +90,16 @@ jobs:
           done
           echo "Remote staging guard HTTP: $HTTP"
           test "$HTTP" = '403'
-          HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' -H "$HEADER" "$BASE/api/health/db")"
+          # Cloudflare's global edge may keep the PREVIOUS staging version
+          # briefly after deploy. A new deployment rotates the temporary key,
+          # so the old version responds 403 until propagation completes.
+          HTTP="000"
+          for attempt in $(seq 1 75); do
+            HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' --max-time 10 -H "$HEADER" "$BASE/api/health/db" || true)"
+            if [ "$HTTP" = '200' ]; then break; fi
+            echo "Waiting for latest staging deployment to propagate: HTTP $HTTP"
+            sleep 2
+          done
           echo "Remote D1 health HTTP: $HTTP"
           if [ "$HTTP" != '200' ]; then
             echo 'Remote health response body (no credentials):'
