@@ -97,6 +97,17 @@ jobs:
               exit 1
             fi
           done
+          (
+            cd apps/api
+            npx wrangler d1 execute chavea-staging --remote --json --command "SELECT id FROM User WHERE email='sandovaloliveira284@gmail.com' AND role='ADMIN' LIMIT 1" > /tmp/chavea-owner-id.json
+          )
+          OWNER_ID="$(node -e 'const x=require("/tmp/chavea-owner-id.json");const a=Array.isArray(x)?x:x.result;const id=a?.[0]?.results?.[0]?.id;if(!id)process.exit(1);process.stdout.write(id)')"
+          OWNER_PROFILE_CODE="$(curl -sS --max-time 15 -b /tmp/chavea-auto-cookies -o /tmp/chavea-owner-public-profile.json -w '%{http_code}' "$BASE/api/profile/$OWNER_ID")"
+          echo "D1_OWNER_PUBLIC_PROFILE_HTTP=$OWNER_PROFILE_CODE"
+          if [ "$OWNER_PROFILE_CODE" != 200 ]; then
+            node -e 'const b=require("/tmp/chavea-owner-public-profile.json");console.log("OWNER_PUBLIC_PROFILE_ERROR="+(b.error||"unknown"))' || true
+            exit 1
+          fi
           echo 'CHAVEA_D1_PRODUCTION_READY=true'
       - name: Cleanup temporary cookies
         if: always()
