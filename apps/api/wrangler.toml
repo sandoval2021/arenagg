@@ -1,15 +1,21 @@
+# Production Worker. All application state is in Cloudflare D1 / R2.
 name = "arenagg-api"
-main = "src/index.ts"
+main = "src/d1/index.ts"
 compatibility_date = "2026-09-08"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
 WEB_APP_URL = "https://chavea.pages.dev"
-SUPABASE_URL = "https://uruwrztfbjbykgxwtgvg.supabase.co"
-SUPABASE_SHIELDS_BUCKET = "escudos"
 OWNER_EMAIL = "sandovaloliveira284@gmail.com"
 
-# Create with: `npx wrangler r2 bucket create arenagg-evidence`
+# Existing D1 contains the email-verified platform owner.
+# Database name intentionally remains "chavea-staging" until a verified
+# copy/rename plan is executed; binding identity, not name, is authoritative.
+[[d1_databases]]
+binding = "DB"
+database_name = "chavea-staging"
+database_id = "cbdb5f1f-bb40-4270-be2f-d56da79ad688"
+
 [[r2_buckets]]
 binding = "EVIDENCE_BUCKET"
 bucket_name = "arenagg-evidence"
