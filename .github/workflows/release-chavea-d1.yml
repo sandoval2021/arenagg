@@ -109,7 +109,7 @@ jobs:
           HTTP="$(curl -sS -o /tmp/canary-orm.json -w '%{http_code}' "$BASE/api/health/orm")"
           echo "CANARY_PRISMA_HTTP=$HTTP"
           test "$HTTP" = 200
-          HTTP="$(curl -sS -o /tmp/canary-competitions.json -w '%{http_code}' "$BASE/api/competitions" -b /tmp/canary-cookies")"
+          HTTP="$(curl -sS -o /tmp/canary-competitions.json -w '%{http_code}' "$BASE/api/competitions" -b /tmp/canary-cookies)"
           echo "CANARY_COMPETITIONS_HTTP=$HTTP"
           test "$HTTP" = 200
           HTTP="$(curl -sS -o /tmp/canary-create.json -w '%{http_code}' "$BASE/api/competitions" -b /tmp/canary-cookies -X POST -H 'Origin: https://d1-preview.chavea.pages.dev' -H 'Content-Type: application/json' --data "{\"name\":\"CHAVEA Canary $EMAIL\",\"type\":\"KNOCKOUT\",\"game\":\"EAFC\",\"platform\":\"PS5\",\"maxParticipants\":4}")"
