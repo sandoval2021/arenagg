@@ -29,6 +29,7 @@ jobs:
       - name: Typecheck staged D1-native auth (without activating in production)
         run: |
           npx prisma generate --schema prisma/schema.prisma
+          npx prisma generate --schema prisma/d1/schema.prisma
           npm run typecheck --workspace=@chavea/api
       - name: Typecheck and build the D1 PWA without publishing
         run: npm run build --workspace=@chavea/web
