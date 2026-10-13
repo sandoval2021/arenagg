@@ -80,7 +80,14 @@ jobs:
           BASE='https://chavea-d1-staging.sandovaloliveira284.workers.dev'
           HEADER="X-Chavea-Staging-Key: $(cat /tmp/chavea-staging-key)"
           echo "Staging guard validation"
-          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/health")"
+          HTTP="000"
+          for attempt in $(seq 1 30); do
+            HTTP="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/health" || true)"
+            if [ "$HTTP" = '403' ]; then break; fi
+            echo "Waiting for staging Worker propagation: HTTP $HTTP"
+            sleep 2
+          done
+          echo "Remote staging guard HTTP: $HTTP"
           test "$HTTP" = '403'
           HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' -H "$HEADER" "$BASE/api/health/db")"
           echo "Remote D1 health HTTP: $HTTP"
