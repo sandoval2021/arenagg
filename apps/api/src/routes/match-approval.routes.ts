@@ -6,6 +6,7 @@ import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { sendPushToUsers } from '../services/push.service';
 import { transitionMatch, type MatchState } from '@chavea/domain/match/states';
+import { approveMatchD1 } from '../d1/match-approval';
 
 export const matchApproval = new Hono<Env>();
 
@@ -44,6 +45,23 @@ matchApproval.post('/:id/approve', async (c) => {
   }
 
   const next = transitionMatch(match.status as MatchState, 'APPROVE');
+  if (c.env.DB) {
+    const approved = await approveMatchD1(c.env.DB, db, match, parsed.data.version);
+    if (approved.status !== 200) return c.json(approved.body, approved.status);
+    // Push is optional and must never undo a committed match approval.
+    const notifyId=match.submittedById && match.submittedById!==user.id
+      ? match.submittedById:null;
+    if(notifyId){
+      await sendPushToUsers(db,c.env,[notifyId],{
+        title:'✅ Placar homologado',
+        body:`${match.competition.name}: resultado confirmado no ranking.`,
+        url:`/competitions/${match.competitionId}`,
+        tag:`score-approved-${matchId}`,
+      }).catch(error=>console.warn('[push] approval notification failed',
+        error instanceof Error?error.name:'Unknown'));
+    }
+    return c.json(approved.body);
+  }
   const fresh = await db.$transaction(async (tx) => {
     const changed = await tx.match.updateMany({
       where: { id: matchId, version: parsed.data.version, status: 'AWAITING_APPROVAL' },
