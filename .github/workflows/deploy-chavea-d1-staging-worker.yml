@@ -1,0 +1,110 @@
+name: Verify CHAVEA D1 Staging Worker (free Cloudflare)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - '.github/workflows/deploy-chavea-d1-staging-worker.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chavea-d1-staging-worker
+  cancel-in-progress: false
+jobs:
+  deploy-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned tools
+        run: npm ci --no-audit --no-fund
+      - name: Check remote D1 and prepare access-protected staging Worker
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!/^[0-9a-f]{32}$/i.test(account || '') || !token) {
+            throw Error('Cloudflare account/token missing from repository secrets');
+          }
+          const resp = await fetch(
+            'https://api.cloudflare.com/client/v4/accounts/' + account + '/d1/database?per_page=100',
+            { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(10000) },
+          );
+          const answer = await resp.json();
+          if (!resp.ok || answer.success !== true || !Array.isArray(answer.result)) {
+            throw Error('Cloudflare D1 listing failed. HTTP ' + resp.status);
+          }
+          const db = answer.result.find(item => item.name === 'chavea-staging');
+          if (!db || !/^[a-f0-9-]{36}$/i.test(db.uuid || '')) {
+            throw Error('Expected CHAVEA staging D1 is missing');
+          }
+          const key = crypto.randomBytes(32).toString('hex');
+          fs.writeFileSync('/tmp/chavea-staging-key', key, { mode: 0o600 });
+          console.log('::add-mask::' + key);
+          const config = [
+            'name = "chavea-d1-staging"',
+            'main = "src/d1/index.ts"',
+            'compatibility_date = "2026-09-08"',
+            'compatibility_flags = ["nodejs_compat"]',
+            '',
+            '[vars]',
+            'WEB_APP_URL = "https://chavea.pages.dev"',
+            'STAGING_ACCESS_KEY = "' + key + '"',
+            '',
+            '[[d1_databases]]',
+            'binding = "DB"',
+            'database_name = "chavea-staging"',
+            'database_id = "' + db.uuid + '"',
+            '',
+          ].join('\n');
+          fs.writeFileSync('apps/api/wrangler.d1.staging.generated.toml', config, { mode: 0o600 });
+          console.log('STAGING_D1_ID=' + db.uuid);
+          NODE
+      - name: Deploy isolated Worker (do not update production)
+        working-directory: apps/api
+        run: |
+          npx wrangler deploy --config wrangler.d1.staging.generated.toml
+      - name: Smoke-test HTTPS D1 and email login with temporary test account
+        run: |
+          set -euo pipefail
+          BASE='https://chavea-d1-staging.sandovaloliveira284.workers.dev'
+          HEADER="X-Chavea-Staging-Key: $(cat /tmp/chavea-staging-key)"
+          echo "Staging guard validation"
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/health")"
+          test "$HTTP" = '403'
+          HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' -H "$HEADER" "$BASE/api/health/db")"
+          echo "Remote D1 health HTTP: $HTTP"
+          test "$HTTP" = '200'
+          EMAIL="chavea-staging-$(date +%s)@example.invalid"
+          BODY="{\"name\":\"Chavea Staging Test\",\"email\":\"$EMAIL\",\"password\":\"ChaveaSmokeStrong!2026\"}"
+          HTTP="$(curl -sS -o /tmp/chavea-d1-register.json -D /tmp/chavea-d1-register.headers -c /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/register" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "$BODY")"
+          echo "Remote register HTTP: $HTTP"
+          if [ "$HTTP" != '201' ]; then cat /tmp/chavea-d1-register.json; exit 1; fi
+          grep -iq 'httponly' /tmp/chavea-d1-register.headers
+          grep -iq 'secure' /tmp/chavea-d1-register.headers
+          HTTP="$(curl -sS -o /tmp/chavea-d1-me.json -b /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/me" -H "$HEADER")"
+          echo "Remote session HTTP: $HTTP"
+          test "$HTTP" = '200'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/login" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "{\"email\":\"$EMAIL\",\"password\":\"WrongSmokePassword!2026\"}")"
+          echo "Remote invalid password HTTP: $HTTP"
+          test "$HTTP" = '401'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/logout" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -b /tmp/chavea-d1-cookie.txt -X POST)"
+          echo "Remote logout HTTP: $HTTP"
+          test "$HTTP" = '204'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/me" -H "$HEADER" -b /tmp/chavea-d1-cookie.txt)"
+          echo "Remote revoked session HTTP: $HTTP"
+          test "$HTTP" = '401'
+          echo "REMOTE_D1_AUTH_SMOKE_PASS=true"
+      - name: Remove ephemeral credentials and configuration from runner
+        if: always()
+        run: rm -f /tmp/chavea-staging-key apps/api/wrangler.d1.staging.generated.toml /tmp/chavea-d1-cookie.txt
