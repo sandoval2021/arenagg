@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Env } from '../types/env';
+import { uploadImageToR2, removeImageFromR2, D1ImageError } from '../d1/r2-images';
 
 const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const PROFILE_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -23,7 +24,7 @@ export type UploadFile = {
 type StorageConfig = Pick<
   Env['Bindings'],
   'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY' | 'SUPABASE_SHIELDS_BUCKET'
->;
+> & Pick<Env['Bindings'], 'EVIDENCE_BUCKET' | 'WEB_APP_URL'> & { DB?: Env['Bindings']['DB'] };
 
 export class ShieldUploadError extends Error {
   constructor(
@@ -138,6 +139,25 @@ export async function uploadShield(
   const startedAt = Date.now();
   const maxBytes = scope === 'profiles' ? PROFILE_MAX_IMAGE_BYTES : DEFAULT_MAX_IMAGE_BYTES;
   const mime = await detectImageMime(file, maxBytes);
+  if (config.DB) {
+    // The D1 Worker stores media in R2, never in Supabase Storage.
+    try {
+      const ownerId = ownerSegment.split('/').at(-1) ?? '';
+      const uploaded = await uploadImageToR2({
+        EVIDENCE_BUCKET: config.EVIDENCE_BUCKET,
+        WEB_APP_URL: config.WEB_APP_URL,
+      }, file, scope, ownerId);
+      return { ...uploaded, requestId };
+    } catch (error) {
+      if (error instanceof D1ImageError) {
+        const code = error.code === 'IMAGE_TOO_LARGE' ? 'IMAGE_TOO_LARGE' :
+          error.code === 'INVALID_IMAGE' ? 'INVALID_IMAGE' : 'STORAGE_UPLOAD_FAILED';
+        throw new ShieldUploadError(code, 'Cloudflare R2 upload rejected.', requestId);
+      }
+      console.error('[r2-image-upload] failed', { requestId });
+      throw new ShieldUploadError('STORAGE_UPLOAD_FAILED', 'Cloudflare R2 upload failed.', requestId);
+    }
+  }
   const extension = MIME_TO_EXTENSION[mime];
   const storagePath = `${scope}/${ownerSegment}/${crypto.randomUUID()}.${extension}`;
   const bucket = config.SUPABASE_SHIELDS_BUCKET || 'escudos';
@@ -202,6 +222,15 @@ export async function removeShield(
   storagePath: string,
 ): Promise<void> {
   if (!storagePath) return;
+  if (config.DB) {
+    try {
+      await removeImageFromR2({ EVIDENCE_BUCKET: config.EVIDENCE_BUCKET }, storagePath);
+    } catch (error) {
+      console.error('[r2-image-delete] failed');
+      throw new ShieldUploadError('STORAGE_UPLOAD_FAILED', 'Cloudflare R2 delete failed.');
+    }
+    return;
+  }
   const client = getStorageClient(config);
   const bucket = config.SUPABASE_SHIELDS_BUCKET || 'escudos';
   const { error } = await client.storage.from(bucket).remove([storagePath]);
