@@ -40,16 +40,24 @@ album.get('/', async (c) => {
   const user = c.get('user');
   const requestedPage = c.req.query('page')?.trim();
 
-  const pages = await db.$queryRaw<PageRow[]>(Prisma.sql`
-    SELECT
-      "albumPage",
-      COUNT(*)::int AS "total",
-      MIN("cardNumber")::int AS "firstNumber"
-    FROM "ChaveaCard"
-    WHERE "isActive" = true
-    GROUP BY "albumPage"
-    ORDER BY MIN("cardNumber") ASC, "albumPage" ASC
-  `);
+  // SQLite/D1 does not support PostgreSQL's ::int / ::uuid syntax.
+  // Prefer Prisma's provider-neutral grouping over raw dialect SQL.
+  const pages: PageRow[] = c.env.DB
+    ? (await db.chaveaCard.groupBy({
+        by: ['albumPage'],
+        where: { isActive: true },
+        _count: { _all: true },
+        _min: { cardNumber: true },
+      })).map(row => ({
+        albumPage: row.albumPage,
+        total: row._count._all,
+        firstNumber: row._min.cardNumber ?? 0,
+      })).sort((a,b) => a.firstNumber - b.firstNumber || a.albumPage.localeCompare(b.albumPage))
+    : await db.$queryRaw<PageRow[]>(Prisma.sql`
+        SELECT "albumPage", COUNT(*)::int AS "total", MIN("cardNumber")::int AS "firstNumber"
+        FROM "ChaveaCard" WHERE "isActive" = true
+        GROUP BY "albumPage" ORDER BY MIN("cardNumber") ASC, "albumPage" ASC
+      `);
 
   const selectedPage = requestedPage && pages.some((page) => page.albumPage === requestedPage)
     ? requestedPage
@@ -57,12 +65,17 @@ album.get('/', async (c) => {
 
   const [total, progressRows, packs, cards] = await Promise.all([
     db.chaveaCard.count({ where: { isActive: true } }),
-    db.$queryRaw<ProgressRow[]>(Prisma.sql`
-      SELECT COUNT(DISTINCT i."cardId")::int AS "completed"
-      FROM "UserInventoryCard" i
-      INNER JOIN "ChaveaCard" c ON c."id" = i."cardId" AND c."isActive" = true
-      WHERE i."userId" = ${user.id}::uuid
-    `),
+    c.env.DB
+      ? db.userInventoryCard.groupBy({
+          by: ['cardId'],
+          where: { userId: user.id, card: { isActive: true } },
+        }).then(rows => [{ completed: rows.length }])
+      : db.$queryRaw<ProgressRow[]>(Prisma.sql`
+          SELECT COUNT(DISTINCT i."cardId")::int AS "completed"
+          FROM "UserInventoryCard" i
+          INNER JOIN "ChaveaCard" c ON c."id" = i."cardId" AND c."isActive" = true
+          WHERE i."userId" = ${user.id}::uuid
+        `),
     db.userStickerPack.findMany({
       where: { userId: user.id },
       orderBy: { packType: 'asc' },
