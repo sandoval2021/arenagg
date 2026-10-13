@@ -95,6 +95,92 @@ competitionJoin.post('/:id/join', async (c) => {
   const user = c.get('user');
   const requestId = crypto.randomUUID();
 
+  if (c.env.DB) {
+    // The PostgreSQL interactive $transaction is not supported by D1.
+    // Conditional SQLite writes enforce capacity at commit time; the D1
+    // batch atomically inserts the participation and corresponding team.
+    const d1 = c.env.DB;
+    const competition = await db.competition.findUnique({
+      where: { id: competitionId },
+      select: { id: true, status: true, maxParticipants: true },
+    });
+    if (!competition) return c.json(businessResponse('COMPETITION_NOT_FOUND', requestId).body, 404);
+    if (['IN_PROGRESS', 'FINISHED'].includes(competition.status)) {
+      return c.json(businessResponse('COMPETITION_ALREADY_STARTED', requestId).body, 409);
+    }
+    if (!['REGISTRATION', 'READY'].includes(competition.status)) {
+      return c.json(businessResponse('REGISTRATION_CLOSED', requestId).body, 409);
+    }
+    const existing = await db.participation.findUnique({
+      where: { competitionId_userId: { competitionId, userId: user.id } },
+      include: { team: true },
+    });
+    const now = new Date().toISOString();
+    const teamCandidate = defaultTeamName(user);
+    const collision = await db.team.findFirst({
+      where: { competitionId, name: teamCandidate,
+        ...(existing?.team ? { NOT: { id: existing.team.id } } : {}) },
+      select: { id: true },
+    });
+    const teamName = collision
+      ? teamCandidate.slice(0, 52) + '-' + user.id.replaceAll('-', '').slice(0, 6)
+      : teamCandidate;
+    const participationId = existing?.id ?? crypto.randomUUID();
+    const commands = [];
+    if (!existing) {
+      commands.push(d1.prepare(`
+        INSERT INTO "Participation"
+          ("id","competitionId","userId","status","teamName","joinedAt")
+        SELECT ?1, c."id", ?2, 'ACTIVE', ?3, ?4
+        FROM "Competition" c
+        WHERE c."id" = ?5
+          AND c."status" IN ('REGISTRATION','READY')
+          AND (SELECT COUNT(*) FROM "Participation" p
+               WHERE p."competitionId" = c."id" AND p."status"='ACTIVE')
+              < c."maxParticipants"
+          AND NOT EXISTS (
+            SELECT 1 FROM "Participation" p
+            WHERE p."competitionId" = c."id" AND p."userId" = ?2
+          )`).bind(participationId, user.id, teamName, now, competitionId));
+    } else if (existing.status !== 'ACTIVE') {
+      commands.push(d1.prepare(`
+        UPDATE "Participation"
+        SET "status"='ACTIVE',"joinedAt"=?1
+        WHERE "id"=?2
+          AND EXISTS (
+            SELECT 1 FROM "Competition" c
+            WHERE c."id"=?3 AND c."status" IN ('REGISTRATION','READY')
+              AND (SELECT COUNT(*) FROM "Participation" p
+                   WHERE p."competitionId"=c."id" AND p."status"='ACTIVE') < c."maxParticipants"
+          )`).bind(now, participationId, competitionId));
+    }
+    if (!existing?.team) {
+      commands.push(d1.prepare(`
+        INSERT INTO "Team" ("id","competitionId","participationId","createdById","name")
+        SELECT ?1, p."competitionId", p."id", p."userId", ?2
+        FROM "Participation" p
+        WHERE p."id"=?3 AND p."status"='ACTIVE'
+          AND NOT EXISTS (SELECT 1 FROM "Team" WHERE "participationId"=p."id")
+      `).bind(crypto.randomUUID(), teamName, participationId));
+    }
+    try {
+      if (commands.length) await d1.batch(commands);
+      const joined = await db.participation.findUnique({
+        where: { competitionId_userId: { competitionId, userId: user.id } },
+        select: { status: true, team: { select: { id: true } } },
+      });
+      if (joined?.status !== 'ACTIVE' || !joined.team) {
+        return c.json(businessResponse('COMPETITION_FULL', requestId).body, 409);
+      }
+      return c.json({ joined: true, requestId }, 200);
+    } catch (error) {
+      console.error('[d1.competition.join] write rejected', {
+        requestId, errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return c.json({ error: 'JOIN_FAILED', requestId }, 503);
+    }
+  }
+
   for (let attempt = 1; attempt <= MAX_JOIN_ATTEMPTS; attempt += 1) {
     try {
       const result = await db.$transaction(
