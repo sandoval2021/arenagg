@@ -1,4 +1,5 @@
 name: Release CHAVEA D1 with end-to-end canary
+# The production cutover follows successful atomic competition writes.
 on:
   push:
     branches: ['feat/cloudflare-d1-migration']
