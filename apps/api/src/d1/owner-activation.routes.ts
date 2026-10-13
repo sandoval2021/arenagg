@@ -89,6 +89,17 @@ ownerActivationRoutes.get('/activate', async c => {
 });
 
 ownerActivationRoutes.post('/activate', async c => {
+  // The token is an unguessable single-use email credential; additionally,
+  // enforce Fetch Metadata when available. Some iOS in-app browsers submit
+  // Origin: null, so reject a *foreign* Origin rather than rejecting all
+  // opaque-origin submissions. Never relax other login or admin routes.
+  const requestOrigin = new URL(c.req.url).origin;
+  const origin = c.req.header('Origin');
+  const fetchSite = c.req.header('Sec-Fetch-Site');
+  if ((origin && origin !== requestOrigin && origin !== 'null') ||
+      (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none')) {
+    return c.json({ error: 'ORIGIN_FORBIDDEN' }, 403);
+  }
   const body = await c.req.parseBody().catch(() => null);
   const input = inputSchema.safeParse(body);
   if (!input.success) return c.json({ error: 'INVALID_INPUT' }, 400);
