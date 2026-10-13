@@ -23,7 +23,7 @@ export interface D1DatabasePort {
 
 type Bindings = { DB: D1DatabasePort; WEB_APP_URL?: string; OWNER_EMAIL?: string };
 type D1AuthEnv = { Bindings: Bindings };
-type DatabaseUser = {
+export type DatabaseUser = {
   id: string;
   name: string;
   displayName: string | null;
@@ -33,10 +33,11 @@ type DatabaseUser = {
   role: 'USER' | 'ADMIN';
   passwordHash: string | null;
   isActive: number | boolean;
+  emailVerified: string | null;
 };
 type PublicUser = Omit<DatabaseUser, 'passwordHash' | 'isActive'>;
 
-const COOKIE = '__Host-chavea_session';
+export const COOKIE = '__Host-chavea_session';
 const SESSION_TTL_SEC = 30 * 24 * 60 * 60;
 const AUTH_PASSWORD = z.string().min(10).max(128);
 const credentialsSchema = z.object({
@@ -87,16 +88,16 @@ async function readUser(db: D1DatabasePort, identifier: { email?: string; phone?
   const byEmail = Boolean(identifier.email);
   const value = byEmail ? normalizeEmail(identifier.email!) : normalizePhone(identifier.phone!);
   return db.prepare(`
-    SELECT "id", "name", "displayName", "avatarUrl", "email", "phone", "role", "passwordHash", "isActive"
+    SELECT "id", "name", "displayName", "avatarUrl", "email", "phone", "role", "passwordHash", "isActive", "emailVerified"
     FROM "User" WHERE ${byEmail ? '"email"' : '"phone"'} = ?1 LIMIT 1
   `).bind(value).first<DatabaseUser>();
 }
-async function authenticatedUser(db: D1DatabasePort, token: string): Promise<DatabaseUser | null> {
+export async function authenticatedUser(db: D1DatabasePort, token: string): Promise<DatabaseUser | null> {
   if (token.length < 32 || token.length > 128) return null;
   const session = await db.prepare(`
     SELECT s."id", s."expiresAt", s."lastUsedAt",
       u."id" AS "userId", u."name", u."displayName", u."avatarUrl",
-      u."email", u."phone", u."role", u."passwordHash", u."isActive"
+      u."email", u."phone", u."role", u."passwordHash", u."isActive", u."emailVerified"
     FROM "Session" s JOIN "User" u ON s."userId" = u."id"
     WHERE s."tokenHash" = ?1 LIMIT 1
   `).bind(await hashToken(token)).first<DatabaseUser & {
@@ -117,6 +118,7 @@ async function authenticatedUser(db: D1DatabasePort, token: string): Promise<Dat
     id: session.userId, name: session.name, displayName: session.displayName,
     avatarUrl: session.avatarUrl, email: session.email, phone: session.phone,
     role: session.role, passwordHash: session.passwordHash, isActive: session.isActive,
+    emailVerified: session.emailVerified,
   };
 }
 
