@@ -3,6 +3,7 @@ import legacyApp from '../index';
 import { cors } from 'hono/cors';
 import { routes as authRoutes, type D1DatabasePort } from './native-auth.routes';
 import { googleOAuthRoutes } from './google-oauth.routes';
+import { ownerActivationRoutes } from './owner-activation.routes';
 import { ownerAdminRoutes } from './owner-admin.routes';
 import { createD1Prisma } from './prisma-adapter';
 import { readPublicImageFromR2 } from './r2-images';
@@ -26,7 +27,8 @@ const app = new Hono<Env>();
 app.use('*', async (c, next) => {
   const required = c.env.STAGING_ACCESS_KEY;
   const supplied = c.req.header('X-Chavea-Staging-Key');
-  if (required && supplied !== required) {
+  const activationPath = c.req.path === '/api/auth/owner/activate';
+  if (required && supplied !== required && !activationPath) {
     // Staging-only diagnostics: lengths reveal no credential bytes.
     return c.json({
       error: 'STAGING_ACCESS_DENIED',
@@ -84,6 +86,7 @@ app.get('/api/health/orm', async c => {
 });
 app.route('/api/auth', authRoutes);
 app.route('/api/auth', googleOAuthRoutes);
+app.route('/api/auth/owner', ownerActivationRoutes);
 app.route('/api/admin', ownerAdminRoutes);
 app.get('/api/media/:scope/:owner/:file', async c => {
   if (!c.env.EVIDENCE_BUCKET) return c.json({ error: 'STORAGE_UNAVAILABLE' }, 503);
