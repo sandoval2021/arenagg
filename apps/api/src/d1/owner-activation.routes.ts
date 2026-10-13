@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { hashPassword } from '../services/auth.service';
-import { createSession, sendCookie, type D1DatabasePort } from './native-auth.routes';
+import type { D1DatabasePort } from './native-auth.routes';
 
 type Env = { Bindings: { DB: D1DatabasePort; OWNER_EMAIL?: string } };
 type Challenge = {
