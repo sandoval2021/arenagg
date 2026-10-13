@@ -22,7 +22,7 @@ function note(label, expected, status, code) {
   findings.push({ label, status, expected: expected.join(','), ok, errorCode: code ?? '' });
   process.stdout.write((ok ? 'PASS ' : 'FAIL ') + label + ': HTTP ' + status + (code ? ' [' + code + ']' : '') + '\n');
 }
-async function request(label, path, { actor, method = 'GET', body, expected = [200] } = {}) {
+async function request(label, path, { actor, method = 'GET', body, form, expected = [200] } = {}) {
   let response;
   try {
     response = await fetch(base + path, {
@@ -32,7 +32,7 @@ async function request(label, path, { actor, method = 'GET', body, expected = [2
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(actor?.cookie ? { Cookie: actor.cookie } : {}),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(form !== undefined ? { body: form } : body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (error) {
     note(label, expected, 0, String(error).slice(0,100));
@@ -179,6 +179,88 @@ async function main() {
     note('Group stage contains groups',[1],st.data?.groups?.length>0?1:0);
     const items=await request('Group stage matches','/api/competitions/'+groupId+'/matches',{actor:host});
     note('Group stage fixtures present',[1],items.data?.items?.length>0?1:0);
+  }
+
+  // Real public invite contract: anonymous visit receives the PWA route
+  // (checked in deployment), sign-up preserves the competition id and
+  // an authenticated guest can join using the exact shared ID.
+  const inviteCup=await request('Create shareable invitation cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'Invite E2E '+randomUUID(),type:'KNOCKOUT',game:'EAFC',
+      platform:'PS5',maxParticipants:2},
+  });
+  const inviteId=inviteCup.data?.id;
+  if(inviteId){
+    const invited={name:'Invited Player',email:'invited-'+randomUUID()+'@example.invalid',
+      password:'Audit2026!StrongPassword'};
+    await request('Invited guest registers via invite flow','/api/auth/register',{
+      actor:invited,method:'POST',expected:[201],
+      body:{name:invited.name,email:invited.email,password:invited.password},
+    });
+    await request('Invited guest joins via shareable ID',
+      '/api/competitions/'+inviteId+'/join',
+      {actor:invited,method:'POST',expected:[200]});
+    const invitation=await request('Invited guest sees the cup',
+      '/api/competitions/'+inviteId,{actor:invited});
+    note('Invite grants viewer participant status',[1],
+      invitation.data?.hasJoined===true?1:0);
+    await request('Invited guest cannot join full cup under a third identity',
+      '/api/competitions/'+inviteId+'/join',
+      {actor:extra[0],method:'POST',expected:[409]});
+  }
+
+  // Protected-result journey: image required -> R2 upload -> guest approval
+  // -> stats once -> second approval blocked. Never mutate a real tournament.
+  const verifiedCup=await request('Host creates photo-validated cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'Photo Approval Audit '+randomUUID(),type:'KNOCKOUT',
+      game:'EAFC',platform:'PS5',maxParticipants:2,requireValidation:true},
+  });
+  const verifiedId=verifiedCup.data?.id;
+  if(verifiedId){
+    await request('Guest joins photo-validation cup',
+      '/api/competitions/'+verifiedId+'/join',
+      {actor:guest,method:'POST',expected:[200]});
+    await request('Host starts photo-validation cup',
+      '/api/competitions/'+verifiedId+'/start',
+      {actor:host,method:'POST',expected:[200]});
+    const page=await request('Photo-validation match list',
+      '/api/competitions/'+verifiedId+'/matches',{actor:host});
+    const match=page.data?.items?.[0];
+    if(match){
+      await request('Reject score without proof',
+        '/api/matches/'+match.id+'/score',
+        {actor:host,method:'POST',expected:[400],
+          body:{homeScore:2,awayScore:1,version:match.version}});
+      const proof=new FormData();
+      proof.set('homeScore','2');
+      proof.set('awayScore','1');
+      proof.set('version',String(match.version));
+      proof.set('scorers','[]');
+      proof.set('evidence',new File([
+        Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRmwAAAAASUVORK5CYII=','base64')],
+        'score-proof.png',{type:'image/png'}));
+      const submitted=await request('Upload photo and submit pending score',
+        '/api/matches/'+match.id+'/score',
+        {actor:host,method:'POST',form:proof,expected:[200]});
+      note('Photo proof requires approval',[1],
+        submitted.data?.status==='AWAITING_APPROVAL'?1:0);
+      const approved=await request('Opponent approves photo score',
+        '/api/matches/'+match.id+'/approve',
+        {actor:guest,method:'POST',body:{version:submitted.data?.version},
+          expected:[200]});
+      note('Approval finishes photo-validated match',[1],
+        approved.data?.status==='FINISHED'?1:0);
+      await request('Second approval cannot duplicate results',
+        '/api/matches/'+match.id+'/approve',
+        {actor:guest,method:'POST',body:{version:submitted.data?.version},
+          expected:[409]});
+      const final=await request('Photo approval match persists',
+        '/api/competitions/'+verifiedId+'/matches',{actor:host});
+      note('Approved score stored in D1',[1],
+        final.data?.items?.some(m=>m.id===match.id && m.status==='FINISHED'
+          && m.homeScore===2 && m.awayScore===1)?1:0);
+    } else note('Verified cup fixture exists',[1],0);
   }
 
   await request('Unknown player is 404', '/api/profile/'+randomUUID(), {actor:host,expected:[404]});
