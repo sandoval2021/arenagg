@@ -5,6 +5,8 @@ import type { Env } from '../types/env';
 import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { awardCheckinBadge } from '../services/achievement-engine.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES } from '../domain/achievements/badges';
 import { sendPushToUsers } from '../services/push.service';
 import {
   InvalidMatchTransitionError,
@@ -60,7 +62,7 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
       select:{homeReady:true,awayReady:true,homeReadyAt:true,awayReadyAt:true},
     });
     // Optional reward delivery cannot prevent a valid check-in response.
-    await awardCheckinBadge(db,user.id).catch(()=>undefined);
+    await grantBadgesD1(c.env.DB,user.id,[BADGE_CODES.FIRST_CHECKIN]);
     return c.json(ready);
   }
 
