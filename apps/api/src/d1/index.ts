@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { routes as authRoutes, type D1DatabasePort } from './native-auth.routes';
 import { googleOAuthRoutes } from './google-oauth.routes';
+import { createD1Prisma } from './prisma-adapter';
 import { readPublicImageFromR2 } from './r2-images';
 import type { R2BucketPort } from '../infrastructure/storage/r2/r2-storage.adapter';
 
@@ -61,6 +62,21 @@ app.get('/api/health/db', async c => {
     return c.json({ status: 'ok', database: 'd1' });
   } catch {
     return c.json({ status: 'error', database: 'unavailable' }, 503);
+  }
+});
+// Contract check for the Prisma adapter before porting tournament queries.
+app.get('/api/health/orm', async c => {
+  const prisma = createD1Prisma(c.env.DB);
+  try {
+    const [accounts, competitions] = await Promise.all([
+      prisma.user.count(),
+      prisma.competition.count(),
+    ]);
+    return c.json({ status: 'ok', adapter: 'prisma-d1', accounts, competitions });
+  } catch {
+    return c.json({ error: 'D1_ORM_UNAVAILABLE' }, 503);
+  } finally {
+    await prisma.$disconnect();
   }
 });
 app.route('/api/auth', authRoutes);
