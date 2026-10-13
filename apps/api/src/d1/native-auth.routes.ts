@@ -130,7 +130,18 @@ routes.use('*', async (c, next) => {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.req.method)) {
     const origin = c.req.header('Origin');
     const allowed = c.env.WEB_APP_URL || 'https://chavea.pages.dev';
-    if (origin && origin !== allowed && origin !== 'http://localhost:5173') {
+    // The owner activation form is intentionally hosted on the same HTTPS
+    // Worker that processes its POST. Browsers send the Worker's Origin rather
+    // than the Pages origin, so permit ONLY that exact self-origin request.
+    // Do not widen the rule for login/register or for third-party domains.
+    const requestUrl = new URL(c.req.url);
+    const sameOriginOwnerActivation =
+      c.req.method === 'POST' &&
+      requestUrl.pathname === '/api/auth/owner/activate' &&
+      requestUrl.protocol === 'https:' &&
+      origin === requestUrl.origin;
+    if (origin && origin !== allowed && origin !== 'http://localhost:5173' &&
+        !sameOriginOwnerActivation) {
       return c.json({ error: 'ORIGIN_FORBIDDEN' }, 403);
     }
   }
