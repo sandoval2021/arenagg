@@ -135,13 +135,17 @@ routes.use('*', async (c, next) => {
     // than the Pages origin, so permit ONLY that exact self-origin request.
     // Do not widen the rule for login/register or for third-party domains.
     const requestUrl = new URL(c.req.url);
-    const sameOriginOwnerActivation =
+    const isOwnerActivation =
       c.req.method === 'POST' &&
-      requestUrl.pathname === '/api/auth/owner/activate' &&
-      requestUrl.protocol === 'https:' &&
-      origin === requestUrl.origin;
-    if (origin && origin !== allowed && origin !== 'http://localhost:5173' &&
-        !sameOriginOwnerActivation) {
+      requestUrl.pathname === '/api/auth/owner/activate';
+    // This endpoint has a separate, one-time 256-bit email challenge.
+    // Some iOS Gmail / Safari in-app browsers send Origin: null for an
+    // otherwise valid HTML form. Delegate ONLY this action to the
+    // owner-activation handler, which validates Origin/Fetch Metadata and
+    // the short-lived, single-use token. All other auth routes keep
+    // the strict allowlist here.
+    if (!isOwnerActivation &&
+        origin && origin !== allowed && origin !== 'http://localhost:5173') {
       return c.json({ error: 'ORIGIN_FORBIDDEN' }, 403);
     }
   }
