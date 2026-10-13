@@ -128,6 +128,10 @@ jobs:
           cat /tmp/chavea-owner-register.json
           test "$OWNER_HTTP" = '403'
           grep -q 'OWNER_EMAIL_VERIFICATION_REQUIRED' /tmp/chavea-owner-register.json
+          ACTIVATION_HTTP="$(curl -sS -o /tmp/chavea-d1-activation-form.html -w '%{http_code}' "$BASE/api/auth/owner/activate?token=abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd")"
+          echo "Unauthenticated invalid activation link HTTP: $ACTIVATION_HTTP"
+          test "$ACTIVATION_HTTP" = '410'
+          grep -q 'Link expirado ou inválido' /tmp/chavea-d1-activation-form.html
           ADMIN_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview" -H "$HEADER")"
           echo "Admin without session HTTP: $ADMIN_HTTP"
           test "$ADMIN_HTTP" = '401'
