@@ -7,6 +7,8 @@ import {
   uploadShield,
 } from '../services/shield-storage.service';
 import { reconcileRareAchievements } from '../services/achievement-reconciliation.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES, loyaltyBadges, type BadgeCode } from '../domain/achievements/badges';
 
 export const profile = new Hono<Env>();
 
@@ -55,7 +57,28 @@ function badgeSelect() {
 profile.get('/me', async (c) => {
   const db = c.get('prisma');
   const sessionUser = c.get('user');
-  await reconcileRareAchievements(db, sessionUser.id);
+  if (c.env.DB) {
+    const [account, hosted, friendsCount, teams, clips] = await Promise.all([
+      db.user.findUnique({where:{id:sessionUser.id},select:{createdAt:true}}),
+      db.competition.count({where:{hostId:sessionUser.id}}),
+      db.friendship.count({where:{status:'ACCEPTED',OR:[
+        {requesterId:sessionUser.id},{addresseeId:sessionUser.id},
+      ]}}),
+      db.team.count({where:{createdById:sessionUser.id}}),
+      db.matchMedia.count({where:{createdById:sessionUser.id}}),
+    ]);
+    const codes:BadgeCode[]=[];
+    if(account) codes.push(...loyaltyBadges(account.createdAt));
+    if(hosted>=1) codes.push(BADGE_CODES.FIRST_HOST);
+    if(hosted>=5) codes.push(BADGE_CODES.HOST_ELITE_5);
+    if(friendsCount>=1) codes.push(BADGE_CODES.ADD_FRIEND);
+    if(friendsCount>=10) codes.push(BADGE_CODES.SOCIAL_STAR_10);
+    if(teams>=1) codes.push(BADGE_CODES.CREATE_TEAM);
+    if(clips>=1) codes.push(BADGE_CODES.FIRST_CLIP);
+    if(codes.length) await grantBadgesD1(c.env.DB,sessionUser.id,codes);
+  } else {
+    await reconcileRareAchievements(db, sessionUser.id);
+  }
 
   const [user, stats] = await Promise.all([
     db.user.findUniqueOrThrow({
@@ -87,6 +110,50 @@ profile.patch('/me', async (c) => {
   const parsed = updateProfileSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     return c.json({ error: 'INVALID_PROFILE_INPUT', issues: parsed.error.flatten() }, 400);
+  }
+
+  if (c.env.DB) {
+    const d1 = c.env.DB;
+    const now = new Date().toISOString();
+    const current = await db.userProfile.findUnique({ where: { userId: user.id } });
+    const profileConsoles = parsed.data.consoles ?? current?.consoles ?? [];
+    const favorite = parsed.data.favoriteFormation === undefined
+      ? current?.favoriteFormation ?? null : parsed.data.favoriteFormation;
+    const playstyle = parsed.data.playstyle === undefined
+      ? current?.playstyle ?? null : parsed.data.playstyle;
+    const userFields = await db.user.findUniqueOrThrow({
+      where: { id: user.id }, select: { displayName: true, avatarUrl: true },
+    });
+    await d1.batch([
+      d1.prepare(`
+        UPDATE "User" SET "displayName"=?1,"avatarUrl"=?2,"updatedAt"=?3
+        WHERE "id"=?4
+      `).bind(parsed.data.displayName ?? userFields.displayName,
+        parsed.data.avatarUrl === undefined ? userFields.avatarUrl : parsed.data.avatarUrl,
+        now, user.id),
+      d1.prepare(`
+        INSERT INTO "UserProfile"
+          ("userId","consoles","favoriteFormation","playstyle","createdAt","updatedAt")
+        VALUES (?1,?2,?3,?4,?5,?5)
+        ON CONFLICT("userId") DO UPDATE SET
+          "consoles"=excluded."consoles",
+          "favoriteFormation"=excluded."favoriteFormation",
+          "playstyle"=excluded."playstyle",
+          "updatedAt"=excluded."updatedAt"
+      `).bind(user.id, JSON.stringify(profileConsoles), favorite, playstyle, now),
+    ]);
+    const [updatedUser, stats] = await Promise.all([
+      db.user.findUniqueOrThrow({
+        where: { id: user.id },
+        select: {
+          id: true, name: true, displayName: true, avatarUrl: true,
+          email: true, phone: true,
+          badges: { select: badgeSelect(), orderBy: { awardedAt: 'asc' } },
+        },
+      }),
+      db.userProfile.findUniqueOrThrow({ where: { userId: user.id }, select: statsSelect() }),
+    ]);
+    return c.json({ ...updatedUser, ...stats });
   }
 
   const updated = await db.$transaction(async (tx) => {

@@ -1,0 +1,278 @@
+/**
+ * CHAVEA functional audit. Uses ONLY the disposable local D1 database
+ * started by the audit GitHub Actions workflow. Never runs on production.
+ * Exercises anonymous/auth, two-player tournament lifecycle, social APIs
+ * and permissions, reporting every response and failing on unexpected 5xx.
+ */
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+
+const base = process.env.CHAVEA_AUDIT_BASE ?? 'http://127.0.0.1:8791';
+if (!/^(http:\/\/127\.0\.0\.1:8791|http:\/\/localhost:8791)$/.test(base)) {
+  throw new Error('Refusing to audit any non-local Worker URL');
+}
+const goodOrigin = 'http://localhost:5173';
+const actors = [
+  { name: 'Audit Host', email: 'audit-host-' + randomUUID() + '@example.invalid', password: 'Audit2026!StrongPassword' },
+  { name: 'Audit Guest', email: 'audit-guest-' + randomUUID() + '@example.invalid', password: 'Audit2026!StrongPassword' },
+];
+const findings = [];
+function note(label, expected, status, code) {
+  const ok = expected.includes(status);
+  findings.push({ label, status, expected: expected.join(','), ok, errorCode: code ?? '' });
+  process.stdout.write((ok ? 'PASS ' : 'FAIL ') + label + ': HTTP ' + status + (code ? ' [' + code + ']' : '') + '\n');
+}
+async function request(label, path, { actor, method = 'GET', body, form, expected = [200] } = {}) {
+  let response;
+  try {
+    response = await fetch(base + path, {
+      method, signal: AbortSignal.timeout(14000),
+      headers: {
+        Origin: goodOrigin,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(actor?.cookie ? { Cookie: actor.cookie } : {}),
+      },
+      ...(form !== undefined ? { body: form } : body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch (error) {
+    note(label, expected, 0, String(error).slice(0,100));
+    return { status: 0, data: null };
+  }
+  let data; try { data = await response.json(); } catch { data = null; }
+  const cookie = response.headers.get('set-cookie')?.split(';')[0];
+  if (cookie && actor) actor.cookie = cookie;
+  note(label, expected, response.status, data?.error);
+  return { status: response.status, data };
+}
+async function main() {
+  await request('Worker health', '/api/health/db');
+  await request('Unknown auth me', '/api/auth/me', { expected: [401] });
+  await request('Anonymous competition access', '/api/competitions', { expected: [401] });
+  await request('Anonymous admin access', '/api/admin/overview', { expected: [401] });
+  for (const a of actors) {
+    const reg = await request('Register ' + a.name, '/api/auth/register', {
+      actor: a, method: 'POST',
+      body: { name: a.name, email: a.email, password: a.password },
+      expected: [201],
+    });
+    a.id = reg.data?.user?.id;
+    assert.ok(a.id, 'User ID missing for ' + a.name);
+    await request('Authenticated session ' + a.name, '/api/auth/me', { actor:a });
+    await request('Own profile ' + a.name, '/api/profile/me', { actor:a });
+    await request('Public profile self ' + a.name, '/api/profile/' + a.id, { actor:a });
+    await request('Ranking ' + a.name, '/api/ranking', { actor:a });
+    await request('Own album ' + a.name, '/api/album', { actor:a });
+    await request('Album empty pack guard ' + a.name, '/api/album/open-pack', {
+      actor:a, method:'POST', body:{packType:'COMMON'},expected:[409],
+    });
+    await request('Update own profile ' + a.name, '/api/profile/me', {
+      actor:a, method:'PATCH', body:{displayName:a.name+' Updated',consoles:['PS5']},expected:[200],
+    });
+    await request('Own friends ' + a.name, '/api/friends', { actor:a });
+    await request('Friend requests ' + a.name, '/api/friends/requests', { actor:a });
+    await request('Friendly LFG availability ' + a.name, '/api/matchmaking/availability', { actor:a });
+    await request('Forbidden admin ' + a.name, '/api/admin/overview', { actor:a, expected:[403] });
+  }
+  const [host, guest] = actors;
+  await request('View another public profile', '/api/profile/' + guest.id, { actor:host });
+  await request('Unverified restricted email claim', '/api/auth/register', {
+    method:'POST', body: { name:'Wrong Owner', email:'owner-smoke@example.invalid',password:'Audit2026!StrongPassword' }, expected:[403],
+  });
+  const creation = await request('Host creates cup', '/api/competitions', {
+    method:'POST', actor:host, expected:[201],
+    body:{ name:'E2E Functional Audit Cup',type:'KNOCKOUT',game:'EAFC',platform:'PS5',maxParticipants:4 },
+  });
+  const cupId = creation.data?.id;
+  assert.ok(cupId, 'Competition ID missing');
+  await request('Host reads cup', '/api/competitions/'+cupId, { actor:host });
+  await request('Guest cannot access private cup before joining', '/api/competitions/'+cupId, { actor:guest, expected:[404] });
+  await request('Host team read', '/api/competitions/'+cupId, { actor:host });
+  await request('Guest joins cup', '/api/competitions/'+cupId+'/join', {actor:guest, method:'POST', expected:[200]});
+  await request('Guest cannot join twice (idempotent)', '/api/competitions/'+cupId+'/join', {actor:guest, method:'POST', expected:[200]});
+  await request('Host sees two players', '/api/competitions/'+cupId, {actor:host});
+  await request('Guest reads joined cup', '/api/competitions/'+cupId, {actor:guest});
+  await request('Guest configures team', '/api/competitions/'+cupId+'/my-team', {
+    actor:guest,method:'PATCH',body:{teamName:'Team Guest Audit'},expected:[200],
+  });
+  await request('Host reads competition chat', '/api/competitions/'+cupId+'/chat', {actor:host});
+  await request('Guest posts competition chat', '/api/competitions/'+cupId+'/chat', {
+    actor:guest,method:'POST',body:{body:'Boa sorte, vamos jogar!'},expected:[200,201],
+  });
+  await request('Guest cannot start cup', '/api/competitions/'+cupId+'/start', {actor:guest, method:'POST', expected:[403]});
+  await request('Host starts cup', '/api/competitions/'+cupId+'/start', {actor:host, method:'POST', expected:[200]});
+  const cupMatches = await request('Host reads matches', '/api/competitions/'+cupId+'/matches', {actor:host});
+  const matchId=cupMatches.data?.items?.[0]?.id;
+  const matchVersion=cupMatches.data?.items?.[0]?.version;
+  if (matchId) {
+    await request('Player match checkin', '/api/matches/'+matchId+'/ready', {actor:host,method:'POST',expected:[200]});
+    await request('Match score submission', '/api/matches/'+matchId+'/score', {
+      actor:host,method:'POST',
+      body:{homeScore:3,awayScore:1,version:matchVersion},expected:[200,201],
+    });
+  } else note('Start created real match', [1],0,'NO_MATCH_RETURNED');
+  await request('Host reads standings', '/api/competitions/'+cupId+'/standings', {actor:host});
+  await request('Host sees cup feed', '/api/competitions/'+cupId+'/feed', {actor:host});
+  await request('Friend request', '/api/friends/request', {actor:host,method:'POST',body:{friendId:guest.id},expected:[200,201]});
+  const incoming = await request('Guest sees friend request', '/api/friends/requests', {actor:guest});
+  const invitationId = incoming.data?.[0]?.friendshipId;
+  if(invitationId) {
+    await request('Guest accepts friendship', '/api/friends/'+invitationId+'/accept', {
+      actor:guest,method:'POST',expected:[200],
+    });
+    await request('Host sees accepted friend', '/api/friends', {actor:host});
+  } else note('Friend request visible', [1],0,'NO_FRIEND_REQUEST');
+  await request('Friend list', '/api/friends', {actor:host});
+  const hostStats=await request('Reconcile badges after match', '/api/profile/me', {actor:host});
+  const guestStats=await request('Reconcile guest achievements', '/api/profile/me', {actor:guest});
+  const goals=(hostStats.data?.totalGoalsScored??0)+(guestStats.data?.totalGoalsScored??0);
+  note('Match results updated both players statistics', [1],goals===4?1:0,
+    goals===4?'GOALS_RECORDED':'EXPECTED_FOUR_TOTAL_GOALS');
+  note('Host badge rewards credited', [1],(hostStats.data?.badges?.length??0)>0?1:0);
+  note('Guest badge rewards credited', [1],(guestStats.data?.badges?.length??0)>0?1:0);
+  const allPacks=await request('Badge sticker packs', '/api/album', {actor:host});
+  note('Badge reward grants packs', [1],
+    (allPacks.data?.packs?.some(p=>p.packType==='COMMON'&&p.quantity>=1))?1:0);
+
+  // Separate league format, same disposable DB. Check team enrollment,
+  // round-robin scheduling and no duplicate start.
+  const league=await request('Create league format','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'E2E League '+randomUUID(),type:'LEAGUE',game:'EAFC',
+      platform:'PS5',maxParticipants:4},
+  });
+  const leagueId=league.data?.id;
+  if(leagueId){
+    await request('League guest joins','/api/competitions/'+leagueId+'/join',
+      {actor:guest,method:'POST'});
+    await request('League start','/api/competitions/'+leagueId+'/start',
+      {actor:host,method:'POST'});
+    const r=await request('League fixtures','/api/competitions/'+leagueId+'/matches',{actor:host});
+    note('League has fixtures',[1],r.data?.items?.length>0?1:0);
+    await request('No duplicate league start','/api/competitions/'+leagueId+'/start',
+      {actor:host,method:'POST',expected:[409]});
+  }
+
+  // Four-person group tournament: each registered guest is independent.
+  const extra=[];
+  for(let i=0;i<2;i++){
+    const a={name:'Group Guest '+i,email:'group-'+randomUUID()+'@example.invalid',
+      password:'Audit2026!StrongPassword'};
+    const r=await request('Register group player '+i,'/api/auth/register',{
+      actor:a,method:'POST',body:{name:a.name,email:a.email,password:a.password},expected:[201],
+    });
+    a.id=r.data?.user?.id;extra.push(a);
+  }
+  const group=await request('Create group stage cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'E2E Groups '+randomUUID(),type:'GROUPS_KNOCKOUT',format:'GROUP_STAGE',
+      groupCount:2,game:'EAFC',platform:'PS5',maxParticipants:4},
+  });
+  const groupId=group.data?.id;
+  if(groupId){
+    for(const player of [guest,...extra]){
+      await request('Group participant join '+player.name,
+        '/api/competitions/'+groupId+'/join',{actor:player,method:'POST'});
+    }
+    await request('Start group-stage cup','/api/competitions/'+groupId+'/start',
+      {actor:host,method:'POST'});
+    const st=await request('Group-stage standings','/api/competitions/'+groupId+'/group-stage',{actor:host});
+    note('Group stage contains groups',[1],st.data?.groups?.length>0?1:0);
+    const items=await request('Group stage matches','/api/competitions/'+groupId+'/matches',{actor:host});
+    note('Group stage fixtures present',[1],items.data?.items?.length>0?1:0);
+  }
+
+  // Real public invite contract: anonymous visit receives the PWA route
+  // (checked in deployment), sign-up preserves the competition id and
+  // an authenticated guest can join using the exact shared ID.
+  const inviteCup=await request('Create shareable invitation cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'Invite E2E '+randomUUID(),type:'KNOCKOUT',game:'EAFC',
+      platform:'PS5',maxParticipants:2},
+  });
+  const inviteId=inviteCup.data?.id;
+  if(inviteId){
+    const invited={name:'Invited Player',email:'invited-'+randomUUID()+'@example.invalid',
+      password:'Audit2026!StrongPassword'};
+    await request('Invited guest registers via invite flow','/api/auth/register',{
+      actor:invited,method:'POST',expected:[201],
+      body:{name:invited.name,email:invited.email,password:invited.password},
+    });
+    await request('Invited guest joins via shareable ID',
+      '/api/competitions/'+inviteId+'/join',
+      {actor:invited,method:'POST',expected:[200]});
+    const invitation=await request('Invited guest sees the cup',
+      '/api/competitions/'+inviteId,{actor:invited});
+    note('Invite grants viewer participant status',[1],
+      invitation.data?.hasJoined===true?1:0);
+    await request('Invited guest cannot join full cup under a third identity',
+      '/api/competitions/'+inviteId+'/join',
+      {actor:extra[0],method:'POST',expected:[409]});
+  }
+
+  // Protected-result journey: image required -> R2 upload -> guest approval
+  // -> stats once -> second approval blocked. Never mutate a real tournament.
+  const verifiedCup=await request('Host creates photo-validated cup','/api/competitions',{
+    actor:host,method:'POST',expected:[201],
+    body:{name:'Photo Approval Audit '+randomUUID(),type:'KNOCKOUT',
+      game:'EAFC',platform:'PS5',maxParticipants:2,requireValidation:true},
+  });
+  const verifiedId=verifiedCup.data?.id;
+  if(verifiedId){
+    await request('Guest joins photo-validation cup',
+      '/api/competitions/'+verifiedId+'/join',
+      {actor:guest,method:'POST',expected:[200]});
+    await request('Host starts photo-validation cup',
+      '/api/competitions/'+verifiedId+'/start',
+      {actor:host,method:'POST',expected:[200]});
+    const page=await request('Photo-validation match list',
+      '/api/competitions/'+verifiedId+'/matches',{actor:host});
+    const match=page.data?.items?.[0];
+    if(match){
+      await request('Reject score without proof',
+        '/api/matches/'+match.id+'/score',
+        {actor:host,method:'POST',expected:[400],
+          body:{homeScore:2,awayScore:1,version:match.version}});
+      const proof=new FormData();
+      proof.set('homeScore','2');
+      proof.set('awayScore','1');
+      proof.set('version',String(match.version));
+      proof.set('scorers','[]');
+      proof.set('evidence',new File([
+        Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRmwAAAAASUVORK5CYII=','base64')],
+        'score-proof.png',{type:'image/png'}));
+      const submitted=await request('Upload photo and submit pending score',
+        '/api/matches/'+match.id+'/score',
+        {actor:host,method:'POST',form:proof,expected:[200]});
+      note('Photo proof requires approval',[1],
+        submitted.data?.status==='AWAITING_APPROVAL'?1:0);
+      const approved=await request('Opponent approves photo score',
+        '/api/matches/'+match.id+'/approve',
+        {actor:guest,method:'POST',body:{version:submitted.data?.version},
+          expected:[200]});
+      note('Approval finishes photo-validated match',[1],
+        approved.data?.status==='FINISHED'?1:0);
+      await request('Second approval cannot duplicate results',
+        '/api/matches/'+match.id+'/approve',
+        {actor:guest,method:'POST',body:{version:submitted.data?.version},
+          expected:[409]});
+      const final=await request('Photo approval match persists',
+        '/api/competitions/'+verifiedId+'/matches',{actor:host});
+      note('Approved score stored in D1',[1],
+        final.data?.items?.some(m=>m.id===match.id && m.status==='FINISHED'
+          && m.homeScore===2 && m.awayScore===1)?1:0);
+    } else note('Verified cup fixture exists',[1],0);
+  }
+
+  await request('Unknown player is 404', '/api/profile/'+randomUUID(), {actor:host,expected:[404]});
+  await request('Password rejected', '/api/auth/login', { method:'POST',body:{email:host.email,password:'Incorrect2026!!'},expected:[401]});
+  await request('Host logs out', '/api/auth/logout', {actor:host,method:'POST',expected:[204]});
+  await request('Revoked session rejected', '/api/auth/me', {actor:host,expected:[401]});
+  await request('Host logs in again', '/api/auth/login', {
+    actor:host,method:'POST',body:{email:host.email,password:host.password},expected:[200],
+  });
+  const failed = findings.filter(x=>!x.ok);
+  process.stdout.write('\nAUDIT_TOTAL=' + findings.length + '\nAUDIT_FAILURES=' + failed.length + '\n');
+  for (const f of failed) process.stdout.write('FAILURE ' + f.label + ' => ' + f.status + ' (' + f.errorCode + ')\n');
+  if (failed.length > 0) process.exitCode = 1;
+}
+await main().catch(error => {console.error('AUDIT_FATAL:',error.message);process.exitCode=1;});

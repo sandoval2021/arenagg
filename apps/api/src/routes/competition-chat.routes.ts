@@ -42,6 +42,24 @@ competitionChat.get('/:id/chat', async (c) => {
   }
 
   const db = c.get('prisma');
+  if(c.env.DB){
+    const messages = await db.competitionChatMessage.findMany({
+      where:{competitionId},
+      orderBy:{createdAt:'desc'}, take:80,
+      include:{
+        user:{select:{
+          name:true,displayName:true,avatarUrl:true,
+          profile:{select:{mmr:true}},
+        }},
+      },
+    });
+    return c.json(messages.reverse().map(m=>({
+      id:m.id, competitionId:m.competitionId, userId:m.userId,
+      body:m.body,createdAt:m.createdAt.toISOString(),
+      name:m.user.name,displayName:m.user.displayName,
+      avatarUrl:m.user.avatarUrl,mmr:m.user.profile?.mmr??1500,
+    })));
+  }
   const rows = await db.$queryRaw<ChatRow[]>`
     SELECT
       m."id",
@@ -81,6 +99,24 @@ competitionChat.post('/:id/chat', async (c) => {
   const db = c.get('prisma');
   const user = c.get('user');
   const id = crypto.randomUUID();
+  if(c.env.DB){
+    const now=new Date();
+    const cutoff=new Date(now.getTime()-2_000).toISOString();
+    const result=await c.env.DB.prepare(`
+      INSERT INTO "CompetitionChatMessage"
+        ("id","competitionId","userId","body","createdAt")
+      SELECT ?1,?2,?3,?4,?5
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "CompetitionChatMessage"
+        WHERE "competitionId"=?2 AND "userId"=?3 AND "createdAt">?6
+      )
+    `).bind(id,competitionId,user.id,parsed.data.body,now.toISOString(),cutoff).run();
+    if(result.meta.changes!==1){
+      return c.json({error:'CHAT_RATE_LIMIT',
+        message:'Aguarde um instante antes de enviar outra mensagem.'},429);
+    }
+    return c.json({id,body:parsed.data.body,createdAt:now.toISOString()},201);
+  }
   const inserted = await db.$executeRaw`
     INSERT INTO "CompetitionChatMessage" ("id", "competitionId", "userId", "body", "createdAt")
     SELECT ${id}::uuid, ${competitionId}::uuid, ${user.id}::uuid, ${parsed.data.body}, CURRENT_TIMESTAMP

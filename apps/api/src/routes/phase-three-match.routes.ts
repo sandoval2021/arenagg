@@ -5,6 +5,8 @@ import type { Env } from '../types/env';
 import { advanceKnockoutMatch } from '../services/knockout-progression.service';
 import { applyFinishedMatchToProfiles } from '../services/profile-stats.service';
 import { awardCheckinBadge } from '../services/achievement-engine.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES } from '../domain/achievements/badges';
 import { sendPushToUsers } from '../services/push.service';
 import {
   InvalidMatchTransitionError,
@@ -37,6 +39,32 @@ phaseThreeMatches.post('/:id/ready', async (c) => {
   const db = c.get('prisma');
   const user = c.get('user');
   const matchId = c.req.param('id');
+
+  if(c.env.DB){
+    const match = await db.match.findUnique({where:{id:matchId},include:matchAccessInclude});
+    if(!match)return c.json({error:'MATCH_NOT_FOUND'},404);
+    if(['FINISHED','CANCELED'].includes(match.status))return c.json({error:'MATCH_NOT_OPEN'},409);
+    if(!match.homeTeam||!match.awayTeam)return c.json({error:'MATCH_NOT_READY'},409);
+    const side=match.homeTeam.participation.userId===user.id?'HOME':
+      match.awayTeam.participation.userId===user.id?'AWAY':null;
+    if(!side)return c.json({error:'PLAYER_ONLY'},403);
+    if(!(side==='HOME'?match.homeReady:match.awayReady)){
+      const updated=await c.env.DB.prepare(side==='HOME'
+        ? `UPDATE "Match" SET "homeReady"=1,"homeReadyAt"=?1
+             WHERE "id"=?2 AND "status" NOT IN ('FINISHED','CANCELED')`
+        : `UPDATE "Match" SET "awayReady"=1,"awayReadyAt"=?1
+             WHERE "id"=?2 AND "status" NOT IN ('FINISHED','CANCELED')`
+      ).bind(new Date().toISOString(),matchId).run();
+      if(updated.meta.changes!==1)return c.json({error:'MATCH_NOT_OPEN'},409);
+    }
+    const ready=await db.match.findUniqueOrThrow({
+      where:{id:matchId},
+      select:{homeReady:true,awayReady:true,homeReadyAt:true,awayReadyAt:true},
+    });
+    // Optional reward delivery cannot prevent a valid check-in response.
+    await grantBadgesD1(c.env.DB,user.id,[BADGE_CODES.FIRST_CHECKIN]);
+    return c.json(ready);
+  }
 
   const result = await db.$transaction(async (tx) => {
     await lockMatch(tx, matchId);

@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 import { evaluateFriendAchievements } from '../services/achievement-engine.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES } from '../domain/achievements/badges';
 
 export const friends = new Hono<Env>();
 
@@ -29,6 +31,59 @@ friends.post('/request', async (c) => {
   const [left, right] = orderedPair(user.id, parsed.data.friendId);
   const requestId = crypto.randomUUID();
   let result: FriendRequestResult;
+  if (c.env.DB) {
+    // D1 serializes its SQLite write statements; use a conditional insert
+    // instead of unsupported PG advisory locks / interactive transactions.
+    const existing = await db.friendship.findFirst({
+      where: { OR: [
+        { requesterId: user.id, addresseeId: parsed.data.friendId },
+        { requesterId: parsed.data.friendId, addresseeId: user.id },
+      ] },
+    });
+    if (existing) {
+      let updated = existing;
+      if (existing.status === 'PENDING' && existing.requesterId === parsed.data.friendId) {
+        updated = await db.friendship.update({
+          where: { id: existing.id }, data: { status: 'ACCEPTED' },
+        });
+      } else if (existing.status === 'REJECTED') {
+        updated = await db.friendship.update({
+          where: { id: existing.id },
+          data: { requesterId: user.id, addresseeId: parsed.data.friendId, status: 'PENDING' },
+        });
+      }
+      result = { state: updated.status === 'ACCEPTED' ? 'ACCEPTED' : 'PENDING', friendship: updated };
+    } else {
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      await c.env.DB.prepare(`
+        INSERT INTO "Friendship" ("id","requesterId","addresseeId","status","createdAt","updatedAt")
+        SELECT ?1,?2,?3,'PENDING',?4,?4
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Friendship" WHERE
+          ("requesterId"=?2 AND "addresseeId"=?3) OR
+          ("requesterId"=?3 AND "addresseeId"=?2)
+        )
+      `).bind(id, user.id, parsed.data.friendId, now).run();
+      const record = await db.friendship.findFirst({
+        where: { OR: [
+          { requesterId: user.id, addresseeId: parsed.data.friendId },
+          { requesterId: parsed.data.friendId, addresseeId: user.id },
+        ] },
+      });
+      if (!record) return c.json({ error: 'FRIEND_REQUEST_FAILED' }, 503);
+      result = { state: record.status === 'ACCEPTED' ? 'ACCEPTED' : 'PENDING', friendship: record };
+    }
+    if (result.state === 'ACCEPTED') {
+      await Promise.all([
+        grantBadgesD1(c.env.DB, user.id, [BADGE_CODES.ADD_FRIEND]),
+        grantBadgesD1(c.env.DB, parsed.data.friendId, [BADGE_CODES.ADD_FRIEND]),
+      ]);
+    }
+    return c.json({ id: result.friendship.id, status: result.state },
+      result.state === 'ACCEPTED' ? 200 : 201);
+  }
+
   try {
     result = await db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`friend:${left}:${right}`}))`;
@@ -138,10 +193,17 @@ friends.post('/:id/accept', async (c) => {
   });
   if (!row) return c.json({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404);
   const updated = await db.friendship.update({ where: { id: row.id }, data: { status: 'ACCEPTED' } });
-  await Promise.all([
-    evaluateFriendAchievements(db, row.requesterId),
-    evaluateFriendAchievements(db, row.addresseeId),
-  ]);
+  if(c.env.DB){
+    await Promise.all([
+      grantBadgesD1(c.env.DB,row.requesterId,[BADGE_CODES.ADD_FRIEND]),
+      grantBadgesD1(c.env.DB,row.addresseeId,[BADGE_CODES.ADD_FRIEND]),
+    ]);
+  } else {
+    await Promise.all([
+      evaluateFriendAchievements(db,row.requesterId),
+      evaluateFriendAchievements(db,row.addresseeId),
+    ]);
+  }
   return c.json({ id: updated.id, status: updated.status });
 });
 

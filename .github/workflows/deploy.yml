@@ -32,6 +32,38 @@ jobs:
           npm run typecheck --workspace=@chavea/api
       - name: Build CHAVEA PWA
         run: npm run build --workspace=@chavea/web
+      - name: Gate production on disposable D1 multi-user functional audit
+        run: |
+          set -euo pipefail
+          cp apps/api/wrangler.d1.local.toml apps/api/wrangler.d1.functional.toml
+          sed -i '/^WEB_APP_URL = /a OWNER_EMAIL = "owner-smoke@example.invalid"' apps/api/wrangler.d1.functional.toml
+          printf '%s\n' '[[r2_buckets]]' 'binding = "EVIDENCE_BUCKET"' 'bucket_name = "chavea-functional-evidence-local"' >> apps/api/wrangler.d1.functional.toml
+          DB_DIR="$(mktemp -d)"
+          cleanup() {
+            rm -rf "$DB_DIR"
+            rm -f apps/api/wrangler.d1.functional.toml
+          }
+          trap cleanup EXIT
+          (
+            cd apps/api
+            npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.functional.toml --persist-to "$DB_DIR" --file ../../prisma/d1/migrations/0001_init.sql
+            npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.functional.toml --persist-to "$DB_DIR" --file ../../prisma/d1/migrations/0002_repair_json_defaults.sql
+            npx wrangler dev --config wrangler.d1.functional.toml --local --persist-to "$DB_DIR" --port 8791 --ip 127.0.0.1 >/tmp/chavea-d1-audit-worker.log 2>&1 &
+            echo $! > /tmp/chavea-d1-audit.pid
+          )
+          trap 'kill "$(cat /tmp/chavea-d1-audit.pid)" 2>/dev/null || true; cleanup' EXIT
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 2 'http://127.0.0.1:8791/api/health/db' >/dev/null; then READY=1;break;fi
+            sleep 1
+          done
+          if [ "$READY" != 1 ]; then
+            echo 'Local D1 Worker failed to start.'
+            grep -E 'ERROR|Error' /tmp/chavea-d1-audit-worker.log | tail -n 12 || true
+            exit 1
+          fi
+          node scripts/chavea-d1-functional-audit.mjs
+          echo 'CHAVEA_D1_PREDEPLOY_AUDIT_PASS=true'
       - name: Validate D1 database, owner and configuration
         working-directory: apps/api
         run: |
