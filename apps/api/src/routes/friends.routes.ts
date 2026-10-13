@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types/env';
 import { evaluateFriendAchievements } from '../services/achievement-engine.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES } from '../domain/achievements/badges';
 
 export const friends = new Hono<Env>();
 
@@ -73,11 +75,9 @@ friends.post('/request', async (c) => {
       result = { state: record.status === 'ACCEPTED' ? 'ACCEPTED' : 'PENDING', friendship: record };
     }
     if (result.state === 'ACCEPTED') {
-      // Achievement scoring is best-effort: friendships must survive even
-      // when the reward engine still has PostgreSQL-specific code.
-      await Promise.allSettled([
-        evaluateFriendAchievements(db, user.id),
-        evaluateFriendAchievements(db, parsed.data.friendId),
+      await Promise.all([
+        grantBadgesD1(c.env.DB, user.id, [BADGE_CODES.ADD_FRIEND]),
+        grantBadgesD1(c.env.DB, parsed.data.friendId, [BADGE_CODES.ADD_FRIEND]),
       ]);
     }
     return c.json({ id: result.friendship.id, status: result.state },
@@ -194,11 +194,9 @@ friends.post('/:id/accept', async (c) => {
   if (!row) return c.json({ error: 'FRIEND_REQUEST_NOT_FOUND' }, 404);
   const updated = await db.friendship.update({ where: { id: row.id }, data: { status: 'ACCEPTED' } });
   if(c.env.DB){
-    // The original badge rewarding path uses PostgreSQL transactions.
-    // Accepting a friendship must not fail after the accepted row commits.
-    await Promise.allSettled([
-      evaluateFriendAchievements(db,row.requesterId),
-      evaluateFriendAchievements(db,row.addresseeId),
+    await Promise.all([
+      grantBadgesD1(c.env.DB,row.requesterId,[BADGE_CODES.ADD_FRIEND]),
+      grantBadgesD1(c.env.DB,row.addresseeId,[BADGE_CODES.ADD_FRIEND]),
     ]);
   } else {
     await Promise.all([
