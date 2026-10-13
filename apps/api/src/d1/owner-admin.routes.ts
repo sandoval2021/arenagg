@@ -48,18 +48,51 @@ ownerAdminRoutes.get('/users', async c => {
   const offset = Number.isInteger(rawOffset) && rawOffset >= 0
     ? Math.min(rawOffset, 100000) : 0;
   try {
-    const statement = c.env.DB.prepare(`
+    const response = await c.env.DB.prepare(`
       SELECT "id", "name", "email", "phone", "role", "isActive",
              "emailVerified", "createdAt"
       FROM "User"
       ORDER BY "createdAt" DESC LIMIT ?1 OFFSET ?2
-    `).bind(30, offset);
-    // Explicit 'all' avoids unstable provider-specific query fields.
-    const records: Array<Record<string, unknown>> = [];
-    // The statement port intentionally exposes only first()/run() until all()
-    // is added and tested; do not return a fabricated account list.
-    void statement;
-    return c.json({ error: 'ADMIN_USERS_NOT_YET_MIGRATED', users: records }, 501);
+    `).bind(30, offset).all<{
+      id: string; name: string; email: string | null; phone: string | null;
+      role: string; isActive: number | boolean; emailVerified: string | null;
+      createdAt: string;
+    }>();
+    return c.json({
+      users: response.results.map(row => ({
+        ...row,
+        isActive: Boolean(row.isActive),
+        emailVerified: Boolean(row.emailVerified),
+      })),
+      offset, limit: 30,
+    });
+  } catch {
+    return c.json({ error: 'DATABASE_UNAVAILABLE' }, 503);
+  }
+});
+
+ownerAdminRoutes.patch('/users/:userId', async c => {
+  const userId = c.req.param('userId');
+  if (!/^[a-f0-9-]{36}$/i.test(userId)) {
+    return c.json({ error: 'INVALID_USER' }, 400);
+  }
+  const input = await c.req.json().catch(() => null) as { isActive?: unknown } | null;
+  if (typeof input?.isActive !== 'boolean') return c.json({ error: 'INVALID_INPUT' }, 400);
+
+  // Never disable or modify the owner account through the user list.
+  try {
+    const row = await c.env.DB.prepare(
+      'SELECT "email", "role" FROM "User" WHERE "id" = ?1',
+    ).bind(userId).first<{ email: string | null; role: string }>();
+    if (!row) return c.json({ error: 'NOT_FOUND' }, 404);
+    if (row.role === 'ADMIN' ||
+        row.email?.trim().toLowerCase() === c.env.OWNER_EMAIL?.trim().toLowerCase()) {
+      return c.json({ error: 'OWNER_PROTECTED' }, 403);
+    }
+    await c.env.DB.prepare(
+      'UPDATE "User" SET "isActive" = ?1, "updatedAt" = ?2 WHERE "id" = ?3 AND "role" = ?4',
+    ).bind(input.isActive ? 1 : 0, new Date().toISOString(), userId, 'USER').run();
+    return c.json({ id: userId, isActive: input.isActive });
   } catch {
     return c.json({ error: 'DATABASE_UNAVAILABLE' }, 503);
   }
