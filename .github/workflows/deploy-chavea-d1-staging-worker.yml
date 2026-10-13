@@ -1,4 +1,5 @@
 name: Verify CHAVEA D1 Staging Worker (free Cloudflare)
+# Protected staging API; remote test account is isolated from production.
 on:
   push:
     branches: ['feat/cloudflare-d1-migration']
