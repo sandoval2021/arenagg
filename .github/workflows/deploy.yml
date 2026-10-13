@@ -37,6 +37,7 @@ jobs:
           set -euo pipefail
           cp apps/api/wrangler.d1.local.toml apps/api/wrangler.d1.functional.toml
           sed -i '/^WEB_APP_URL = /a OWNER_EMAIL = "owner-smoke@example.invalid"' apps/api/wrangler.d1.functional.toml
+          printf '%s\n' '[[r2_buckets]]' 'binding = "EVIDENCE_BUCKET"' 'bucket_name = "chavea-functional-evidence-local"' >> apps/api/wrangler.d1.functional.toml
           DB_DIR="$(mktemp -d)"
           cleanup() {
             rm -rf "$DB_DIR"
