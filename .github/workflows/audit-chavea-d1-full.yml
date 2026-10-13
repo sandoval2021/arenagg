@@ -1,0 +1,66 @@
+name: Audit CHAVEA D1 · isolated functional journeys
+on:
+  push:
+    branches: ['audit/d1-full-functional']
+    paths:
+      - '.github/workflows/audit-chavea-d1-full.yml'
+      - 'scripts/chavea-d1-functional-audit.mjs'
+      - 'apps/api/src/**'
+      - 'prisma/d1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      D1_LOCAL_DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install and generate D1 Prisma client
+        run: |
+          npm ci --no-audit --no-fund
+          npx prisma generate --schema prisma/schema.prisma
+          npx prisma generate --schema prisma/d1/schema.prisma
+          npm run typecheck --workspace=@chavea/api
+      - name: Initialize truly isolated local D1 database
+        run: |
+          set -euo pipefail
+          cp apps/api/wrangler.d1.local.toml apps/api/wrangler.d1.functional.toml
+          echo 'OWNER_EMAIL = "owner-smoke@example.invalid"' >> /dev/null
+          sed -i '/^WEB_APP_URL = /a OWNER_EMAIL = "owner-smoke@example.invalid"' apps/api/wrangler.d1.functional.toml
+          mkdir -p /tmp/chavea-functional-d1
+          cd apps/api
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.functional.toml --persist-to /tmp/chavea-functional-d1 --file ../../prisma/d1/migrations/0001_init.sql
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.functional.toml --persist-to /tmp/chavea-functional-d1 --file ../../prisma/d1/migrations/0002_repair_json_defaults.sql
+      - name: Start local Worker and run end-to-end journeys
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler dev --config wrangler.d1.functional.toml --local --persist-to /tmp/chavea-functional-d1 --port 8791 --ip 127.0.0.1 > /tmp/chavea-functional-worker.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          cd ../..
+          READY=0
+          for i in $(seq 1 65); do
+            if curl -sf --max-time 2 http://127.0.0.1:8791/api/health/db >/dev/null; then READY=1;break;fi
+            sleep 1
+          done
+          if [ "$READY" != 1 ]; then
+            tail -n 80 /tmp/chavea-functional-worker.log
+            exit 1
+          fi
+          node scripts/chavea-d1-functional-audit.mjs
+      - name: Safe failure diagnostics (never print passwords/cookies)
+        if: failure()
+        run: |
+          grep -E '\[api\]|unhandled error|SQLITE_ERROR|D1_ERROR|Unknown argument|No such table|Transactions are not supported|not supported' /tmp/chavea-functional-worker.log | tail -n 35 || true
+      - name: Cleanup disposable DB and credentials
+        if: always()
+        run: |
+          rm -rf /tmp/chavea-functional-d1
+          rm -f apps/api/wrangler.d1.functional.toml
