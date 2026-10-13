@@ -141,6 +141,15 @@ jobs:
           HTTP="$(curl -sS -o /tmp/chavea-d1-me.json -b /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/me" -H "$HEADER")"
           echo "Remote session HTTP: $HTTP"
           test "$HTTP" = '200'
+          for ENDPOINT in competitions profile/me ranking default-shields; do
+            CODE="$(curl -sS -o /tmp/chavea-api-compat.json -w '%{http_code}' --max-time 10 -b /tmp/chavea-d1-cookie.txt -H "$HEADER" "$BASE/api/$ENDPOINT")"
+            echo "D1 migrated route /api/$ENDPOINT HTTP: $CODE"
+            if [ "$CODE" != '200' ]; then
+              echo "Response (without credentials):"
+              head -c 1000 /tmp/chavea-api-compat.json
+              exit 1
+            fi
+          done
           HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/login" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "{\"email\":\"$EMAIL\",\"password\":\"WrongSmokePassword!2026\"}")"
           echo "Remote invalid password HTTP: $HTTP"
           test "$HTTP" = '401'
