@@ -34,6 +34,11 @@ jobs:
           cp apps/api/wrangler.d1.local.toml apps/api/wrangler.d1.functional.toml
           echo 'OWNER_EMAIL = "owner-smoke@example.invalid"' >> /dev/null
           sed -i '/^WEB_APP_URL = /a OWNER_EMAIL = "owner-smoke@example.invalid"' apps/api/wrangler.d1.functional.toml
+          cat >> apps/api/wrangler.d1.functional.toml <<'TOML'
+          [[r2_buckets]]
+          binding = "EVIDENCE_BUCKET"
+          bucket_name = "chavea-functional-evidence-local"
+          TOML
           mkdir -p /tmp/chavea-functional-d1
           cd apps/api
           npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.functional.toml --persist-to /tmp/chavea-functional-d1 --file ../../prisma/d1/migrations/0001_init.sql
