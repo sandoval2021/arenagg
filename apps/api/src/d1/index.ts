@@ -13,10 +13,19 @@ type Env = {
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;
     GOOGLE_REDIRECT_URI?: string;
+    STAGING_ACCESS_KEY?: string;
   };
 };
 
 const app = new Hono<Env>();
+// Guard isolated staging endpoints. Production has no STAGING_ACCESS_KEY.
+app.use('*', async (c, next) => {
+  const required = c.env.STAGING_ACCESS_KEY;
+  if (required && c.req.header('X-Chavea-Staging-Key') !== required) {
+    return c.json({ error: 'STAGING_ACCESS_DENIED' }, 403);
+  }
+  await next();
+});
 const DEPLOYMENT_ORIGIN = /^https:\/\/[a-f0-9]{8}\.chavea\.pages\.dev$/i;
 function allowOrigin(origin: string, configured?: string): boolean {
   return origin === 'https://chavea.pages.dev' ||
