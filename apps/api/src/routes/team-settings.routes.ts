@@ -194,6 +194,54 @@ teamSettings.patch('/:id/my-team', async (c) => {
   const { teamName } = parsed.data;
   const suppliedLogo = normalizeTeamLogoUrl(parsed.data.teamLogoUrl);
 
+  if (c.env.DB) {
+    const competition = await db.competition.findUnique({
+      where: { id: competitionId }, select: { status: true, teamSelection: true },
+    });
+    if (!competition) return c.json({ error:'COMPETITION_NOT_FOUND',requestId },404);
+    if (!['REGISTRATION','READY'].includes(competition.status)) {
+      return c.json({ error:'TEAM_CONFIGURATION_LOCKED',requestId },409);
+    }
+    if (competition.teamSelection !== 'FREE') {
+      return c.json({error:'TEAM_CONFIGURATION_NOT_ALLOWED',requestId},403);
+    }
+    const participation = await db.participation.findUnique({
+      where: { competitionId_userId:{competitionId,userId:user.id} },
+      include:{team:true},
+    });
+    if (!participation || participation.status!=='ACTIVE') {
+      return c.json({error:'NOT_A_PARTICIPANT',requestId},403);
+    }
+    const collision = await db.team.findFirst({
+      where:{ competitionId,name:teamName,NOT:{participationId:participation.id} },
+      select:{id:true},
+    });
+    if(collision) return c.json({error:'TEAM_NAME_TAKEN',requestId},409);
+    const logo = suppliedLogo === undefined ? participation.teamLogoUrl : suppliedLogo;
+    const d1=c.env.DB;
+    try {
+      await d1.batch([
+        d1.prepare(`
+          UPDATE "Participation" SET "teamName"=?1,"teamLogoUrl"=?2
+          WHERE "id"=?3 AND "status"='ACTIVE'
+        `).bind(teamName,logo??null,participation.id),
+        participation.team
+          ? d1.prepare(`
+              UPDATE "Team" SET "name"=?1,"logoUrl"=?2
+              WHERE "id"=?3 AND "participationId"=?4
+            `).bind(teamName,logo??null,participation.team.id,participation.id)
+          : d1.prepare(`
+              INSERT INTO "Team"
+                ("id","competitionId","participationId","createdById","name","logoUrl")
+              VALUES (?1,?2,?3,?4,?5,?6)
+            `).bind(crypto.randomUUID(),competitionId,participation.id,user.id,teamName,logo??null),
+      ]);
+      return c.json({teamName,teamLogoUrl:logo??null,requestId},200);
+    } catch {
+      return c.json({error:'TEAM_NAME_TAKEN',requestId},409);
+    }
+  }
+
   try {
     const result = await db.$transaction(async (tx) => {
       const access = await loadEditableParticipation(tx, competitionId, user.id);
