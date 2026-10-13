@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Prisma } from '@prisma/client';
 import type { Env } from '../types/env';
 import { generateKnockout } from '../domain/bracket/knockout';
+import { startCompetitionD1 } from '../d1/competition-start';
 import { generateRoundRobin } from '../domain/matchmaking/roundRobin';
 import { initializeGroupStandings } from '../services/group-stage.service';
 
@@ -305,6 +306,11 @@ competitionStartV2.post('/:id/start', async (c) => {
   const host = c.get('user');
   const competitionId = c.req.param('id');
   const requestId = crypto.randomUUID();
+
+  if (c.env.DB) {
+    const result = await startCompetitionD1(c.env.DB, db, competitionId, host.id);
+    return c.json(result.body, result.status);
+  }
 
   try {
     const result = await db.$transaction(async (tx) => {
