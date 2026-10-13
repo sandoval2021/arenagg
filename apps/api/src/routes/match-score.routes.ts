@@ -14,6 +14,7 @@ import { applyFinishedMatchToProfiles } from '../services/profile-stats.service'
 import { awardBadgeCodes } from '../services/achievement-engine.service';
 import { replaceMatchScorers } from '../services/match-scorers.service';
 import { detectClipPlatform } from './match-media.routes';
+import { submitMatchScoreD1 } from '../d1/match-score';
 
 export const matchScore = new Hono<Env>();
 
@@ -93,6 +94,11 @@ matchScore.post('/:id/score', async (c) => {
     let evidenceKey: string | undefined;
     if (evidence) {
       evidenceKey = (await storeEvidence(c.env.EVIDENCE_BUCKET, evidence, match.competitionId, id, user.id)).key;
+    }
+
+    if(c.env.DB) {
+      const result=await submitMatchScoreD1(c.env.DB,db,match,parsed.data,user.id,next,evidenceKey);
+      return c.json(result.body,result.status);
     }
 
     const fresh = await db.$transaction(async (tx) => {
