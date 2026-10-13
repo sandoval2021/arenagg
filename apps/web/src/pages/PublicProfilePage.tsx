@@ -29,6 +29,9 @@ export function PublicProfilePage() {
     queryFn: () => getPublicGamerProfile(userId),
     enabled: Boolean(userId),
     staleTime: PRIMARY_NAV_STALE_TIME,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 404) && failureCount < 2,
+    refetchOnWindowFocus: false,
   });
   const add = useMutation({
     mutationFn: () => requestFriend(userId),
@@ -44,7 +47,22 @@ export function PublicProfilePage() {
   });
 
   if (profile.isLoading) return <GlobalLoader mode="screen" label="Carregando Card do Jogador…" />;
-  if (profile.isError || !profile.data) return <main className="grid min-h-dvh place-items-center bg-white px-4"><div className="text-center"><h1 className="text-xl font-black">Jogador não encontrado</h1><Link to="/profile" className="mt-4 inline-flex rounded-2xl bg-[#073B8C] px-5 py-3 text-sm font-black text-white">Voltar ao perfil</Link></div></main>;
+  if (profile.isError || !profile.data) {
+    const notFound = profile.error instanceof ApiError && profile.error.status === 404;
+    return <main className="grid min-h-dvh place-items-center bg-white px-5 text-slate-900">
+      <div className="w-full max-w-sm text-center">
+        <h1 className="text-xl font-black">{notFound ? 'Jogador não encontrado' : 'Não foi possível carregar o jogador'}</h1>
+        <p className="mt-3 text-sm font-medium leading-6 text-slate-500">
+          {notFound ? 'Este jogador não está mais disponível.' : 'Houve uma falha ao consultar o perfil. Você pode tentar novamente sem sair do campeonato.'}
+        </p>
+        {!notFound && <button type="button" onClick={() => void profile.refetch()} disabled={profile.isFetching}
+          className="mt-5 flex min-h-12 w-full items-center justify-center rounded-2xl bg-[#073B8C] px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+          {profile.isFetching ? 'Carregando…' : 'Tentar novamente'}
+        </button>}
+        <Link to="/profile" className="mt-3 inline-flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-[#073B8C]">Voltar ao perfil</Link>
+      </div>
+    </main>;
+  }
 
   const data = profile.data;
   const isMe = auth.user?.id === data.id;
