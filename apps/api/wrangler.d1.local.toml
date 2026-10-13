@@ -1,0 +1,14 @@
+# Local-only staging config. Do not deploy: dummy DB id deliberately prevents
+# remote deployment until Cloudflare D1 is provisioned and data cutover approved.
+name = "chavea-d1-local"
+main = "src/d1/index.ts"
+compatibility_date = "2026-09-08"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+WEB_APP_URL = "http://localhost:5173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chavea-d1-local"
+database_id = "00000000-0000-0000-0000-000000000000"

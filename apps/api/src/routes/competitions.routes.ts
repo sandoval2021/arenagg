@@ -351,6 +351,44 @@ competitions.post('/', async (c) => {
   const input = parsed.data;
   const host = c.get('user');
 
+  if (c.env.DB) {
+    // Cloudflare D1 does not support Prisma interactive transactions.
+    // D1 batch executes all 3 dependent writes atomically and rolls back
+    // if any statement fails. No competition/participant is left orphaned.
+    const timestamp = new Date().toISOString();
+    const competitionId = crypto.randomUUID();
+    const participationId = crypto.randomUUID();
+    const teamId = crypto.randomUUID();
+    const teamName = (host.displayName ?? host.name).trim().slice(0, 60) || 'Jogador';
+    const d1 = c.env.DB;
+    await d1.batch([
+      d1.prepare(`INSERT INTO "Competition"
+        ("id","hostId","name","slug","type","game","platform",
+         "legFormat","matchPace","teamSelection","maxParticipants",
+         "requireValidation","status","createdAt","updatedAt")
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)`)
+        .bind(
+          competitionId, host.id, input.name, slugify(input.name), input.type,
+          input.game ?? null, input.platform ?? null,
+          input.isHomeAndAway ? 'HOME_AWAY' : 'SINGLE',
+          input.matchPace, input.teamSelection, input.maxParticipants,
+          input.requireValidation ? 1 : 0,
+          'REGISTRATION', timestamp, timestamp,
+        ),
+      d1.prepare(`INSERT INTO "Participation"
+        ("id","competitionId","userId","status","teamName","joinedAt")
+        VALUES (?1,?2,?3,'ACTIVE',?4,?5)`)
+        .bind(participationId, competitionId, host.id, teamName, timestamp),
+      d1.prepare(`INSERT INTO "Team"
+        ("id","competitionId","participationId","createdById","name")
+        VALUES (?1,?2,?3,?4,?5)`)
+        .bind(teamId, competitionId, participationId, host.id, teamName),
+    ]);
+    const created = await db.competition.findUnique({ where: { id: competitionId } });
+    if (!created) return c.json({ error: 'COMPETITION_CREATE_FAILED' }, 503);
+    return c.json(created, 201);
+  }
+
   const created = await db.$transaction(async (tx) => {
     const competition = await tx.competition.create({
       data: {

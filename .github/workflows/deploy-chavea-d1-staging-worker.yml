@@ -1,0 +1,199 @@
+name: Verify CHAVEA D1 Staging Worker (free Cloudflare)
+# Protected staging API; activation relies on unguessable single-use challenge.
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - '.github/workflows/deploy-chavea-d1-staging-worker.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chavea-d1-staging-worker
+  cancel-in-progress: false
+jobs:
+  deploy-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned tools
+        run: npm ci --no-audit --no-fund
+      - name: Generate SQLite Prisma Client for Worker
+        env:
+          D1_LOCAL_DATABASE_URL: file:./dev.db
+        run: npx prisma generate --schema prisma/d1/schema.prisma
+      - name: Check remote D1 and prepare access-protected staging Worker
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!/^[0-9a-f]{32}$/i.test(account || '') || !token) {
+            throw Error('Cloudflare account/token missing from repository secrets');
+          }
+          const resp = await fetch(
+            'https://api.cloudflare.com/client/v4/accounts/' + account + '/d1/database?per_page=100',
+            { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(10000) },
+          );
+          const answer = await resp.json();
+          if (!resp.ok || answer.success !== true || !Array.isArray(answer.result)) {
+            throw Error('Cloudflare D1 listing failed. HTTP ' + resp.status);
+          }
+          const db = answer.result.find(item => item.name === 'chavea-staging');
+          if (!db || !/^[a-f0-9-]{36}$/i.test(db.uuid || '')) {
+            throw Error('Expected CHAVEA staging D1 is missing');
+          }
+          // Stable HMAC-derived staging key avoids edge propagation races
+          // when multiple Worker versions are briefly active. The Cloudflare
+          // API token is already a high-entropy GitHub Actions secret.
+          const key = crypto.createHmac('sha256', token)
+            .update('chavea-d1-staging-access:v1:' + account)
+            .digest('hex');
+          fs.writeFileSync('/tmp/chavea-staging-key', key, { mode: 0o600 });
+          console.log('::add-mask::' + key);
+          const config = [
+            'name = "chavea-d1-staging"',
+            'main = "src/d1/index.ts"',
+            'compatibility_date = "2026-09-08"',
+            'compatibility_flags = ["nodejs_compat"]',
+            '',
+            '[vars]',
+            'WEB_APP_URL = "https://chavea.pages.dev"',
+            'OWNER_EMAIL = "sandovaloliveira284@gmail.com"',
+            'STAGING_ACCESS_KEY = "' + key + '"',
+            '',
+            '[[d1_databases]]',
+            'binding = "DB"',
+            'database_name = "chavea-staging"',
+            'database_id = "' + db.uuid + '"',
+            '',
+          ].join('\n');
+          fs.writeFileSync('apps/api/wrangler.d1.staging.generated.toml', config, { mode: 0o600 });
+          console.log('STAGING_D1_ID=' + db.uuid);
+          NODE
+      - name: Deploy isolated Worker (do not update production)
+        working-directory: apps/api
+        run: |
+          npx wrangler deploy --config wrangler.d1.staging.generated.toml
+      - name: Smoke-test HTTPS D1 and email login with temporary test account
+        run: |
+          set -euo pipefail
+          BASE='https://chavea-d1-staging.sandovaloliveira284.workers.dev'
+          HEADER="X-Chavea-Staging-Key: $(cat /tmp/chavea-staging-key)"
+          echo "Staging guard validation"
+          HTTP="000"
+          for attempt in $(seq 1 30); do
+            HTTP="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/health" || true)"
+            if [ "$HTTP" = '403' ]; then break; fi
+            echo "Waiting for staging Worker propagation: HTTP $HTTP"
+            sleep 2
+          done
+          echo "Remote staging guard HTTP: $HTTP"
+          test "$HTTP" = '403'
+          # Cloudflare's global edge may keep the PREVIOUS staging version
+          # briefly after deploy. A new deployment rotates the temporary key,
+          # so the old version responds 403 until propagation completes.
+          HTTP="000"
+          for attempt in $(seq 1 75); do
+            HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' --max-time 10 -H "$HEADER" "$BASE/api/health/db" || true)"
+            if [ "$HTTP" = '200' ]; then break; fi
+            echo "Waiting for latest staging deployment to propagate: HTTP $HTTP"
+            sleep 2
+          done
+          echo "Remote D1 health HTTP: $HTTP"
+          if [ "$HTTP" != '200' ]; then
+            echo 'Remote health response body (no credentials):'
+            head -c 2000 /tmp/chavea-d1-health.json
+            exit 1
+          fi
+          ORM_HTTP="$(curl -sS -o /tmp/chavea-d1-orm.json -w '%{http_code}' "$BASE/api/health/orm" -H "$HEADER")"
+          echo "Remote Prisma D1 ORM HTTP: $ORM_HTTP"
+          if [ "$ORM_HTTP" != '200' ]; then
+            head -c 2000 /tmp/chavea-d1-orm.json
+            exit 1
+          fi
+          OWNER_HTTP="$(curl -sS -o /tmp/chavea-owner-register.json -w '%{http_code}' "$BASE/api/auth/register" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data '{"name":"Unverified Owner Claim","email":"sandovaloliveira284@gmail.com","password":"InvalidOwnerClaim!2026"}')"
+          echo "Reserved unverified owner email HTTP: $OWNER_HTTP"
+          echo "Owner reservation response:"
+          cat /tmp/chavea-owner-register.json
+          test "$OWNER_HTTP" = '403'
+          grep -q 'OWNER_EMAIL_VERIFICATION_REQUIRED' /tmp/chavea-owner-register.json
+          ACTIVATION_HTTP="$(curl -sS -o /tmp/chavea-d1-activation-form.html -w '%{http_code}' "$BASE/api/auth/owner/activate?token=abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd")"
+          echo "Unauthenticated invalid activation link HTTP: $ACTIVATION_HTTP"
+          test "$ACTIVATION_HTTP" = '410'
+          grep -q 'Link expirado ou inválido' /tmp/chavea-d1-activation-form.html
+          # Check the exact deployed code revision to distinguish origin
+          # handling errors from Cloudflare propagation of a stale Worker.
+          INVALID_TOKEN="$(printf '0%.0s' {1..64})"
+          for FORM_ORIGIN in 'https://chavea-d1-staging.sandovaloliveira284.workers.dev' 'null' 'https://untrusted.example'; do
+            FORM_HTTP="000"
+            for attempt in $(seq 1 30); do
+              FORM_HTTP="$(curl -sS -D /tmp/chavea-d1-form-headers -o /tmp/chavea-d1-invalid-owner.html -w '%{http_code}' \
+                --max-time 10 "$BASE/api/auth/owner/activate" \
+                -H "Origin: $FORM_ORIGIN" \
+                --data-urlencode "token=$INVALID_TOKEN" \
+                --data-urlencode 'password=InvalidOwnerActivationTest2026!' || true)"
+              REVISION="$(grep -i '^x-chavea-staging-revision:' /tmp/chavea-d1-form-headers | tr -d '\r' || true)"
+              if [ "$FORM_HTTP" = '410' ] && [[ "$REVISION" == *owner-activation-challenge-v2* ]]; then break; fi
+              echo "Waiting for activation Worker revision: HTTP $FORM_HTTP, revision: ${REVISION:-missing}"
+              sleep 2
+            done
+            echo "One-time activation Origin $FORM_ORIGIN HTTP: $FORM_HTTP"
+            if [ "$FORM_HTTP" != '410' ]; then
+              echo 'Safe activation error response:'
+              head -c 500 /tmp/chavea-d1-invalid-owner.html
+              exit 1
+            fi
+            [[ "$REVISION" == *owner-activation-challenge-v2* ]]
+            grep -q 'Link expirado ou inválido' /tmp/chavea-d1-invalid-owner.html
+          done
+          ADMIN_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview" -H "$HEADER")"
+          echo "Admin without session HTTP: $ADMIN_HTTP"
+          test "$ADMIN_HTTP" = '401'
+          EMAIL="chavea-staging-$(date +%s)@example.invalid"
+          BODY="{\"name\":\"Chavea Staging Test\",\"email\":\"$EMAIL\",\"password\":\"ChaveaSmokeStrong!2026\"}"
+          HTTP="$(curl -sS -o /tmp/chavea-d1-register.json -D /tmp/chavea-d1-register.headers -c /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/register" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "$BODY")"
+          echo "Remote register HTTP: $HTTP"
+          if [ "$HTTP" != '201' ]; then cat /tmp/chavea-d1-register.json; exit 1; fi
+          grep -iq 'httponly' /tmp/chavea-d1-register.headers
+          grep -iq 'secure' /tmp/chavea-d1-register.headers
+          HTTP="$(curl -sS -o /tmp/chavea-d1-me.json -b /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/me" -H "$HEADER")"
+          echo "Remote session HTTP: $HTTP"
+          test "$HTTP" = '200'
+          for ENDPOINT in competitions profile/me ranking default-shields; do
+            CODE="$(curl -sS -o /tmp/chavea-api-compat.json -w '%{http_code}' --max-time 10 -b /tmp/chavea-d1-cookie.txt -H "$HEADER" "$BASE/api/$ENDPOINT")"
+            echo "D1 migrated route /api/$ENDPOINT HTTP: $CODE"
+            if [ "$CODE" != '200' ]; then
+              echo "Response (without credentials):"
+              head -c 1000 /tmp/chavea-api-compat.json
+              exit 1
+            fi
+          done
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/login" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "{\"email\":\"$EMAIL\",\"password\":\"WrongSmokePassword!2026\"}")"
+          echo "Remote invalid password HTTP: $HTTP"
+          test "$HTTP" = '401'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/logout" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -b /tmp/chavea-d1-cookie.txt -X POST)"
+          echo "Remote logout HTTP: $HTTP"
+          test "$HTTP" = '204'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/auth/me" -H "$HEADER" -b /tmp/chavea-d1-cookie.txt)"
+          echo "Remote revoked session HTTP: $HTTP"
+          test "$HTTP" = '401'
+          echo "REMOTE_D1_AUTH_SMOKE_PASS=true"
+      - name: Check reserved owner challenge state (no secrets)
+        if: success()
+        working-directory: apps/api
+        run: |
+          npx wrangler d1 execute chavea-staging --remote --config wrangler.d1.staging.generated.toml --command "SELECT COUNT(*) AS pending_owner_challenges FROM AuthAccount WHERE provider = 'owner-email-challenge'"
+      - name: Remove ephemeral credentials and configuration from runner
+        if: always()
+        run: rm -f /tmp/chavea-staging-key apps/api/wrangler.d1.staging.generated.toml /tmp/chavea-d1-cookie.txt

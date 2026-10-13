@@ -1,0 +1,201 @@
+name: Release CHAVEA D1 with end-to-end canary
+# The production cutover follows successful canonical Phase Three atomic competition writes.
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths: ['.github/workflows/release-chavea-d1.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chavea-d1-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VITE_API_URL: https://arenagg-api.sandovaloliveira284.workers.dev
+      D1_LOCAL_DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Generate database clients and typecheck
+        run: |
+          npx prisma generate --schema prisma/schema.prisma
+          npx prisma generate --schema prisma/d1/schema.prisma
+          npm run typecheck --workspace=@chavea/api
+      - name: Build PWA
+        run: npm run build --workspace=@chavea/web
+      - name: Verify owner identity and prepare isolated Worker bindings
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if (!token || !/^[a-f0-9]{32}$/i.test(account||'')) throw Error('Cloudflare credentials missing');
+          const result=await fetch('https://api.cloudflare.com/client/v4/accounts/'+account+'/d1/database?per_page=100',{
+            headers:{Authorization:'Bearer '+token}, signal:AbortSignal.timeout(15000)
+          });
+          const body=await result.json();
+          if (!result.ok || body.success!==true) throw Error('D1 database listing failed');
+          const db=body.result.find(d=>d.name==='chavea-staging');
+          if (!/^[a-f0-9-]{36}$/i.test(db?.uuid||'')) throw Error('Owner D1 database not found');
+          for(const [name,origin] of [
+            ['chavea-d1-staging','https://d1-preview.chavea.pages.dev'],
+            ['arenagg-api','https://chavea.pages.dev'],
+          ]){
+            const lines=[
+              'name = "'+name+'"',
+              'main = "src/d1/index.ts"',
+              'compatibility_date = "2026-09-08"',
+              'compatibility_flags = ["nodejs_compat"]',
+              '[vars]',
+              'WEB_APP_URL = "'+origin+'"',
+              'OWNER_EMAIL = "sandovaloliveira284@gmail.com"',
+              '[[d1_databases]]',
+              'binding = "DB"',
+              'database_name = "chavea-staging"',
+              'database_id = "'+db.uuid+'"',
+              '[[r2_buckets]]',
+              'binding = "EVIDENCE_BUCKET"',
+              'bucket_name = "arenagg-evidence"',
+            ];
+            fs.writeFileSync('apps/api/wrangler.d1.'+name+'.generated.toml',lines.join('\n')+'\n');
+          }
+          console.log('D1_BINDING_READY=true');
+          NODE
+          cd apps/api
+          npx wrangler d1 execute chavea-staging --remote --config wrangler.d1.arenagg-api.generated.toml --json --command "SELECT COUNT(*) AS count FROM User WHERE email='sandovaloliveira284@gmail.com' AND role='ADMIN' AND isActive=1 AND emailVerified IS NOT NULL AND passwordHash IS NOT NULL" > /tmp/owner-check.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const x=JSON.parse(fs.readFileSync('/tmp/owner-check.json','utf8'));
+          const rows=Array.isArray(x)?x:x.result;
+          const count=rows?.[0]?.results?.[0]?.count;
+          console.log('VERIFIED_OWNER_COUNT='+count);
+          if (count!==1) throw Error('Owner account not yet activated in D1');
+          NODE
+      - name: Publish separate D1 canary Worker (no production changes)
+        working-directory: apps/api
+        run: npx wrangler deploy --config wrangler.d1.chavea-d1-staging.generated.toml
+      - name: Smoke test remote D1 canary API and competition
+        run: |
+          set -euo pipefail
+          BASE='https://chavea-d1-staging.sandovaloliveira284.workers.dev'
+          for attempt in $(seq 1 35); do
+            CODE="$(curl --silent --max-time 8 -o /tmp/canary-health.json -w '%{http_code}' "$BASE/api/health/db" || true)"
+            if [ "$CODE" = '200' ] && grep -q '"d1"' /tmp/canary-health.json; then break; fi
+            sleep 2
+          done
+          test "$CODE" = '200'
+          HTTP="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api/admin/overview")"
+          test "$HTTP" = 401
+          EMAIL="d1-canary-$(date +%s)@example.invalid"
+          echo "EMAIL=$EMAIL" >> "$GITHUB_ENV"
+          BODY="{\"name\":\"CHAVEA Canary\",\"email\":\"$EMAIL\",\"password\":\"SmokeStrong2026!!\"}"
+          HTTP="$(curl -sS -o /tmp/canary-register.json -D /tmp/canary-register.headers -c /tmp/canary-cookies -w '%{http_code}' -X POST "$BASE/api/auth/register" -H 'Origin: https://d1-preview.chavea.pages.dev' -H 'Content-Type: application/json' --data "$BODY")"
+          echo "CANARY_REGISTER_HTTP=$HTTP"
+          test "$HTTP" = 201
+          grep -iq 'httponly' /tmp/canary-register.headers
+          HTTP="$(curl -sS -o /tmp/canary-me.json -b /tmp/canary-cookies -w '%{http_code}' "$BASE/api/auth/me")"
+          echo "CANARY_ME_HTTP=$HTTP"
+          test "$HTTP" = 200
+          HTTP="$(curl -sS -o /tmp/canary-orm.json -w '%{http_code}' "$BASE/api/health/orm")"
+          echo "CANARY_PRISMA_HTTP=$HTTP"
+          test "$HTTP" = 200
+          HTTP="$(curl -sS -o /tmp/canary-competitions.json -w '%{http_code}' "$BASE/api/competitions" -b /tmp/canary-cookies)"
+          echo "CANARY_COMPETITIONS_HTTP=$HTTP"
+          test "$HTTP" = 200
+          HTTP="$(curl -sS -o /tmp/canary-create.json -w '%{http_code}' "$BASE/api/competitions" -b /tmp/canary-cookies -X POST -H 'Origin: https://d1-preview.chavea.pages.dev' -H 'Content-Type: application/json' --data "{\"name\":\"CHAVEA Canary $EMAIL\",\"type\":\"KNOCKOUT\",\"game\":\"EAFC\",\"platform\":\"PS5\",\"maxParticipants\":4}")"
+          echo "CANARY_CREATE_COMPETITION_HTTP=$HTTP"
+          if [ "$HTTP" != 201 ]; then head -c 1000 /tmp/canary-create.json; exit 1; fi
+      - name: Deploy D1 PWA preview without changing main
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          sed -i 's@https://arenagg-api.sandovaloliveira284.workers.dev@https://chavea-d1-staging.sandovaloliveira284.workers.dev@g' 'functions/api/[[path]].ts'
+          npx wrangler pages deploy dist --project-name=chavea --branch=d1-preview
+      - name: Verify real first-party auth with Cloudflare Pages preview
+        run: |
+          set -euo pipefail
+          BASE='https://d1-preview.chavea.pages.dev'
+          CODE=000
+          for attempt in $(seq 1 45); do
+            CODE="$(curl -sS -o /tmp/pages-preview-health.json -w '%{http_code}' --max-time 10 "$BASE/api/health/db" || true)"
+            if [ "$CODE" = 200 ] && grep -q '"d1"' /tmp/pages-preview-health.json; then break; fi
+            sleep 2
+          done
+          echo "PAGES_PREVIEW_HEALTH_HTTP=$CODE"
+          if [ "$CODE" != 200 ]; then head -c 800 /tmp/pages-preview-health.json; exit 1; fi
+          EMAIL="d1-preview-$(date +%s)@example.invalid"
+          HTTP="$(curl -sS -o /tmp/preview-register.json -D /tmp/preview-register.headers -c /tmp/preview-cookies -w '%{http_code}' "$BASE/api/auth/register" -X POST -H 'Origin: https://d1-preview.chavea.pages.dev' -H 'Content-Type: application/json' --data "{\"name\":\"CHAVEA Preview\",\"email\":\"$EMAIL\",\"password\":\"SmokeStrong2026!!\"}")"
+          echo "PAGES_PREVIEW_REGISTER_HTTP=$HTTP"
+          if [ "$HTTP" != 201 ]; then head -c 1500 /tmp/preview-register.json; exit 1; fi
+          grep -iq 'httponly' /tmp/preview-register.headers
+          grep -iq 'secure' /tmp/preview-register.headers
+          HTTP="$(curl -sS -o /tmp/preview-me.json -b /tmp/preview-cookies -w '%{http_code}' "$BASE/api/auth/me")"
+          echo "PAGES_PREVIEW_SESSION_HTTP=$HTTP"
+          test "$HTTP" = 200
+          HTTP="$(curl -sS -o /tmp/preview-admin.json -b /tmp/preview-cookies -w '%{http_code}' "$BASE/api/admin/overview")"
+          echo "PAGES_PREVIEW_ADMIN_REJECT_HTTP=$HTTP"
+          test "$HTTP" = 403
+          curl --fail --silent --show-error "$BASE/login" -o /tmp/preview-login.html
+          grep -q '/assets/' /tmp/preview-login.html
+          echo 'CHAVEA_D1_FIRST_PARTY_CANARY_PASS=true'
+      - name: Restore Pages proxy and deploy D1 to existing production Worker
+        run: |
+          set -euo pipefail
+          git restore -- 'apps/web/functions/api/[[path]].ts'
+          cd apps/api
+          npx wrangler deploy --config wrangler.d1.arenagg-api.generated.toml
+      - name: Verify production API D1 before changing production Pages
+        run: |
+          set -euo pipefail
+          BASE='https://arenagg-api.sandovaloliveira284.workers.dev'
+          for attempt in $(seq 1 40); do
+            CODE="$(curl -sS -o /tmp/chavea-prod-health.json -w '%{http_code}' --max-time 10 "$BASE/api/health/db" || true)"
+            if [ "$CODE" = 200 ] && grep -q '"d1"' /tmp/chavea-prod-health.json; then break; fi
+            sleep 2
+          done
+          echo "PRODUCTION_D1_API_HEALTH_HTTP=$CODE"
+          test "$CODE" = 200
+          CODE="$(curl -sS -o /tmp/chavea-prod-orm.json -w '%{http_code}' "$BASE/api/health/orm")"
+          echo "PRODUCTION_PRISMA_HTTP=$CODE"
+          test "$CODE" = 200
+      - name: Deploy matching first-party D1 PWA to Cloudflare Pages production
+        working-directory: apps/web
+        run: npx wrangler pages deploy dist --project-name=chavea --branch=main
+      - name: Final real production login and session smoke test
+        run: |
+          set -euo pipefail
+          BASE='https://chavea.pages.dev'
+          CODE=000
+          for attempt in $(seq 1 45); do
+            CODE="$(curl -sS -o /tmp/chavea-pages-health.json -D /tmp/chavea-pages-health.headers -w '%{http_code}' --max-time 10 "$BASE/api/health/db" || true)"
+            if [ "$CODE" = 200 ] && grep -q '"d1"' /tmp/chavea-pages-health.json; then break; fi
+            sleep 2
+          done
+          echo "PRODUCTION_PAGES_D1_HTTP=$CODE"
+          test "$CODE" = 200
+          EMAIL="d1-production-$(date +%s)@example.invalid"
+          CODE="$(curl -sS -o /tmp/chavea-prod-reg.json -D /tmp/chavea-prod-reg.headers -c /tmp/chavea-prod-cookies -w '%{http_code}' "$BASE/api/auth/register" -X POST -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' --data "{\"name\":\"CHAVEA Release Test\",\"email\":\"$EMAIL\",\"password\":\"SmokeStrong2026!!\"}")"
+          echo "PRODUCTION_PAGES_REGISTER_HTTP=$CODE"
+          if [ "$CODE" != 201 ]; then head -c 1000 /tmp/chavea-prod-reg.json; exit 1; fi
+          grep -iq 'httponly' /tmp/chavea-prod-reg.headers
+          CODE="$(curl -sS -o /tmp/chavea-prod-me.json -b /tmp/chavea-prod-cookies -w '%{http_code}' "$BASE/api/auth/me")"
+          echo "PRODUCTION_PAGES_SESSION_HTTP=$CODE"
+          test "$CODE" = 200
+          curl -fsSL "$BASE/login" -o /tmp/chavea-prod-index.html
+          grep -q '/assets/' /tmp/chavea-prod-index.html
+          echo "CHAVEA_D1_PRODUCTION_LOGIN_READY=true"
+      - name: Clean temporary credentials and cookies
+        if: always()
+        run: |
+          rm -f apps/api/wrangler.d1.*.generated.toml /tmp/preview-cookies /tmp/canary-cookies /tmp/chavea-prod-cookies

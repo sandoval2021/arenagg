@@ -1,0 +1,34 @@
+name: Synchronize CHAVEA D1 dependencies (staging branch)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - 'apps/api/package.json'
+      - '.github/workflows/sync-chavea-d1-dependencies.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Update lockfile from staged package manifest
+        run: npm install --package-lock-only --no-audit --no-fund
+      - name: Verify npm ci can install adapter from locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Commit lockfile in migration branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "Already synchronized"
+          else
+            git commit -m 'build(d1): lock Prisma D1 adapter dependencies'
+            git push origin HEAD:feat/cloudflare-d1-migration
+          fi

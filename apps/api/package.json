@@ -10,6 +10,7 @@
   "dependencies": {
     "@block65/webcrypto-web-push": "2.0.0",
     "@chavea/domain": "*",
+    "@prisma/adapter-d1": "6.19.3",
     "@prisma/adapter-pg": "^6.16.0",
     "@prisma/client": "^6.16.0",
     "@supabase/supabase-js": "^2.57.4",

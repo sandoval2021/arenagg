@@ -1,0 +1,102 @@
+name: Test CHAVEA Owner Email Activation (isolated D1)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths:
+      - '.github/workflows/test-chavea-owner-activation.yml'
+      - 'apps/api/src/d1/owner-activation.routes.ts'
+      - 'apps/api/src/d1/native-auth.routes.ts'
+      - 'apps/api/src/d1/index.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  activation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      D1_LOCAL_DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate --schema prisma/d1/schema.prisma
+      - name: Initialize disposable local D1 database and fake owner
+        run: |
+          set -euo pipefail
+          cp apps/api/wrangler.d1.local.toml apps/api/wrangler.d1.owner-smoke.toml
+          sed -i '/^WEB_APP_URL = /a OWNER_EMAIL = "owner-smoke@example.invalid"' apps/api/wrangler.d1.owner-smoke.toml
+          mkdir -p /tmp/chavea-owner-d1
+          cd apps/api
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.owner-smoke.toml --persist-to /tmp/chavea-owner-d1 --file ../../prisma/d1/migrations/0001_init.sql
+          cd ../..
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const challenge = crypto.randomBytes(32).toString('hex');
+          const digest = crypto.createHash('sha256').update(challenge).digest('hex');
+          const uuid = () => crypto.randomUUID();
+          const now = new Date().toISOString();
+          const user = uuid();
+          const q = value => "'" + String(value).replaceAll("'", "''") + "'";
+          fs.writeFileSync('/tmp/chavea-owner-smoke.token', challenge, {mode:0o600});
+          fs.writeFileSync('/tmp/chavea-owner-smoke.sql', [
+            'INSERT INTO "User" ("id","name","email","role","isActive","createdAt","updatedAt") VALUES (' +
+              [user,'D1 Local Owner','owner-smoke@example.invalid','USER',0,now,now].map(q).join(',') + ');',
+            'INSERT INTO "UserProfile" ("userId","createdAt","updatedAt") VALUES (' +
+              [user,now,now].map(q).join(',') + ');',
+            'INSERT INTO "AuthAccount" ("id","userId","provider","providerAccountId","createdAt") VALUES (' +
+              [uuid(),user,'owner-email-challenge',digest,now].map(q).join(',') + ');'
+          ].join('\n') + '\n', {mode:0o600});
+          NODE
+          cd apps/api
+          npx wrangler d1 execute chavea-d1-local --local --config wrangler.d1.owner-smoke.toml --persist-to /tmp/chavea-owner-d1 --file /tmp/chavea-owner-smoke.sql
+      - name: Verify complete owner activation, login, admin access and replay prevention
+        run: |
+          set -euo pipefail
+          cd apps/api
+          npx wrangler dev --config wrangler.d1.owner-smoke.toml --local --persist-to /tmp/chavea-owner-d1 --port 8789 --ip 127.0.0.1 > /tmp/chavea-owner-worker.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT
+          BASE='http://127.0.0.1:8789'
+          READY=0
+          for attempt in $(seq 1 40); do
+            if curl -sf --max-time 2 "$BASE/health" -o /dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" != 1 ]; then
+            tail -n 50 /tmp/chavea-owner-worker.log
+            exit 1
+          fi
+          TOKEN="$(cat /tmp/chavea-owner-smoke.token)"
+          STATUS="$(curl -sS -o /tmp/chavea-owner-valid-page.html -w '%{http_code}' "$BASE/api/auth/owner/activate?token=$TOKEN")"
+          echo "Valid pending owner link HTTP: $STATUS"
+          test "$STATUS" = '200'
+          PASSWORD='LocalOwnerTest!123456789'
+          STATUS="$(curl -sS -o /tmp/chavea-owner-activated.html -w '%{http_code}' "$BASE/api/auth/owner/activate" \
+            -H 'Origin: null' \
+            -H 'Sec-Fetch-Site: cross-site' \
+            --data-urlencode "token=$TOKEN" --data-urlencode "password=$PASSWORD")"
+          echo "iOS opaque-origin owner activation HTTP: $STATUS"
+          if [ "$STATUS" != '200' ]; then head -c 2000 /tmp/chavea-owner-activated.html; exit 1; fi
+          grep -q 'Conta proprietária ativada' /tmp/chavea-owner-activated.html
+          STATUS="$(curl -sS -o /tmp/chavea-owner-replayed.html -w '%{http_code}' "$BASE/api/auth/owner/activate" \
+            -H 'Origin: null' \
+            --data-urlencode "token=$TOKEN" --data-urlencode "password=$PASSWORD")"
+          echo "Owner challenge replay HTTP: $STATUS"
+          test "$STATUS" = '410'
+          STATUS="$(curl -sS -o /tmp/chavea-owner-login.json -c /tmp/chavea-owner-cookies -w '%{http_code}' "$BASE/api/auth/login" \
+            -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' \
+            --data "{\"email\":\"owner-smoke@example.invalid\",\"password\":\"$PASSWORD\"}")"
+          echo "Activated owner login HTTP: $STATUS"
+          if [ "$STATUS" != '200' ]; then head -c 1000 /tmp/chavea-owner-login.json; exit 1; fi
+          grep -q '"role":"ADMIN"' /tmp/chavea-owner-login.json
+          STATUS="$(curl -sS -o /tmp/chavea-owner-overview.json -b /tmp/chavea-owner-cookies -w '%{http_code}' "$BASE/api/admin/overview")"
+          echo "Verified admin overview HTTP: $STATUS"
+          if [ "$STATUS" != '200' ]; then head -c 1000 /tmp/chavea-owner-overview.json; exit 1; fi
+          echo "CHAVEA_OWNER_FULL_ACTIVATION_SMOKE=PASS"
+      - name: Clean temporary credentials
+        if: always()
+        run: rm -rf /tmp/chavea-owner-d1 /tmp/chavea-owner-smoke.sql /tmp/chavea-owner-smoke.token /tmp/chavea-owner-cookies

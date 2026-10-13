@@ -1,0 +1,75 @@
+name: Prepare CHAVEA Owner Activation Challenge (one-time staging)
+on:
+  push:
+    branches: ['feat/cloudflare-d1-migration']
+    paths: ['.github/workflows/prepare-chavea-owner-activation.yml']
+permissions:
+  contents: read
+concurrency:
+  group: chavea-owner-activation-seed
+  cancel-in-progress: false
+jobs:
+  issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: Prepare D1 staging credentials and one-time challenge hash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          if (!token || !/^[a-f0-9]{32}$/i.test(account || '')) throw Error('Cloudflare secrets unavailable');
+          const response = await fetch(
+            'https://api.cloudflare.com/client/v4/accounts/' + account + '/d1/database?per_page=100',
+            { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(15000) },
+          );
+          const result = await response.json();
+          if (!response.ok || !result.success) throw Error('Cloudflare D1 permission rejected');
+          const database = result.result?.find(row => row.name === 'chavea-staging');
+          if (!/^[a-f0-9-]{36}$/i.test(database?.uuid || '')) throw Error('D1 staging database not found');
+          const hash = '1e879697b1d55df4e98ee239021ec5792e5a7228251b3198eff4a7f0f43f51db';
+          if (!/^[a-f0-9]{64}$/.test(hash)) throw Error('Invalid challenge hash');
+          const now = new Date().toISOString();
+          const userId = crypto.randomUUID();
+          const accountId = crypto.randomUUID();
+          const q = value => "'" + String(value).replaceAll("'", "''") + "'";
+          const sql = [
+            'INSERT INTO "User" ("id","name","email","role","isActive","createdAt","updatedAt") VALUES (' +
+              [userId, 'Sandoval', 'sandovaloliveira284@gmail.com','USER',0,now,now].map(q).join(',') + ');',
+            'INSERT INTO "UserProfile" ("userId","createdAt","updatedAt") VALUES (' +
+              [userId,now,now].map(q).join(',') + ');',
+            'INSERT INTO "AuthAccount" ("id","userId","provider","providerAccountId","createdAt") VALUES (' +
+              [accountId,userId,'owner-email-challenge',hash,now].map(q).join(',') + ');',
+          ].join('\n') + '\n';
+          fs.writeFileSync('/tmp/chavea-owner-staging.sql', sql, { mode: 0o600 });
+          fs.writeFileSync('apps/api/wrangler.owner.challenge.generated.toml', [
+            'name = "chavea-owner-challenge-setup"',
+            'main = "src/d1/index.ts"',
+            'compatibility_date = "2026-09-08"',
+            'compatibility_flags = ["nodejs_compat"]',
+            '[[d1_databases]]',
+            'binding = "DB"',
+            'database_name = "chavea-staging"',
+            'database_id = "' + database.uuid + '"',
+          ].join('\n'), { mode: 0o600 });
+          console.log('One-time owner activation challenge prepared for D1 staging');
+          NODE
+      - name: Save pending owner (USER, disabled, no password, no verified email)
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute chavea-staging --remote --config wrangler.owner.challenge.generated.toml --file /tmp/chavea-owner-staging.sql
+          echo 'OWNER_CHALLENGE_DATABASE_INSERT=SUCCESS'
+      - name: Remove local challenge setup files
+        if: always()
+        run: rm -f /tmp/chavea-owner-staging.sql apps/api/wrangler.owner.challenge.generated.toml

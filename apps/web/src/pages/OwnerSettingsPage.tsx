@@ -6,6 +6,9 @@ import {
   ImagePlus,
   Settings2,
   ShieldCheck,
+  Users,
+  Trophy,
+  Swords,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -16,9 +19,9 @@ import { bulkImportCards, type CardBulkImportResult } from '../lib/admin-cards-a
 import { useAuth } from '../hooks/useAuth';
 import {
   ApiError,
+  apiRequest,
   deleteOwnerDefaultShield,
   getOwnerDefaultShields,
-  PLATFORM_OWNER_EMAIL,
   updateOwnerDefaultShield,
   uploadOwnerDefaultShield,
 } from '../lib/api';
@@ -30,7 +33,34 @@ export function OwnerSettingsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [cardImportResult, setCardImportResult] = useState<CardBulkImportResult | null>(null);
-  const isAdmin = auth.user?.role === 'ADMIN' || auth.user?.email?.trim().toLowerCase() === PLATFORM_OWNER_EMAIL;
+  // Display privileges only after the API confirms ADMIN role; an arbitrary
+  // unverified e-mail string must never unlock owner controls.
+  const isAdmin = auth.isSessionVerified && auth.user?.role === 'ADMIN';
+
+  // Management endpoints are enforced server-side by the verified owner
+  // session, never by the e-mail string stored in the browser.
+  const overview = useQuery({
+    queryKey: ['owner', 'overview'],
+    queryFn: () => apiRequest<{ users: number; competitions: number; matches: number }>(
+      '/api/admin/overview',
+    ),
+    enabled: isAdmin,
+  });
+  const managedUsers = useQuery({
+    queryKey: ['owner', 'users'],
+    queryFn: () => apiRequest<{
+      users: Array<{ id: string; name: string; email: string | null; role: string; isActive: boolean; }>;
+    }>('/api/admin/users'),
+    enabled: isAdmin,
+  });
+  const setUserStatus = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiRequest<{ id: string; isActive: boolean }>('/api/admin/users/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'users'] }),
+  });
 
   const shields = useQuery({
     queryKey: ['owner', 'default-shields'],
@@ -111,6 +141,52 @@ export function OwnerSettingsPage() {
           </div>
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-50 text-[#073B8C]"><Settings2 className="h-5 w-5" /></span>
         </header>
+
+        <section className="mt-5 rounded-3xl border border-blue-100 bg-blue-50/50 p-4">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="h-6 w-6 text-[#073B8C]" />
+            <div>
+              <h2 className="text-lg font-black">Visão geral do administrador</h2>
+              <p className="text-xs text-slate-500">Dados protegidos por sessão e permissões no servidor.</p>
+            </div>
+          </div>
+          {overview.isError && <p className="mt-3 text-sm font-bold text-red-700">Não foi possível consultar as estatísticas.</p>}
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {([
+              { label: 'Usuários', icon: Users, value: overview.data?.users },
+              { label: 'Campeonatos', icon: Trophy, value: overview.data?.competitions },
+              { label: 'Partidas', icon: Swords, value: overview.data?.matches },
+            ] as const).map(metric => <div key={metric.label} className="rounded-2xl bg-white p-3 text-center shadow-sm">
+              <metric.icon className="mx-auto h-5 w-5 text-[#073B8C]" />
+              <p className="mt-1 text-xl font-black tabular-nums">{metric.value ?? '—'}</p>
+              <p className="text-[10px] font-semibold text-slate-500">{metric.label}</p>
+            </div>)}
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-black">Gerenciar usuários</h2>
+            <span className="text-xs font-bold text-slate-500">Até 30 por página</span>
+          </div>
+          {managedUsers.isLoading && <p className="mt-3 text-sm text-slate-500">Carregando usuários…</p>}
+          {managedUsers.isError && <p className="mt-3 text-sm font-semibold text-red-700">Falha ao carregar os usuários.</p>}
+          <div className="mt-3 grid gap-2">
+            {managedUsers.data?.users.map(user => <div key={user.id} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black">{user.name}</p>
+                <p className="truncate text-xs text-slate-500">{user.email ?? 'Conta por telefone'}</p>
+                <p className="text-[10px] font-semibold text-slate-500">{user.role === 'ADMIN' ? 'Administrador' : user.isActive ? 'Ativo' : 'Suspenso'}</p>
+              </div>
+              {user.role !== 'ADMIN' && <button type="button" disabled={setUserStatus.isPending}
+                onClick={() => setUserStatus.mutate({ id: user.id, isActive: !user.isActive })}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-[#073B8C] disabled:opacity-50">
+                {user.isActive ? 'Suspender' : 'Reativar'}
+              </button>}
+            </div>)}
+          </div>
+          {setUserStatus.isError && <p className="mt-3 text-xs font-bold text-red-700">Falha ao atualizar o usuário.</p>}
+        </section>
 
         <section className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-md shadow-slate-200/60">
           <div className="flex items-start gap-3">
