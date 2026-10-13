@@ -53,7 +53,12 @@ jobs:
           if (!db || !/^[a-f0-9-]{36}$/i.test(db.uuid || '')) {
             throw Error('Expected CHAVEA staging D1 is missing');
           }
-          const key = crypto.randomBytes(32).toString('hex');
+          // Stable HMAC-derived staging key avoids edge propagation races
+          // when multiple Worker versions are briefly active. The Cloudflare
+          // API token is already a high-entropy GitHub Actions secret.
+          const key = crypto.createHmac('sha256', token)
+            .update('chavea-d1-staging-access:v1:' + account)
+            .digest('hex');
           fs.writeFileSync('/tmp/chavea-staging-key', key, { mode: 0o600 });
           console.log('::add-mask::' + key);
           const config = [
