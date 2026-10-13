@@ -45,6 +45,12 @@ jobs:
           console.log('VERIFIED_CHAVEA_OWNER='+String(count===1));
           if (count!==1) throw Error('Owner D1 record is not ready; refusing deploy');
           NODE
+      - name: Repair legacy D1 JSON fields (non-destructive, idempotent)
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute chavea-staging --remote --file ../../prisma/d1/migrations/0002_repair_json_defaults.sql
+          echo 'D1_PROFILE_JSON_REPAIR_APPLIED=true'
       - name: Publish CHAVEA Hono API with D1 and R2
         working-directory: apps/api
         run: npx wrangler deploy --config wrangler.toml
