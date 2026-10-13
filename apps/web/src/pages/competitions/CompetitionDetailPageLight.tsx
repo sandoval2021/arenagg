@@ -209,7 +209,7 @@ export function CompetitionDetailPageLight() {
                   <div className="relative"><p className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-[#073B8C]"><Crown className="h-4 w-4" /> Você é o Host</p><h2 className="mt-2 text-2xl font-black">Monte o lobby e dê o start quando quiser.</h2><p className="mt-2 max-w-xl text-sm font-medium leading-6 text-slate-600">Entrar na copa nunca dispara o sorteio. As partidas só são criadas quando você tocar no botão de início.</p><button disabled={isFull} onClick={copyInvite} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#073B8C] px-4 font-black text-white shadow-md transition active:scale-[.99] disabled:bg-slate-300 disabled:text-slate-600">{isFull ? <LockKeyhole className="h-5 w-5" /> : copied ? <Check className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}{isFull ? 'Limite de jogadores atingido' : copied ? 'Link copiado! ✅' : '🔗 Convidar Amigos'}</button></div>
                 </section>
               )}
-              <Lobby competitionId={data.id} participants={data.participations} hostId={data.hostId} maxParticipants={data.maxParticipants} isHost={data.isHost} />
+              <Lobby competitionId={data.id} participants={data.participations} hostId={data.hostId} currentUserId={data.currentUserId} maxParticipants={data.maxParticipants} isHost={data.isHost} />
             </div>
 
             <div className="space-y-5">
@@ -274,7 +274,7 @@ export function CompetitionDetailPageLight() {
   );
 }
 
-function Lobby({ competitionId, participants, hostId, maxParticipants, isHost }: { competitionId: string; participants: Participation[]; hostId: string; maxParticipants: number; isHost: boolean }) {
+function Lobby({ competitionId, participants, hostId, currentUserId, maxParticipants, isHost }: { competitionId: string; participants: Participation[]; hostId: string; currentUserId: string; maxParticipants: number; isHost: boolean }) {
   const queryClient = useQueryClient();
   const remove = useMutation({
     mutationFn: (participationId: string) => removeCompetitionParticipant(competitionId, participationId),
@@ -327,10 +327,10 @@ function Lobby({ competitionId, participants, hostId, maxParticipants, isHost }:
           return (
             <div key={participant.id} className="flex items-stretch gap-2">
               <Link
-                to={`/profile/${encodeURIComponent(participant.userId)}`}
-                onPointerEnter={() => prefetchProfile(participant.userId)}
-                onFocus={() => prefetchProfile(participant.userId)}
-                onTouchStart={() => prefetchProfile(participant.userId)}
+                to={participant.userId === currentUserId ? '/profile' : `/profile/${encodeURIComponent(participant.userId)}`}
+                onPointerEnter={() => { if (participant.userId !== currentUserId) prefetchProfile(participant.userId); }}
+                onFocus={() => { if (participant.userId !== currentUserId) prefetchProfile(participant.userId); }}
+                onTouchStart={() => { if (participant.userId !== currentUserId) prefetchProfile(participant.userId); }}
                 className="group flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-blue-200 hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[.99]"
                 aria-label={`Abrir perfil de ${participant.user.displayName ?? participant.user.name}`}
               >
