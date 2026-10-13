@@ -48,7 +48,7 @@ jobs:
           const db=body.result.find(d=>d.name==='chavea-staging');
           if (!/^[a-f0-9-]{36}$/i.test(db?.uuid||'')) throw Error('Owner D1 database not found');
           for(const [name,origin] of [
-            ['chavea-d1-canary','https://d1-preview.chavea.pages.dev'],
+            ['chavea-d1-staging','https://d1-preview.chavea.pages.dev'],
             ['arenagg-api','https://chavea.pages.dev'],
           ]){
             const lines=[
@@ -83,11 +83,11 @@ jobs:
           NODE
       - name: Publish separate D1 canary Worker (no production changes)
         working-directory: apps/api
-        run: npx wrangler deploy --config wrangler.d1.chavea-d1-canary.generated.toml
+        run: npx wrangler deploy --config wrangler.d1.chavea-d1-staging.generated.toml
       - name: Smoke test remote D1 canary API and competition
         run: |
           set -euo pipefail
-          BASE='https://chavea-d1-canary.sandovaloliveira284.workers.dev'
+          BASE='https://chavea-d1-staging.sandovaloliveira284.workers.dev'
           for attempt in $(seq 1 35); do
             CODE="$(curl --silent --max-time 8 -o /tmp/canary-health.json -w '%{http_code}' "$BASE/api/health/db" || true)"
             if [ "$CODE" = '200' ] && grep -q '"d1"' /tmp/canary-health.json; then break; fi
@@ -119,7 +119,7 @@ jobs:
         working-directory: apps/web
         run: |
           set -euo pipefail
-          sed -i 's@https://arenagg-api.sandovaloliveira284.workers.dev@https://chavea-d1-canary.sandovaloliveira284.workers.dev@g' 'functions/api/[[path]].ts'
+          sed -i 's@https://arenagg-api.sandovaloliveira284.workers.dev@https://chavea-d1-staging.sandovaloliveira284.workers.dev@g' 'functions/api/[[path]].ts'
           npx wrangler pages deploy dist --project-name=chavea --branch=d1-preview
       - name: Verify real first-party auth with Cloudflare Pages preview
         run: |
