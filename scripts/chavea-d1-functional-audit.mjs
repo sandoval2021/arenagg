@@ -62,6 +62,12 @@ async function main() {
     await request('Public profile self ' + a.name, '/api/profile/' + a.id, { actor:a });
     await request('Ranking ' + a.name, '/api/ranking', { actor:a });
     await request('Own album ' + a.name, '/api/album', { actor:a });
+    await request('Album empty pack guard ' + a.name, '/api/album/open-pack', {
+      actor:a, method:'POST', body:{packType:'COMMON'},expected:[409],
+    });
+    await request('Update own profile ' + a.name, '/api/profile/me', {
+      actor:a, method:'PATCH', body:{displayName:a.name+' Updated',consoles:['PS5']},expected:[200],
+    });
     await request('Own friends ' + a.name, '/api/friends', { actor:a });
     await request('Friend requests ' + a.name, '/api/friends/requests', { actor:a });
     await request('Friendly LFG availability ' + a.name, '/api/matchmaking/availability', { actor:a });
@@ -85,13 +91,36 @@ async function main() {
   await request('Guest cannot join twice (idempotent)', '/api/competitions/'+cupId+'/join', {actor:guest, method:'POST', expected:[200]});
   await request('Host sees two players', '/api/competitions/'+cupId, {actor:host});
   await request('Guest reads joined cup', '/api/competitions/'+cupId, {actor:guest});
+  await request('Guest configures team', '/api/competitions/'+cupId+'/my-team', {
+    actor:guest,method:'PATCH',body:{teamName:'Team Guest Audit'},expected:[200],
+  });
+  await request('Host reads competition chat', '/api/competitions/'+cupId+'/chat', {actor:host});
+  await request('Guest posts competition chat', '/api/competitions/'+cupId+'/chat', {
+    actor:guest,method:'POST',body:{body:'Boa sorte, vamos jogar!'},expected:[200,201],
+  });
   await request('Guest cannot start cup', '/api/competitions/'+cupId+'/start', {actor:guest, method:'POST', expected:[403]});
   await request('Host starts cup', '/api/competitions/'+cupId+'/start', {actor:host, method:'POST', expected:[200]});
-  await request('Host reads matches', '/api/competitions/'+cupId+'/matches', {actor:host});
+  const cupMatches = await request('Host reads matches', '/api/competitions/'+cupId+'/matches', {actor:host});
+  const matchId=cupMatches.data?.items?.[0]?.id;
+  const matchVersion=cupMatches.data?.items?.[0]?.version;
+  if (matchId) {
+    await request('Player match checkin', '/api/matches/'+matchId+'/ready', {actor:host,method:'POST',expected:[200]});
+    await request('Match score submission', '/api/matches/'+matchId+'/score', {
+      actor:host,method:'POST',
+      body:{homeScore:3,awayScore:1,version:matchVersion},expected:[200,201],
+    });
+  } else note('Start created real match', [1],0,'NO_MATCH_RETURNED');
   await request('Host reads standings', '/api/competitions/'+cupId+'/standings', {actor:host});
   await request('Host sees cup feed', '/api/competitions/'+cupId+'/feed', {actor:host});
   await request('Friend request', '/api/friends/request', {actor:host,method:'POST',body:{friendId:guest.id},expected:[200,201]});
-  await request('Guest sees friend request', '/api/friends/requests', {actor:guest});
+  const incoming = await request('Guest sees friend request', '/api/friends/requests', {actor:guest});
+  const invitationId = incoming.data?.[0]?.friendshipId;
+  if(invitationId) {
+    await request('Guest accepts friendship', '/api/friends/'+invitationId+'/accept', {
+      actor:guest,method:'POST',expected:[200],
+    });
+    await request('Host sees accepted friend', '/api/friends', {actor:host});
+  } else note('Friend request visible', [1],0,'NO_FRIEND_REQUEST');
   await request('Friend list', '/api/friends', {actor:host});
   await request('Unknown player is 404', '/api/profile/'+randomUUID(), {actor:host,expected:[404]});
   await request('Password rejected', '/api/auth/login', { method:'POST',body:{email:host.email,password:'Incorrect2026!!'},expected:[401]});
