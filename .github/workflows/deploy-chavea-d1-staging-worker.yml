@@ -91,7 +91,11 @@ jobs:
           test "$HTTP" = '403'
           HTTP="$(curl -sS -o /tmp/chavea-d1-health.json -w '%{http_code}' -H "$HEADER" "$BASE/api/health/db")"
           echo "Remote D1 health HTTP: $HTTP"
-          test "$HTTP" = '200'
+          if [ "$HTTP" != '200' ]; then
+            echo 'Remote health response body (no credentials):'
+            head -c 2000 /tmp/chavea-d1-health.json
+            exit 1
+          fi
           EMAIL="chavea-staging-$(date +%s)@example.invalid"
           BODY="{\"name\":\"Chavea Staging Test\",\"email\":\"$EMAIL\",\"password\":\"ChaveaSmokeStrong!2026\"}"
           HTTP="$(curl -sS -o /tmp/chavea-d1-register.json -D /tmp/chavea-d1-register.headers -c /tmp/chavea-d1-cookie.txt -w '%{http_code}' "$BASE/api/auth/register" -H "$HEADER" -H 'Origin: https://chavea.pages.dev' -H 'Content-Type: application/json' -X POST --data "$BODY")"
