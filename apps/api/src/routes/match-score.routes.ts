@@ -15,6 +15,7 @@ import { awardBadgeCodes } from '../services/achievement-engine.service';
 import { replaceMatchScorers } from '../services/match-scorers.service';
 import { detectClipPlatform } from './match-media.routes';
 import { submitMatchScoreD1 } from '../d1/match-score';
+import { grantBadgesD1 } from '../d1/badges';
 
 export const matchScore = new Hono<Env>();
 
@@ -98,6 +99,26 @@ matchScore.post('/:id/score', async (c) => {
 
     if(c.env.DB) {
       const result=await submitMatchScoreD1(c.env.DB,db,match,parsed.data,user.id,next,evidenceKey);
+      if(result.status===200 && next==='FINISHED' && match.homeTeam && match.awayTeam){
+        const homeUserId=match.homeTeam.participation.userId;
+        const awayUserId=match.awayTeam.participation.userId;
+        const homeWin=parsed.data.homeScore>parsed.data.awayScore;
+        const awayWin=parsed.data.homeScore<parsed.data.awayScore;
+        const base=[BADGE_CODES.FIRST_MATCH];
+        await Promise.allSettled([
+          grantBadgesD1(c.env.DB,homeUserId,[
+            ...base,...(parsed.data.homeScore>0?[BADGE_CODES.FIRST_GOAL]:[]),
+            ...(homeWin?[BADGE_CODES.FIRST_WIN]:[]),
+          ]),
+          grantBadgesD1(c.env.DB,awayUserId,[
+            ...base,...(parsed.data.awayScore>0?[BADGE_CODES.FIRST_GOAL]:[]),
+            ...(awayWin?[BADGE_CODES.FIRST_WIN]:[]),
+          ]),
+        ]);
+        if(parsed.data.clipUrl){
+          await grantBadgesD1(c.env.DB,user.id,[BADGE_CODES.FIRST_CLIP]).catch(()=>undefined);
+        }
+      }
       return c.json(result.body,result.status);
     }
 
