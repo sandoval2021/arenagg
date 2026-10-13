@@ -9,6 +9,7 @@ type GoogleEnv = {
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;
     GOOGLE_REDIRECT_URI?: string;
+    OWNER_EMAIL?: string;
   };
 };
 
@@ -83,6 +84,10 @@ googleOAuthRoutes.get('/google/callback', async c => {
   }
   const email = profile.email.trim().toLowerCase();
   const googleId = profile.sub;
+  // Only Google's verified identity may claim the owner e-mail. Merely
+  // supplying an address in the unverified signup form never grants ADMIN.
+  const verifiedOwner = Boolean(c.env.OWNER_EMAIL) &&
+    email === c.env.OWNER_EMAIL!.trim().toLowerCase();
   const db = c.env.DB;
   let user = await db.prepare(`
     SELECT u."id" AS "id", u."isActive" AS "isActive" FROM "AuthAccount" a
@@ -104,9 +109,9 @@ googleOAuthRoutes.get('/google/callback', async c => {
       await db.batch([
         db.prepare(`INSERT INTO "User"
           ("id","name","displayName","avatarUrl","email","emailVerified","role","isActive","createdAt","updatedAt")
-          VALUES (?1,?2,NULL,?3,?4,?5,'USER',1,?6,?7)`)
+          VALUES (?1,?2,NULL,?3,?4,?5,?6,1,?7,?8)`)
           .bind(id, (profile.name || email.split('@')[0]).slice(0, 80), profile.picture || null, email,
-            now, now, now),
+            now, verifiedOwner ? 'ADMIN' : 'USER', now, now),
         db.prepare(`INSERT INTO "UserProfile" ("userId","createdAt","updatedAt")
           VALUES (?1,?2,?3)`).bind(id, now, now),
         db.prepare(`INSERT INTO "AuthAccount" ("id","userId","provider","providerAccountId","createdAt")
