@@ -7,6 +7,8 @@ import {
   uploadShield,
 } from '../services/shield-storage.service';
 import { reconcileRareAchievements } from '../services/achievement-reconciliation.service';
+import { grantBadgesD1 } from '../d1/badges';
+import { BADGE_CODES, loyaltyBadges, type BadgeCode } from '../domain/achievements/badges';
 
 export const profile = new Hono<Env>();
 
@@ -55,7 +57,28 @@ function badgeSelect() {
 profile.get('/me', async (c) => {
   const db = c.get('prisma');
   const sessionUser = c.get('user');
-  await reconcileRareAchievements(db, sessionUser.id);
+  if (c.env.DB) {
+    const [account, hosted, friendsCount, teams, clips] = await Promise.all([
+      db.user.findUnique({where:{id:sessionUser.id},select:{createdAt:true}}),
+      db.competition.count({where:{hostId:sessionUser.id}}),
+      db.friendship.count({where:{status:'ACCEPTED',OR:[
+        {requesterId:sessionUser.id},{addresseeId:sessionUser.id},
+      ]}}),
+      db.team.count({where:{createdById:sessionUser.id}}),
+      db.matchMedia.count({where:{createdById:sessionUser.id}}),
+    ]);
+    const codes:BadgeCode[]=[];
+    if(account) codes.push(...loyaltyBadges(account.createdAt));
+    if(hosted>=1) codes.push(BADGE_CODES.FIRST_HOST);
+    if(hosted>=5) codes.push(BADGE_CODES.HOST_ELITE_5);
+    if(friendsCount>=1) codes.push(BADGE_CODES.ADD_FRIEND);
+    if(friendsCount>=10) codes.push(BADGE_CODES.SOCIAL_STAR_10);
+    if(teams>=1) codes.push(BADGE_CODES.CREATE_TEAM);
+    if(clips>=1) codes.push(BADGE_CODES.FIRST_CLIP);
+    if(codes.length) await grantBadgesD1(c.env.DB,sessionUser.id,codes);
+  } else {
+    await reconcileRareAchievements(db, sessionUser.id);
+  }
 
   const [user, stats] = await Promise.all([
     db.user.findUniqueOrThrow({
