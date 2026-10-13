@@ -6,6 +6,8 @@ on:
       - '.github/workflows/audit-chavea-d1-full.yml'
       - 'scripts/chavea-d1-functional-audit.mjs'
       - 'apps/api/src/**'
+      - 'apps/web/src/**'
+      - 'apps/web/vite.config.ts'
       - 'prisma/d1/**'
   workflow_dispatch:
 permissions:
